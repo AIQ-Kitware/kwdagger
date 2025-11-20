@@ -6,16 +6,15 @@ The kwdagger Module
 |Pypi| |PypiDownloads| |ReadTheDocs| |GitlabCIPipeline| |GitlabCICoverage|
 
 
-
-+-----------------+-------------------------------------------+
-| Read the Docs   | http://kwdagger.readthedocs.io/en/latest/ |
-+-----------------+-------------------------------------------+
-| Gitlab (main)   |                                           |
-+-----------------+-------------------------------------------+
-| Github (mirror) | https://github.com/Kitware/kwdagger       |
-+-----------------+-------------------------------------------+
-| Pypi            | https://pypi.org/project/kwdagger         |
-+-----------------+-------------------------------------------+
++-----------------+-----------------------------------------------------+
+| Read the Docs   | http://kwdagger.readthedocs.io/en/latest/           |
++-----------------+-----------------------------------------------------+
+| Gitlab (main)   | https://gitlab.kitware.com/computer-vision/kwdagger |
++-----------------+-----------------------------------------------------+
+| Github (mirror) | https://github.com/Kitware/kwdagger                 |
++-----------------+-----------------------------------------------------+
+| Pypi            | https://pypi.org/project/kwdagger                   |
++-----------------+-----------------------------------------------------+
 
 KWDagger is a tool for defining bash pipelines and running them over a grid of
 parameters. It builds heavilly on top of `cmd_queue <https://gitlab.kitware.com/computer-vision/cmd_queue>`_.
