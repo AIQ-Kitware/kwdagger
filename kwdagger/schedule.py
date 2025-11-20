@@ -24,8 +24,6 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
     Builds commands and optionally executes them via slurm, tmux, or serial
     (i.e. one at a time). This is a [link=https://gitlab.kitware.com/computer-vision/cmd_queue]cmd_queue[/link] CLI.
     """
-    __command__ = 'schedule'
-
     params = scfg.Value(None, type=str, help='a yaml/json grid/matrix of prediction params')
 
     devices = scfg.Value(None, help=(
@@ -77,13 +75,9 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
             GPUS = None if devices is None else ensure_iterable(devices)
         self.devices = GPUS
 
-
-def main(cmdline=True, **kwargs):
-    config = ScheduleEvaluationConfig.cli(cmdline=cmdline, data=kwargs, strict=True)
-    import rich
-    from rich.markup import escape
-    rich.print('ScheduleEvaluationConfig config = {}'.format(escape(ub.urepr(config, nl=1, sv=1))))
-    build_schedule(config)
+    def main(argv=True, **kwargs):
+        config = ScheduleEvaluationConfig.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
+        build_schedule(config)
 
 
 def build_schedule(config):
@@ -220,8 +214,7 @@ def _auto_gpus():
 
 
 __cli__ = ScheduleEvaluationConfig
-__cli__.main = main
 
 
 if __name__ == '__main__':
-    main()
+    __cli__.main()

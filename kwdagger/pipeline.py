@@ -2215,11 +2215,12 @@ def _experimental_resolve_pipeline(pipeline):
     (similar to how kwiver pipelines work). This is initial support.
 
     Ignore:
+        from kwdagger.pipeline import *  # NOQA
+        from kwdagger.pipeline import _experimental_resolve_pipeline
         pipeline = 'user_module.pipelines.custom_pipeline_func()'
-        pipeline = 'kwdagger.smart_pipeline.make_smart_pipeline("bas")'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
-        pipeline = '/home/joncrall/code/kwdagger/kwdagger/smart_pipeline.py::make_smart_pipeline("bas")'
+        pipeline = 'example_user_module.pipelines.my_demo_pipeline()'
         _experimental_resolve_pipeline(pipeline)
     """
     # Case: given in the format `{module_name}.{attribute_expression}`
@@ -2238,8 +2239,10 @@ def _experimental_resolve_pipeline(pipeline):
         found = None
         for idx in reversed(range(1, len(parts) + 1)):
             candidate = '.'.join(parts[:idx])
+            print(f'candidate={candidate}')
             try:
                 modpath = _coerce_modpath(candidate)
+                print(f'modpath={modpath}')
             except ValueError:
                 ...
             else:
@@ -2257,7 +2260,14 @@ def _experimental_resolve_pipeline(pipeline):
             (module, modpath, lhs, rhs) = found
             limited_namespace = {'pipeline_module': module}
             statement = f'pipeline_module.{rhs}'
-            dag = eval(statement, limited_namespace)
+            try:
+                dag = eval(statement, limited_namespace)
+            except Exception:
+                print(f'Input: pipeline={pipeline}')
+                print(f'modpath={modpath}')
+                print(f'module = {ub.urepr(module, nl=1)}')
+                print(f'Error with: statement={statement}')
+                raise
             return dag
     else:
         raise ValueError(pipeline)

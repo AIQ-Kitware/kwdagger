@@ -151,19 +151,6 @@ def parse_resource_item(item, arg_prefix='', add_prefix=True):
     return resources
 
 
-def find_info_items(info, query_type, query_name=None):
-    from kwutil import util_pattern
-    if query_name is None:
-        query_name = '*'
-    query_name_pattern = util_pattern.MultiPattern.coerce(query_name)
-    query_type_pattern = util_pattern.MultiPattern.coerce(query_type)
-    for item in info:
-        if query_type_pattern.match(item['type']):
-            name = item['properties']['name']
-            if query_name_pattern.match(name):
-                yield item
-
-
 # @ub.memoize
 def _load_json(fpath):
     # memo hack for development
