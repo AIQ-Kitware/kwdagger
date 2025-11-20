@@ -414,6 +414,33 @@ def out_node_matching_fpaths(out_node):
     return fpaths
 
 
+def new_process_context_parser(proc_item):
+    """
+    Load parameters out of data saved by a ProcessContext object
+    """
+    from kwdagger import result_parser
+    proc_item = result_parser._handle_process_item(proc_item)
+    props = proc_item['properties']
+
+    # Node-specific hacks
+    params = props['config']
+    resources = result_parser.parse_resource_item(proc_item, add_prefix=False)
+
+    output = {
+        # TODO: better name for this
+        'context': {
+            'task': props['name'],
+            'uuid': props.get('uuid', None),
+            'start_timestamp': props.get('start_timestamp', None),
+            'stop_timestamp': props.get('stop_timestamp', props.get('end_timestamp', None)),
+        },
+        'resolved_params': params,
+        'resources': resources,
+        'machine': props.get('machine', {}),
+    }
+    return output
+
+
 if 1:
     import numpy as np
     if np.bool_ is not bool:
