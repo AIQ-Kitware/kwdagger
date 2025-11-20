@@ -17,7 +17,7 @@ Example:
 
     # Dummy inputs, just for demonstration
 
-    python -m kwdagger.mlops.schedule_evaluation \
+    python -m kwdagger.schedule \
         --params="
             matrix:
                 bas_pxl.package_fpath:
@@ -56,7 +56,7 @@ Example:
         --pipeline=joint_bas_sc \
         --run=0
 
-    python -m kwdagger.mlops.schedule_evaluation \
+    python -m kwdagger.schedule \
         --params="
             matrix:
                 bas_pxl.package_fpath:
@@ -90,7 +90,7 @@ Example:
     SC_MODEL=$DVC_EXPT_DPATH/models/fusion/Drop4-SC/packages/Drop4_tune_V30_8GSD_V3/Drop4_tune_V30_8GSD_V3_epoch=2-step=17334.pt.pt
     BAS_MODEL=$DVC_EXPT_DPATH/models/fusion/Drop4-BAS/packages/Drop4_TuneV323_BAS_30GSD_BGRNSH_V2/package_epoch0_step41.pt.pt
 
-    python -m kwdagger.mlops.schedule_evaluation \
+    python -m kwdagger.schedule \
         --params="
             matrix:
                 bas_pxl.package_fpath:
@@ -130,7 +130,7 @@ Example:
     DVC_DATA_DPATH=$(kwdagger_dvc --tags='phase2_data' --hardware=auto)
     DVC_EXPT_DPATH=$(kwdagger_dvc --tags='phase2_expt' --hardware=auto)
 
-    python -m kwdagger.mlops.schedule_evaluation \
+    python -m kwdagger.schedule \
         --params="
             matrix:
                 bas_pxl.package_fpath:
@@ -263,10 +263,10 @@ def main(cmdline=True, **kwargs):
     import rich
     from rich.markup import escape
     rich.print('ScheduleEvaluationConfig config = {}'.format(escape(ub.urepr(config, nl=1, sv=1))))
-    schedule_evaluation(config)
+    build_schedule(config)
 
 
-def schedule_evaluation(config):
+def build_schedule(config):
     r"""
     First ensure that models have been copied to the DVC repo in the
     appropriate path. (as noted by model_dpath)
@@ -277,7 +277,7 @@ def schedule_evaluation(config):
     from kwutil import slugify_ext
     from kwutil import util_progress
     from kwutil.util_yaml import Yaml
-    from kwdagger.mlops import pipeline_nodes
+    from kwdagger.pipeline import coerce_pipeline
     from kwdagger.utils.result_analysis import varied_values
     from kwdagger.utils.util_param_grid import expand_param_grid
 
@@ -331,7 +331,7 @@ def schedule_evaluation(config):
             param_arg['submatrices'] = submatrices
 
     # Load the requested pipeline
-    dag = pipeline_nodes.coerce_pipeline(pipeline)
+    dag = coerce_pipeline(pipeline)
     dag.print_graphs()
     dag.inspect_configurables()
 

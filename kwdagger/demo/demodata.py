@@ -3,7 +3,7 @@ r"""
 This is a self contained file that contains all the necessary bits to define
 and execute a simple mlops pipeline. It is very similar to the tutorial in
 
-../../docs/source/manual/tutorial/examples/mlops/README.rst
+../../docs/source/manual/tutorial/examples/README.rst
 
 
 This pipeline can be run through mlops with the following invocations:
@@ -18,9 +18,9 @@ This pipeline can be run through mlops with the following invocations:
     echo "data2" > input_file2.txt
 
     EVAL_DPATH=$PWD/pipeline_output
-    python -m kwdagger.mlops.schedule_evaluation \
+    python -m kwdagger.schedule \
         --params="
-            pipeline: 'kwdagger.mlops.mlops_demodata.my_demo_pipeline()'
+            pipeline: 'kwdagger.demo.demodata.my_demo_pipeline()'
             matrix:
                 stage1_predict.src_fpath:
                     - input_file1.txt
@@ -39,8 +39,8 @@ This pipeline can be run through mlops with the following invocations:
 
 
     EVAL_DPATH=$PWD/pipeline_output
-    python -m kwdagger.mlops.aggregate \
-        --pipeline='kwdagger.mlops.mlops_demodata.my_demo_pipeline()' \
+    python -m kwdagger.aggregate \
+        --pipeline='kwdagger.demo.demodata.my_demo_pipeline()' \
         --target "
             - $EVAL_DPATH
         " \
@@ -69,11 +69,11 @@ It can also be run within Python because every scriptconfig CLI always has a
 corresponding way to invoke it with a simple python dictionary.
 
 Example:
-    >>> from kwdagger.mlops.mlops_demodata import *  # NOQA
-    >>> from kwdagger.mlops import schedule_evaluation
+    >>> from kwdagger.demo.demodata import *  # NOQA
+    >>> from kwdagger import schedule
     >>> # For this demo we always delete / regenerate for CI coverage
     >>> # For other demos we allow resusing cache
-    >>> eval_dpath = ub.Path.appdir('kwdagger/mlops/demo2/pipeline_output').ensuredir()
+    >>> eval_dpath = ub.Path.appdir('kwdagger/demo2/pipeline_output').ensuredir()
     >>> eval_dpath.delete().ensuredir()
     >>> schedule_config = kwutil.Yaml.coerce(
     ...     r'''
@@ -81,7 +81,7 @@ Example:
     ...     skip_existing: 1
     ...     run: 1
     ...     params:
-    ...         pipeline: 'kwdagger.mlops.mlops_demodata.my_demo_pipeline()'
+    ...         pipeline: 'kwdagger.demo.demodata.my_demo_pipeline()'
     ...         matrix:
     ...             stage1_predict.param1:
     ...                 - 123
@@ -99,13 +99,13 @@ Example:
     >>> fpath2.write_text('data2')
     >>> schedule_config['params']['matrix']['stage1_predict.src_fpath'] = [
     ...     fpath1, fpath2]
-    >>> schedule_evaluation.main(cmdline=False, **schedule_config)
+    >>> schedule.main(cmdline=False, **schedule_config)
     >>> #
     >>> # Also load the results
-    >>> from kwdagger.mlops import aggregate
+    >>> from kwdagger import aggregate
     >>> aggregate_config = kwutil.Yaml.coerce(
     >>>     '''
-    >>>     pipeline: 'kwdagger.mlops.mlops_demodata.my_demo_pipeline()'
+    >>>     pipeline: 'kwdagger.demo.demodata.my_demo_pipeline()'
     >>>     resource_report: 0
     >>>     io_workers: 0
     >>>     eval_nodes:
@@ -127,8 +127,8 @@ Example:
     >>> aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
     >>> aggregate.main(cmdline=False, **aggregate_config)
 """
-from kwdagger.mlops.pipeline_nodes import ProcessNode
-from kwdagger.mlops.pipeline_nodes import PipelineDAG
+from kwdagger.pipeline import ProcessNode
+from kwdagger.pipeline import Pipeline
 import ubelt as ub
 import scriptconfig as scfg
 import kwutil
@@ -260,12 +260,12 @@ __cli__ = DemodataScript
 class Stage1_Predict(ProcessNode):
     """
     Example:
-        >>> from kwdagger.mlops.mlops_demodata import *  # NOQA
+        >>> from kwdagger.demo.demodata import *  # NOQA
         >>> self = Stage1_Predict()
         >>> print(self.command)
     """
     name = 'stage1_predict'
-    executable = 'python -m kwdagger.mlops.mlops_demodata stage1_predict'
+    executable = 'python -m kwdagger.demo.demodata stage1_predict'
 
     in_paths = {
         'src_fpath',
@@ -285,7 +285,7 @@ class Stage1_Predict(ProcessNode):
 
     def load_result(self, node_dpath):
         import json
-        from kwdagger.mlops.aggregate_loader import new_process_context_parser
+        from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         result = json.loads(output_fpath.read_text())
@@ -299,12 +299,12 @@ class Stage1_Predict(ProcessNode):
 class Stage1_Evaluate(ProcessNode):
     """
     Example:
-        >>> from kwdagger.mlops.mlops_demodata import *  # NOQA
+        >>> from kwdagger.demo.demodata import *  # NOQA
         >>> self = Stage1_Evaluate()
         >>> print(self.command)
     """
     name = 'stage1_evaluate'
-    executable = 'python -m kwdagger.mlops.mlops_demodata stage1_evaluate'
+    executable = 'python -m kwdagger.demo.demodata stage1_evaluate'
 
     in_paths = {
         'true_fpath',
@@ -330,7 +330,7 @@ class Stage1_Evaluate(ProcessNode):
             Dict[str, Any]
         """
         import json
-        from kwdagger.mlops.aggregate_loader import new_process_context_parser
+        from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         result = json.loads(output_fpath.read_text())
@@ -377,7 +377,7 @@ class Stage1_Evaluate(ProcessNode):
 def my_demo_pipeline():
     """
     Example:
-        >>> from kwdagger.mlops.mlops_demodata import *  # NOQA
+        >>> from kwdagger.demo.demodata import *  # NOQA
         >>> dag = my_demo_pipeline()
         >>> dag.configure({
         ...     'stage1_predict.src_fpath': 'my-input-path',
@@ -406,30 +406,30 @@ def my_demo_pipeline():
     # Inputs can be connected to other inputs if they are reused.
     nodes['stage1_predict'].inputs['src_fpath'].connect(nodes['stage1_evaluate'].inputs['true_fpath'])
 
-    dag = PipelineDAG(nodes)
+    dag = Pipeline(nodes)
     dag.build_nx_graphs()
     return dag
 
 ### Programatic code to execute the pipeline that can be used in tests
 
 
-def run_demo_schedule_evaluation():
+def run_demo_schedule():
     """
     Example:
-        from kwdagger.mlops.mlops_demodata import run_demo_schedule_evaluation
-        run_demo_schedule_evaluation()
+        from kwdagger.demo.demodata import run_demo_schedule
+        run_demo_schedule()
     """
     # TODO: use these in doctests in a useful way where
     # the doctest has some control
-    from kwdagger.mlops import schedule_evaluation
-    eval_dpath = ub.Path.appdir('kwdagger/mlops/demo1/pipeline_output').ensuredir()
+    from kwdagger import schedule
+    eval_dpath = ub.Path.appdir('kwdagger/demo1/pipeline_output').ensuredir()
     schedule_config = kwutil.Yaml.coerce(
         r'''
         backend: serial
         skip_existing: 1
         run: 1
         params:
-            pipeline: 'kwdagger.mlops.mlops_demodata.my_demo_pipeline()'
+            pipeline: 'kwdagger.demo.demodata.my_demo_pipeline()'
             matrix:
                 stage1_predict.param1:
                     - 123
@@ -445,10 +445,10 @@ def run_demo_schedule_evaluation():
     fpath2.write_text('data2')
     schedule_config['params']['matrix']['stage1_predict.src_fpath'] = [
         fpath1, fpath2]
-    schedule_evaluation.main(cmdline=False, **schedule_config)
+    schedule.main(cmdline=False, **schedule_config)
 
     info = {
-        'pipeline': 'kwdagger.mlops.mlops_demodata.my_demo_pipeline()',
+        'pipeline': 'kwdagger.demo.demodata.my_demo_pipeline()',
         'eval_dpath': eval_dpath,
     }
     return info
@@ -458,11 +458,11 @@ def run_demo_aggregate():
     # TODO: use these in doctests in a useful way where
     # the doctest has some control
     # Also load the results
-    from kwdagger.mlops import aggregate
-    eval_dpath = ub.Path.appdir('kwdagger/mlops/demo1/pipeline_output').ensuredir()
+    from kwdagger import aggregate
+    eval_dpath = ub.Path.appdir('kwdagger/demo1/pipeline_output').ensuredir()
     aggregate_config = kwutil.Yaml.coerce(
         '''
-        pipeline: 'kwdagger.mlops.mlops_demodata.my_demo_pipeline()'
+        pipeline: 'kwdagger.demo.demodata.my_demo_pipeline()'
         resource_report: 0
         io_workers: 0
         eval_nodes:

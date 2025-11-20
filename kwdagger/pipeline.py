@@ -45,7 +45,7 @@ class Pipeline:
     job_config.sh metadata as well as symlinks between node output directories.
 
     Example:
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> node_A1 = ProcessNode(name='node_A1', in_paths={'src'}, out_paths={'dst': 'dst.txt'}, executable='node_A1')
         >>> node_A2 = ProcessNode(name='node_A2', in_paths={'src'}, out_paths={'dst': 'dst.txt'}, executable='node_A2')
         >>> node_A3 = ProcessNode(name='node_A3', in_paths={'src'}, out_paths={'dst': 'dst.txt'}, executable='node_A3')
@@ -182,7 +182,7 @@ class Pipeline:
             it nicer.
 
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> self = Pipeline.demo()
             >>> self.inspect_configurables()
         """
@@ -259,7 +259,7 @@ class Pipeline:
             it. This behavior will change in the future
 
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> self = Pipeline.demo()
             >>> self.configure()
         """
@@ -295,7 +295,7 @@ class Pipeline:
         """
         Draw the networkx process graph, which only shows if there exists
         a connection between processes, and does not show details of which
-        output connects to which input.  See :func:`PipelineDAG.print_io_graph`
+        output connects to which input.  See :func:`Pipeline.print_io_graph`
         for that level of detail.
         """
         import rich
@@ -873,10 +873,10 @@ class ProcessNode(Node):
     class variables.
 
     For examples on how to define a full pipeline see the
-    :doc:`the mlops tutorial <manual/tutorial/examples/mlops/README.rst>
+    :doc:`the mlops tutorial <manual/tutorial/examples/README.rst>
 
     CommandLine:
-        xdoctest -m kwdagger.mlops.pipeline_nodes ProcessNode
+        xdoctest -m kwdagger.pipeline ProcessNode
 
     Notes:
         When a ProcessNode is used for an evaluation node, it can / should be
@@ -926,8 +926,8 @@ class ProcessNode(Node):
         metric results).
 
     Example:
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
-        >>> from kwdagger.mlops.pipeline_nodes import _classvar_init
+        >>> from kwdagger.pipeline import *  # NOQA
+        >>> from kwdagger.pipeline import _classvar_init
         >>> dpath = ub.Path.appdir('kwdagger/tests/pipeline/TestProcessNode')
         >>> dpath.delete().ensuredir()
         >>> pycode = ub.codeblock(
@@ -974,7 +974,7 @@ class ProcessNode(Node):
     Example:
         >>> # How to use a ProcessNode to handle an arbitrary process call
         >>> # First let's write a program to disk
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> import stat
         >>> dpath = ub.Path.appdir('kwdagger/tests/pipeline/TestProcessNode2')
         >>> dpath.delete().ensuredir()
@@ -1199,7 +1199,7 @@ class ProcessNode(Node):
             >>>         print('config = ' + ub.urepr(config, nl=1))
             >>> #
             >>> config_cls = Step1CLI
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> step1 = self = ProcessNode._from_scriptconfig(Step1CLI, executable='python step1.py', name='step1')
             >>> step2 = ProcessNode._from_scriptconfig(Step2CLI, executable='python step2.py', name='step2')
             >>> step1.outputs['dst'].connect(step2.inputs['src'])
@@ -1577,7 +1577,7 @@ class ProcessNode(Node):
     def ancestor_process_nodes(self):
         """
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> pipe = Pipeline.demo()
             >>> self = pipe.node_dict['node_C1']
             >>> ancestors = self.ancestor_process_nodes()
@@ -1747,7 +1747,7 @@ class ProcessNode(Node):
         Generate a bash command that will test if all output paths exist
 
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> self = ProcessNode(out_paths={
             >>>     'foo': 'foo.txt',
             >>>     'bar': 'bar.txt',
@@ -2009,10 +2009,10 @@ def demodata_pipeline():
 
     Example:
         >>> # Self test
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> demodata_pipeline()
     """
-    dpath = ub.Path.appdir('kwdagger/tests/mlops/pipeline').ensuredir()
+    dpath = ub.Path.appdir('kwdagger/tests/pipeline').ensuredir()
     dpath.delete().ensuredir()
     script_dpath = (dpath / 'src').ensuredir()
     inputs_dpath = (dpath / 'inputs').ensuredir()
@@ -2170,7 +2170,7 @@ def demo_pipeline_run():
 
     Example:
         >>> # Self test
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> demo_pipeline_run()
     """
     dag = Pipeline.demo()
@@ -2188,10 +2188,6 @@ def demo_pipeline_run():
     queue.run()
 
 
-# Backwards compat
-PipelineDAG = Pipeline
-
-
 def coerce_pipeline(pipeline):
     """
     Attempts to resolve a concise expression (typically from the command line) into a pre-defined pipeline.
@@ -2202,22 +2198,9 @@ def coerce_pipeline(pipeline):
     Returns:
         Pipeline
     """
-    EXPERIMENTAL_CUSTOM_PIPELINES = True
     if isinstance(pipeline, str):
-        try:
-            """
-            If this is going to be a real mlops framework, then we need to abstract the
-            pipeline. The user needs to define what the steps are, but then they need to
-            explicitly connect them. We can't make the assumptions we are currently using.
-            """
-            from kwdagger.mlops import smart_pipeline
-            dag = smart_pipeline.make_smart_pipeline(pipeline)
-        except Exception:
-            if EXPERIMENTAL_CUSTOM_PIPELINES:
-                # New experimental pipelines
-                dag = _experimental_resolve_pipeline(pipeline)
-            else:
-                raise
+        # New experimental pipelines
+        dag = _experimental_resolve_pipeline(pipeline)
     else:
         if isinstance(pipeline, Pipeline):
             return pipeline
@@ -2233,10 +2216,10 @@ def _experimental_resolve_pipeline(pipeline):
 
     Ignore:
         pipeline = 'user_module.pipelines.custom_pipeline_func()'
-        pipeline = 'kwdagger.mlops.smart_pipeline.make_smart_pipeline("bas")'
+        pipeline = 'kwdagger.smart_pipeline.make_smart_pipeline("bas")'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
-        pipeline = '/home/joncrall/code/kwdagger/kwdagger/mlops/smart_pipeline.py::make_smart_pipeline("bas")'
+        pipeline = '/home/joncrall/code/kwdagger/kwdagger/smart_pipeline.py::make_smart_pipeline("bas")'
         _experimental_resolve_pipeline(pipeline)
     """
     # Case: given in the format `{module_name}.{attribute_expression}`
@@ -2267,7 +2250,7 @@ def _experimental_resolve_pipeline(pipeline):
                 print(f'found = {ub.urepr(found, nl=1)}')
                 break
         if found is None:
-            raise ValueError('unable to resolve pipeline')
+            raise ValueError(f'unable to resolve pipeline: {pipeline}')
         else:
             # This initial specification allows arbitrary code execution.
             # We should define a hardened variant which does not require this.

@@ -20,12 +20,12 @@ Ignore:
 
     # Real data
 
-    Given results from schedule_evaluation
+    Given results from schedule
 
     # SC
     DVC_DATA_DPATH=$(kwdagger_dvc --tags='phase2_data' --hardware=auto)
     DVC_EXPT_DPATH=$(kwdagger_dvc --tags='phase2_expt' --hardware=auto)
-    python -m kwdagger.mlops.aggregate \
+    python -m kwdagger.aggregate \
         --pipeline=sc \
         --root_dpath="$DVC_EXPT_DPATH/_testsc"
 
@@ -33,14 +33,14 @@ Ignore:
     # BAS
     DVC_DATA_DPATH=$(kwdagger_dvc --tags='phase2_data' --hardware=auto)
     DVC_EXPT_DPATH=$(kwdagger_dvc --tags='phase2_expt' --hardware=auto)
-    python -m kwdagger.mlops.aggregate \
+    python -m kwdagger.aggregate \
         --pipeline=bas \
         --root_dpath="$DVC_EXPT_DPATH/_testpipe"
 
     # BAS
     DVC_DATA_DPATH=$(kwdagger_dvc --tags='phase2_data' --hardware=auto)
     DVC_EXPT_DPATH=$(kwdagger_dvc --tags='phase2_expt' --hardware=auto)
-    python -m kwdagger.mlops.aggregate \
+    python -m kwdagger.aggregate \
         --pipeline=bas \
         --io_workers=0 \
         --target \
@@ -50,11 +50,11 @@ Ignore:
         --export_tables=True
 
     # BAS
-    python -m kwdagger.mlops.aggregate \
+    python -m kwdagger.aggregate \
         --target ./my_aggregate/*.csv.zip \
         --stdout_report=True --rois KR_R001,KR_R002
 
-    python -m kwdagger.mlops.aggregate \
+    python -m kwdagger.aggregate \
         --target ./my_aggregate/bas_pxl_eval_2023-02-22T215702-5.csv.zip \
         --plot_params=True --rois KR_R001,KR_R002
 
@@ -148,14 +148,14 @@ class AggregateLoader(DataConfig):
     @profile
     def coerce_aggregators(config):
         from kwutil import util_path
-        from kwdagger.mlops.aggregate_loader import build_tables
+        from kwdagger.aggregate_loader import build_tables
         import pandas as pd
         input_targets = util_path.coerce_patterned_paths(config.target)
         eval_type_to_tables = ub.ddict(list)
 
         print('Coerce aggregators for pipeline:')
-        from kwdagger.mlops import pipeline_nodes
-        dag = pipeline_nodes.coerce_pipeline(config.pipeline)
+        from kwdagger import pipeline
+        dag = pipeline.coerce_pipeline(config.pipeline)
         dag.print_graphs()
 
         print(f'Found {len(input_targets)} input targets')
@@ -297,11 +297,11 @@ def main(cmdline=True, **kwargs):
     macro-averaging, reporting, plotting, etc...
 
     Example:
-        >>> from kwdagger.mlops.mlops_demodata import run_demo_schedule_evaluation
-        >>> from kwdagger.mlops.aggregate import *  # NOQA
+        >>> from kwdagger.demo.demodata import run_demo_schedule
+        >>> from kwdagger.aggregate import *  # NOQA
         >>> import kwutil
         >>> # Ensure an evaluation has happened
-        >>> info = run_demo_schedule_evaluation()
+        >>> info = run_demo_schedule()
         >>> # Call this command
         >>> kwargs = kwutil.Yaml.coerce(
         >>>     '''
@@ -356,7 +356,7 @@ def run_aggregate(config):
 
     if config.query:
         print('Running query')
-        from kwdagger.mlops.query_plan import QueryPlan
+        from kwdagger.query_plan import QueryPlan
         query_plan = QueryPlan.parse(config.query, strict=True)
         if 0:
             print(query_plan.describe())
@@ -478,7 +478,7 @@ def run_aggregate(config):
                 subagg = agg.filterto(param_hashids=config.inspect if ub.iterable(config.inspect) else [config.inspect])
                 if len(subagg):
                     subagg.make_summary_analysis(config)
-                    # from kwdagger.mlops import confusor_analysis
+                    # from kwdagger import confusor_analysis
                     # for region_id, group in subagg.index.groupby('region_id'):
                     #     group_agg = subagg.filterto(index=group.index)
                     #     # confusor_analysis.main(cmdline=0, )
@@ -718,7 +718,7 @@ class AggregatorAnalysisMixin:
                     mapping from param hash to invocation details
 
         Example:
-            >>> from kwdagger.mlops.aggregate import *  # NOQA
+            >>> from kwdagger.aggregate import *  # NOQA
             >>> agg = Aggregator.demo(rng=0, num=100).build()
             >>> agg.report_best(print_models=True, top_k=3)
             >>> agg.report_best(print_models=True, top_k=3, grouptop='special:model')
@@ -1304,7 +1304,7 @@ class AggregatorAnalysisMixin:
             ...
         if plot_config is None:
             plot_config = {}
-        from kwdagger.mlops import aggregate_plots
+        from kwdagger import aggregate_plots
         if isinstance(rois, str):
             # fixme: ensure rois are coerced before this point.
             rois = agg._coerce_rois(rois)
@@ -1428,7 +1428,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
     Set config based on your problem
 
     Example:
-        >>> from kwdagger.mlops.aggregate import *  # NOQA
+        >>> from kwdagger.aggregate import *  # NOQA
         >>> agg = Aggregator.demo(rng=0, num=3).build()
         >>> print(f'agg.config = {ub.urepr(agg.config, nl=1)}')
         >>> print('--- The table of only metrics ---')
@@ -1473,7 +1473,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                 Otherwise list the metric columns in the order they should be
                 displayed (after the primary metrics).
 
-            dag (kwdagger.mlops.Pipeline):
+            dag (kwdagger.Pipeline):
                 The pipeline that the evaluation table corresponds to.
                 Only needed if introspection if necessary.
                 If all "auto" params are specified, this should not be needed.
@@ -1524,7 +1524,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             Aggregator
 
         Example:
-            >>> from kwdagger.mlops.aggregate import *  # NOQA
+            >>> from kwdagger.aggregate import *  # NOQA
             >>> agg = Aggregator.demo(rng=0, num=100)
             >>> print(agg.table)
             >>> agg.build()
@@ -1822,7 +1822,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             Aggregator: A new aggregator with a subset of data
 
         Example:
-            >>> from kwdagger.mlops.aggregate import *  # NOQA
+            >>> from kwdagger.aggregate import *  # NOQA
             >>> agg = Aggregator.demo(rng=0, num=100)
             >>> agg.build()
             >>> subagg = agg.filterto(query='df["context.demo_node.uuid"].str.startswith("c")')
@@ -1939,7 +1939,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
     @property
     def default_vantage_points(self):
-        from kwdagger.mlops.smart_global_helper import SMART_HELPER
+        from kwdagger.smart_global_helper import SMART_HELPER
         try:
             if self.dag is not None:
                 node = self.dag.nodes[self.node_type]
@@ -1971,7 +1971,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         import pandas as pd
         import itertools as it
         from kwdagger.utils import util_pandas
-        from kwdagger.mlops.smart_global_helper import SMART_HELPER
+        from kwdagger.smart_global_helper import SMART_HELPER
         requested_params = self.requested_params
         effective_params = requested_params.copy()
 
@@ -2360,7 +2360,7 @@ def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
 
         confusion_fpaths = list((eval_fpath.parent / 'bas_summary_viz').glob('confusion_*.jpg'))
         if len(confusion_fpaths) == 0:
-            from kwdagger.mlops import confusor_analysis
+            from kwdagger import confusor_analysis
             src_kwcoco = list((node_dpath / '.pred/bas_poly/').glob('*/poly.kwcoco.zip'))[0]
             pred_sites_dpath = list((node_dpath / '.pred/bas_poly/').glob('*/sites'))[0]
             confusor_config = confusor_analysis.ConfusorAnalysisConfig(
@@ -2412,7 +2412,7 @@ def aggregate_param_cols(df, aggregator=None, hash_cols=None, allow_nonuniform=F
         - [ ] Rectify with ~/code/watch/kwdagger/utils/util_pandas.py :: aggregate_columns
 
     Example:
-        >>> from kwdagger.mlops.aggregate import *  # NOQA
+        >>> from kwdagger.aggregate import *  # NOQA
         >>> import pandas as pd
         >>> agg = Aggregator.demo(num=3, rng=321)
         >>> agg.build()
@@ -2503,13 +2503,13 @@ def find_uniform_columns(df_comparable):
     Written by GPT5 and benchmarked as faster than the original implementation.
 
     CommandLine:
-        xdoctest -m kwdagger.mlops.aggregate find_uniform_columns
+        xdoctest -m kwdagger.aggregate find_uniform_columns
 
     TODO:
         - [ ] This is probably slower for small data frames.  Could optimize that case.
 
     Example:
-        >>> from kwdagger.mlops.aggregate import *  # NOQA
+        >>> from kwdagger.aggregate import *  # NOQA
         >>> import numpy as np
         >>> import pandas as pd
         >>> from datetime import datetime
@@ -2598,7 +2598,7 @@ def find_uniform_columns(df_comparable):
         [True, False, True, False, True, False, True, False, True, False]
 
     Benchmark:
-        >>> from kwdagger.mlops.aggregate import *  # NOQA
+        >>> from kwdagger.aggregate import *  # NOQA
         >>> from kwdagger.utils import util_pandas
         >>> # Create a large dataframe
         >>> df_comparable = util_pandas.DataFrame.random(rows=100, columns=[f'col_{i:03d}' for i in range(100)])
@@ -2829,8 +2829,8 @@ def _coerce_grouptop(grouptop, aliases=None):
                 }
 
     Example:
-        >>> from kwdagger.mlops.aggregate import *  # NOQA
-        >>> from kwdagger.mlops.aggregate import _coerce_grouptop
+        >>> from kwdagger.aggregate import *  # NOQA
+        >>> from kwdagger.aggregate import _coerce_grouptop
         >>> grouptop = 'param1'
         >>> result1 = _coerce_grouptop(grouptop)
         >>> grouptop = ['param1', 'param2']
@@ -2945,7 +2945,7 @@ def _build_metrics_info_table(agg, node):
         else:
             # TODO: deprecate the old _default_metrics stuff entirely
             try:
-                from kwdagger.mlops.smart_global_helper import SMART_HELPER
+                from kwdagger.smart_global_helper import SMART_HELPER
                 # TODO: deprecate SMART-stuff
                 _primary_metrics_suffixes, _display_metrics_suffixes = SMART_HELPER._default_metrics(agg)
             except Exception:
@@ -2971,6 +2971,6 @@ __cli__.main = main
 if __name__ == '__main__':
     """
     CommandLine:
-        python ~/code/watch/kwdagger/mlops/aggregate_evaluation.py --help
+        python ~/code/watch/kwdagger/aggregate_evaluation.py --help
     """
     main()

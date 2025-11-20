@@ -9,7 +9,7 @@ from kwutil import util_parallel
 from kwdagger.utils import util_dotdict
 import parse
 import json
-from kwdagger.mlops import smart_result_parser
+from kwdagger import smart_result_parser
 
 
 def build_tables(root_dpath, dag, io_workers, eval_nodes,
@@ -158,11 +158,11 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
             The name of the node (todo: deprecate and just require the node
             object).
 
-        node (None | kwdagger.mlops.pipeline_nodes.Node):
+        node (None | kwdagger.pipeline.Node):
             The node corresponding to the actual process.
             Note: will be required in the future.
 
-        dag (None | kwdagger.mlops.pipeline_nodes.Pipeline):
+        dag (None | kwdagger.pipeline.Pipeline):
             Used to lookup loading functions for predecessor nodes.
             Will be required in the future.
 
@@ -177,14 +177,14 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
                 'resolved_params', 'specified_params', 'other'
 
     Example:
-        >>> from kwdagger.mlops.aggregate_loader import *  # NOQA
-        >>> from kwdagger.mlops.mlops_demodata import run_demo_schedule_evaluation
-        >>> from kwdagger.mlops import pipeline_nodes
+        >>> from kwdagger.aggregate_loader import *  # NOQA
+        >>> from kwdagger.demo.demodata import run_demo_schedule
+        >>> from kwdagger import pipeline
         >>> # Run a demo evaluation so data is populated
-        >>> info = run_demo_schedule_evaluation()
+        >>> info = run_demo_schedule()
         >>> # Grab relevant information about one of the evaluation outputs
         >>> eval_dpath = info['eval_dpath']
-        >>> dag = pipeline_nodes.coerce_pipeline(info['pipeline'])
+        >>> dag = pipeline.coerce_pipeline(info['pipeline'])
         >>> dag.configure(root_dpath=eval_dpath)
         >>> node_name = 'stage1_evaluate'
         >>> node = dag.nodes[node_name]
@@ -389,8 +389,8 @@ def load_result_resolved(node_dpath, node=None, dag=None):
         >>> # To diagnose issues, construct a path to an evaluation node to get the
         >>> # relevant project-specific entrypoint data.
         >>> # TODO: need a demo pipeline that we can test for robustness here.
-        >>> from kwdagger.mlops.aggregate_loader import *  # NOQA
-        >>> from kwdagger.mlops.aggregate_loader import load_result_resolved
+        >>> from kwdagger.aggregate_loader import *  # NOQA
+        >>> from kwdagger.aggregate_loader import load_result_resolved
         >>> import kwdagger
         >>> import rich
         >>> expt_dpath = kwdagger.find_dvc_dpath(tags='phase3_expt')
@@ -414,7 +414,7 @@ def load_result_resolved(node_dpath, node=None, dag=None):
 
     Ignore:
         ## OR If you know the node_type of node you want
-        from kwdagger.mlops.aggregate_loader import *  # NOQA
+        from kwdagger.aggregate_loader import *  # NOQA
         import kwdagger
         import rich
         expt_dpath = kwdagger.find_dvc_dpath(tags='phase3_expt')
@@ -434,7 +434,7 @@ def load_result_resolved(node_dpath, node=None, dag=None):
         rich.print(f'flat_resolved = {ub.urepr(flat_resolved, nl=1)}')
 
     Ignore:
-        from kwdagger.mlops.aggregate_loader import *  # NOQA
+        from kwdagger.aggregate_loader import *  # NOQA
         node_dpath = ub.Path('/home/joncrall/remote/toothbrush/data/dvc-repos/smart_expt_dvc/_testpipe/eval/flat/bas_poly_eval/bas_poly_eval_id_1ad531cc')
         node_dpath = ub.Path('/home/joncrall/remote/toothbrush/data/dvc-repos/smart_expt_dvc/_testpipe/eval/flat/bas_pxl_eval/bas_pxl_eval_id_6028edfe/')
         node_dpath = ub.Path('/home/joncrall/remote/toothbrush/data/dvc-repos/smart_expt_dvc/_timekernel_test_drop4/eval/flat/bas_pxl_eval/bas_pxl_eval_id_5d38c6b3')
@@ -586,12 +586,12 @@ def load_result_resolved(node_dpath, node=None, dag=None):
         flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
     # TODO: it would be nice if just declaring a node gave us this information.
     elif node_type in {'sv_depth_score'}:
-        from kwdagger.mlops import smart_pipeline
+        from kwdagger import smart_pipeline
         fpath = node_dpath / smart_pipeline.SV_DepthPredict.out_paths['out_kwcoco']
         node_process_name = 'kwdagger.tasks.depth_pcd.score_tracks'
         flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
     elif node_type in {'sv_depth_filter'}:
-        from kwdagger.mlops import smart_pipeline
+        from kwdagger import smart_pipeline
         fpath = node_dpath / smart_pipeline.SV_DepthFilter.out_paths['output_site_manifest_fpath']
         node_process_name = 'kwdagger.tasks.depth_pcd.filter_tracks'
         flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)

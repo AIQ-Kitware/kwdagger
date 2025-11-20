@@ -20,7 +20,7 @@ def build_plotter(agg, rois, plot_config):
     Returns:
         ParamPlotter
     """
-    from kwdagger.mlops.smart_global_helper import SMART_HELPER
+    from kwdagger.smart_global_helper import SMART_HELPER
     from kwdagger.utils import util_kwplot
     from kwutil import Yaml
 
@@ -54,7 +54,7 @@ def build_plotter(agg, rois, plot_config):
 
     plot_dpath = plot_config.get('plot_dpath', None)
     if plot_dpath is None:
-        from kwdagger.mlops.aggregate import hash_regions
+        from kwdagger.aggregate import hash_regions
         if rois is not None:
             region_hash = hash_regions(rois)
         else:
@@ -153,7 +153,7 @@ def preprocess_table_for_seaborn(agg, table):
     table = table.applymap(lambda x: str(x) if isinstance(x, list) else x)
 
     from kwdagger.utils import util_pandas
-    from kwdagger.mlops.smart_global_helper import SMART_HELPER
+    from kwdagger.smart_global_helper import SMART_HELPER
     table = util_pandas.DataFrame(table)
     channel_cols = table.match_columns('*.channels')
     if len(channel_cols):
@@ -297,7 +297,7 @@ class ParamPlotter:
         import kwplot
         import kwimage
         import rich
-        from kwdagger.mlops.smart_global_helper import SMART_HELPER
+        from kwdagger.smart_global_helper import SMART_HELPER
         sns = kwplot.autosns()
         plt = kwplot.autoplt()  # NOQA
         kwplot.close_figures()
@@ -406,7 +406,7 @@ class ParamPlotter:
         import kwimage
         import numpy as np
         import rich
-        from kwdagger.mlops.smart_global_helper import SMART_HELPER
+        from kwdagger.smart_global_helper import SMART_HELPER
 
         rich.print('[white]### Plot Vantage Macro Overview:')
         rich.print(f'[white] * {vantage}')
@@ -523,7 +523,7 @@ class ParamPlotter:
         main_objective = vantage['objective1']
         metric_objectives = {main_metric: main_objective}
 
-        from kwdagger.mlops.smart_global_helper import SMART_HELPER
+        from kwdagger.smart_global_helper import SMART_HELPER
         blocklist = SMART_HELPER.VIZ_BLOCKLIST
 
         resolved_params = util_pandas.DotDictDataFrame(macro_table).subframe('resolved_params', drop_prefix=False)
@@ -1059,7 +1059,7 @@ def suggest_did_you_mean(invalid_options, valid_choices):
         valid_choices (List[str]): the valid available options
 
     Example:
-        >>> from kwdagger.mlops.aggregate_plots import *  # NOQA
+        >>> from kwdagger.aggregate_plots import *  # NOQA
         >>> invalid_options = ['fuber', 'yam', 'spam']
         >>> valid_choices = ['spam', 'ham', 'foobar']
         >>> suggest_did_you_mean(invalid_options, valid_choices)
@@ -1138,7 +1138,7 @@ class Vantage:
     contain keys: scale1, scale2, objective1, and objective2.
 
     Example:
-        >>> from kwdagger.mlops.aggregate_plots import *  # NOQA
+        >>> from kwdagger.aggregate_plots import *  # NOQA
         >>> Vantage('metrics.ppv', 'metrics.tpr')
     """
     metric1: str
