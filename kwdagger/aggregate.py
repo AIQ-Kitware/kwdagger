@@ -858,7 +858,7 @@ class AggregatorAnalysisMixin:
             summary_table = ranked_group[summary_cols]
 
             if shorten:
-                summary_table = util_pandas.pandas_shorten_columns(summary_table)
+                summary_table = util_pandas.DataFrame(summary_table).shorten_columns()
 
             region_id_to_summary[region_id] = summary_table
             region_id_to_ntotal[region_id] = len(group)
@@ -1334,7 +1334,7 @@ class AggregatorAnalysisMixin:
             group_rows.append(stats_row)
 
         group_stats = util_pandas.DataFrame(group_rows)
-        group_stats_show, col_mapping = util_pandas.pandas_shorten_columns(group_stats, min_length=2, return_mapping=True)
+        group_stats_show, col_mapping = group_stats.shorten_columns(min_length=2, return_mapping=True)
         # rich.print(group_stats_show)
 
         metrics_with_std = []
@@ -1370,7 +1370,7 @@ class AggregatorAnalysisMixin:
         longform = util_pandas.DataFrame(metrics_with_std)
         all_metric_table = longform.pivot(
             index=['region_id'], columns=['metric'], values='cell')
-        all_metric_table = util_pandas.pandas_shorten_columns(all_metric_table, min_length=0)
+        all_metric_table = all_metric_table.shorten_columns(min_length=0)
         return all_metric_table
 
 
@@ -1653,7 +1653,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             'resources', 'machine', 'context'
         ]
         subtables.update({
-            c: _table.subframe(c, drop_prefix=False)
+            c: _table.prefix_subframe(c, drop_prefix=False)
             for c in _expected_top_level
         })
         unknown_cols = agg.table.columns.difference(set(ub.flatten(([v.columns for v in subtables.values()]))))
@@ -1673,28 +1673,8 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         _model_suffixes = ['package_fpath']
         _testdset_suffixes = ['test_dataset', 'crop_src_fpath']
 
-        agg.model_cols = util_pandas.pandas_suffix_columns(
-            agg.requested_params, _model_suffixes)
-        agg.test_dset_cols = util_pandas.pandas_suffix_columns(
-            agg.requested_params, _testdset_suffixes)
-
-        # def _ensure_prefixed_names(names, prefix):
-        #     """
-        #     If names are given without the appropriate prefix, then append it.
-        #     """
-        #     prefix_ = prefix + '.'
-        #     new_names = []
-        #     for c in names:
-        #         if not c.startswith(prefix_):
-        #             c = prefix_ + c
-        #         new_names.append(c)
-        #     return new_names
-        # agg.display_metric_cols = _ensure_prefixed_names(agg.display_metric_cols, metrics_prefix)
-        # agg.primary_metric_cols = _ensure_prefixed_names(agg.primary_metric_cols, metrics_prefix)
-        # agg.model_cols = _ensure_prefixed_names(agg.model_cols, 'params')
-        # agg.test_dset_cols = _ensure_prefixed_names(agg.test_dset_cols, 'params')
-
-        # util_pandas.pandas_suffix_columns(agg.resolved_params, _testdset_suffixes)
+        agg.model_cols = [c for c in agg.requested_params.columns if any(c.endswith(s) for s in _model_suffixes)]
+        agg.test_dset_cols = [c for c in agg.requested_params.columns if any(c.endswith(s) for s in _testdset_suffixes)]
 
         agg.build_effective_params()
 
@@ -1960,12 +1940,12 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
         for colname in existing_path_colnames:
             colvals = requested_params[colname]
-            condensed, mapper = util_pandas.pandas_condense_paths(colvals)
+            condensed, mapper = pandas_condense_paths(colvals)
             mappings[colname] = mapper
             effective_params[colname] = condensed
 
         _specified = util_pandas.DotDictDataFrame(self.specified_params)
-        _specified_params = _specified.subframe('specified')
+        _specified_params = _specified.prefix_subframe('specified', drop_prefix=True)
         is_param_included = _specified_params > 0
 
         # For each unique set of effective parameters compute a hashid
@@ -2040,7 +2020,12 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             if len(param_cols) > 0:
                 # TODO: Used the fixed groupby to avoid the need to ensure
                 # param_flags is a list.
-                param_subgroups = is_group_included.groupby(param_cols, dropna=False)
+                try:
+                    param_subgroups = is_group_included.groupby(param_cols, dropna=False)
+                except Exception:
+                    print(f'param_cols={param_cols}')
+                    print(f'is_group_included.columns={is_group_included.columns}')
+                    raise
             else:
                 # fallback case, something is probably wrong if we are here
                 param_subgroups = {tuple(): is_group_included}.items()
@@ -2273,7 +2258,6 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
 def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
     # FIXME: SMART specific
-    from kwdagger.utils import util_pandas
     # eval_fpath = group_agg.fpaths[id]
     eval_fpath = ub.Path(group_agg.table['fpath'].loc[id])
     param_hashid = row['param_hashid']
@@ -2283,53 +2267,6 @@ def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
     real_dpath = eval_fpath.parent
     node_dpath = real_dpath
     ub.symlink(real_path=node_dpath, link_path=link_dpath)
-    import kwimage
-    from kwcoco.metrics.drawing import concice_si_display
-    if 'poly_eval' in row['node']:
-        region_viz_fpaths = list((node_dpath / 'region_viz_overall').glob('*_detailed.png'))
-        assert len(region_viz_fpaths) == 1
-        region_viz_fpath = region_viz_fpaths[0]
-        viz_img = kwimage.imread(region_viz_fpath)
-        scores_of_interest = util_pandas.pandas_shorten_columns(subagg.metrics).loc[id, ['bas_tp', 'bas_fp', 'bas_fn', 'bas_f1']]
-        scores_of_interest = ub.udict(scores_of_interest.to_dict())
-        text = ub.urepr(scores_of_interest.map_values(concice_si_display), nobr=1, si=1, compact=1)
-        new_img = kwimage.draw_header_text(viz_img, param_hashid + '\n' + text)
-        kwimage.imwrite(agg_group_dpath / f'summary_{region_id}_{param_hashid}.jpg', new_img)
-
-        # FIXME
-        import kwdagger
-        data_dvc_dpath = kwdagger.find_dvc_dpath(tags='phase2_data', hardware='auto')
-        # expt_dvc_dpath = kwdagger.find_dvc_dpath(tags='phase2_expt', hardware='auto')
-        true_region_dpath = data_dvc_dpath / 'annotations/drop6/region_models'
-        true_site_dpath = data_dvc_dpath / 'annotations/drop6/site_models'
-
-        confusion_fpaths = list((eval_fpath.parent / 'bas_summary_viz').glob('confusion_*.jpg'))
-        if len(confusion_fpaths) == 0:
-            from kwdagger import confusor_analysis
-            src_kwcoco = list((node_dpath / '.pred/bas_poly/').glob('*/poly.kwcoco.zip'))[0]
-            pred_sites_dpath = list((node_dpath / '.pred/bas_poly/').glob('*/sites'))[0]
-            confusor_config = confusor_analysis.ConfusorAnalysisConfig(
-                bas_metric_dpath=(node_dpath / region_id / 'overall' / 'bas'),
-                src_kwcoco=src_kwcoco,
-                pred_sites=pred_sites_dpath,
-                region_id=region_id,
-                out_dpath=agg_group_dpath,
-                true_site_dpath=true_site_dpath,
-                true_region_dpath=true_region_dpath,
-            )
-            confusor_analysis.main(argv=0, **confusor_config)
-
-        confusion_fpaths = list((eval_fpath.parent / 'bas_summary_viz').glob('confusion_*.jpg'))
-        if len(confusion_fpaths):
-            assert len(confusion_fpaths) == 1
-            confusion_fpath = confusion_fpaths[0]
-            im = kwimage.imread(confusion_fpath)
-            scores_of_interest = util_pandas.pandas_shorten_columns(subagg.metrics).loc[id, ['bas_tp', 'bas_fp', 'bas_fn', 'bas_f1']]
-            scores_of_interest = ub.udict(scores_of_interest.to_dict())
-            text = ub.urepr(scores_of_interest.map_values(concice_si_display), nobr=1, si=1, compact=1)
-            model_name = group_agg.effective_params[group_agg.model_cols[0]].loc[id]
-            im = kwimage.draw_header_text(im, param_hashid + ' - ' + model_name + '\n' + text)
-            kwimage.imwrite(agg_group_dpath / f'confusion_{region_id}_{param_hashid}.jpg', im)
 
 
 def aggregate_param_cols(df, aggregator=None, hash_cols=None, allow_nonuniform=False):
@@ -2900,6 +2837,41 @@ def _build_metrics_info_table(agg, node):
                 agg.primary_metric_cols = _primary_metrics
             if agg.display_metric_cols == 'auto':
                 agg.display_metric_cols = _display_metrics
+
+
+def pandas_condense_paths(colvals):
+    """
+    Condense a column of paths to keep only the shortest distinguishing
+    suffixes
+
+    TODO: not sure if this function is general enough for util pandas.
+
+    Args:
+        colvals (pd.Series): a column containing paths to condense
+
+    Returns:
+        Tuple: the condensed series and a mapping from old to new
+
+    Example:
+        >>> import pandas as pd
+        >>> rows = [
+        >>>     {'path1': '/path/to/a/file1'},
+        >>>     {'path1': '/path/to/a/file2'},
+        >>> ]
+        >>> colvals = pd.DataFrame(rows)['path1']
+        >>> pandas_condense_paths(colvals)
+    """
+    import pandas as pd
+    import os
+    from kwdagger.utils.util_stringalgo import shortest_unique_suffixes
+    is_valid = ~pd.isnull(colvals)
+    valid_vals = colvals[is_valid].apply(os.fspath)
+    unique_valid_vals = valid_vals.unique().tolist()
+    unique_short_vals = shortest_unique_suffixes(unique_valid_vals, sep='/')
+    new_vals = [p.split('.')[0] for p in unique_short_vals]
+    mapper = ub.dzip(unique_valid_vals, new_vals)
+    condensed = colvals.apply(lambda x: mapper.get(x, x))
+    return condensed, mapper
 
 
 __cli__ = AggregateEvluationConfig
