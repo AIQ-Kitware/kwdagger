@@ -6,7 +6,7 @@ cd ~/code/kwdagger/docs/source/manual/example
 # Set PYTHONPATH to ensure Python can see the example directory.
 export PYTHONPATH=.
 
-EVAL_DPATH=$PWD/pipeline_output
+EVAL_DPATH=$PWD/results
 kwdagger schedule \
     --params="
         pipeline: 'example_user_module.pipelines.my_demo_pipeline()'
@@ -24,10 +24,10 @@ kwdagger schedule \
     --root_dpath="${EVAL_DPATH}" \
     --tmux_workers=2 \
     --backend=tmux --skip_existing=1 \
-    --run=1
+    --run=0
 
 
-EVAL_DPATH=$PWD/pipeline_output
+EVAL_DPATH=$PWD/results
 kwdagger aggregate \
     --pipeline='example_user_module.pipelines.my_demo_pipeline()' \
     --target "
@@ -58,7 +58,7 @@ kwdagger aggregate \
 extra_commands(){
 
     # Test with a query
-    EVAL_DPATH=$PWD/pipeline_output
+    EVAL_DPATH=$PWD/results
     kwdagger aggregate \
         --pipeline='example_user_module.pipelines.my_demo_pipeline()' \
         --target "
@@ -85,5 +85,5 @@ extra_commands(){
         "
 
     # cleanup
-    rm -rf ~/code/kwdagger/docs/source/manual/example/pipeline_output
+    rm -rf ~/code/kwdagger/docs/source/manual/example/results
 }

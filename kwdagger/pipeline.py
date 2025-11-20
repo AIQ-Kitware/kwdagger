@@ -30,12 +30,6 @@ Collection = Optional[Union[Dict, Set, List]]
 Configurable = Optional[Dict[str, Any]]
 
 
-try:
-    from line_profiler import profile  # NOQA
-except ImportError:
-    profile = ub.identity
-
-
 class Pipeline:
     """
     A container for a group of nodes that have been connected.
@@ -127,7 +121,6 @@ class Pipeline:
             node_dict = dict(zip(node_names, self.nodes))
         return node_dict
 
-    @profile
     def build_nx_graphs(self):
         node_dict = self.node_dict
 
@@ -169,7 +162,6 @@ class Pipeline:
 
         self._dirty = False
 
-    @profile
     def inspect_configurables(self):
         """
         Show the user what config options should be specified.
@@ -249,7 +241,6 @@ class Pipeline:
             default[row['node'] + '.' + row['key']] = None
         rich.print(util_yaml.Yaml.dumps(default))
 
-    @profile
     def configure(self, config=None, root_dpath=None, cache=True):
         """
         Update the DAG configuration
@@ -344,7 +335,6 @@ class Pipeline:
         self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types,
                             smart_colors=smart_colors)
 
-    @profile
     def submit_jobs(self, queue=None, skip_existing=False, enable_links=True,
                     write_invocations=True, write_configs=True):
         """
@@ -751,7 +741,6 @@ class OutputNode(IONode):
     def template_value(self):
         return self.parent.template_out_paths[self.name]
 
-    @profile
     def matching_fpaths(self):
         """
         Find all paths for this node.
@@ -1267,7 +1256,6 @@ class ProcessNode(Node):
         self = cls(**node_kwargs)
         return self
 
-    @profile
     def configure(self, config=None, cache=True, enabled=True):
         """
         Update the node configuration.
@@ -1316,7 +1304,6 @@ class ProcessNode(Node):
         self._finalize_templates()
 
     @memoize_configured_property
-    @profile
     def condensed(self):
         """
         This is the dictionary that supplies the templated strings with the
@@ -1332,7 +1319,6 @@ class ProcessNode(Node):
         return condensed
 
     @memoize_configured_method
-    @profile
     def _build_templates(self):
         templates = {}
         templates['root_dpath'] = str(self.template_root_dpath)
@@ -1342,7 +1328,6 @@ class ProcessNode(Node):
         return self.templates
 
     @memoize_configured_method
-    @profile
     def _finalize_templates(self):
         templates = self.templates
         condensed = self.condensed
@@ -1527,9 +1512,9 @@ class ProcessNode(Node):
         if self._overwrite_group_dpath is not None:
             return ub.Path(self._overwrite_group_dpath)
         if self.group_dname is None:
-            return self.root_dpath / 'flat' / self.name
+            return self.root_dpath / self.name
         else:
-            return self.root_dpath / self.group_dname / 'flat' / self.name
+            return self.root_dpath / self.group_dname / self.name
 
     @memoize_configured_property
     def template_node_dpath(self):
@@ -1553,7 +1538,6 @@ class ProcessNode(Node):
         return self.root_dpath
 
     @memoize_configured_method
-    @profile
     def predecessor_process_nodes(self):
         """
         Process nodes that this one depends on.
@@ -1563,7 +1547,6 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    @profile
     def successor_process_nodes(self):
         """
         Process nodes that depend on this one.
@@ -1573,7 +1556,6 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    @profile
     def ancestor_process_nodes(self):
         """
         Example:
@@ -1619,7 +1601,6 @@ class ProcessNode(Node):
         return ancestors
 
     @memoize_configured_property
-    @profile
     def depends(self):
         """
         The mapping from ancestor and self node names to their algorithm ids
@@ -1638,7 +1619,6 @@ class ProcessNode(Node):
         return depends
 
     @memoize_configured_property
-    @profile
     def algo_id(self) -> str:
         """
         A unique id to represent the output of a deterministic process.
@@ -1651,7 +1631,6 @@ class ProcessNode(Node):
         return algo_id
 
     @memoize_configured_property
-    @profile
     def process_id(self) -> str:
         """
         A unique id to represent the output of a deterministic process in a
@@ -1667,7 +1646,6 @@ class ProcessNode(Node):
         return proc_id
 
     @staticmethod
-    @profile
     def _make_argstr(config):
         # parts = [f'    --{k}="{v}" \\' for k, v in config.items()]
         parts = []
@@ -1698,7 +1676,6 @@ class ProcessNode(Node):
         return '\n'.join(parts).lstrip().rstrip('\\')
 
     @cached_property
-    @profile
     def inputs(self):
         """
         Input nodes representing specific input locations.
@@ -1714,7 +1691,6 @@ class ProcessNode(Node):
         return inputs
 
     @cached_property
-    @profile
     def outputs(self):
         """
         Output nodes representing specific output locations. These can be
@@ -1727,7 +1703,6 @@ class ProcessNode(Node):
         return outputs
 
     @property
-    @profile
     def command(self) -> str:
         """
         Returns the string shell command that will execute the process.
@@ -1741,7 +1716,6 @@ class ProcessNode(Node):
             command = self.executable
         return command
 
-    @profile
     def test_is_computed_command(self):
         r"""
         Generate a bash command that will test if all output paths exist
@@ -1809,7 +1783,6 @@ class ProcessNode(Node):
         return test_cmd
 
     @memoize_configured_property
-    @profile
     def does_exist(self) -> bool:
         """
         Check if all of the output paths that would be written by this node
@@ -1822,7 +1795,6 @@ class ProcessNode(Node):
         return all(ub.Path(p).expand().exists() if p is not None else True for p in self.final_out_paths.values())
 
     @memoize_configured_property
-    @profile
     def outputs_exist(self) -> bool:
         """
         Alias for does_exist
@@ -1839,7 +1811,6 @@ class ProcessNode(Node):
             command = command()
         return command
 
-    @profile
     def final_command(self):
         """
         Wraps ``self.command`` with optional checks to prevent the command from
@@ -2168,6 +2139,9 @@ def demo_pipeline_run():
     """
     A simple test pipeline.
 
+    CommandLine:
+        xdoctest -m kwdagger.pipeline demo_pipeline_run
+
     Example:
         >>> # Self test
         >>> from kwdagger.pipeline import *  # NOQA
@@ -2184,7 +2158,9 @@ def demo_pipeline_run():
         'backend': 'serial',
     }))
     queue = status['queue']
-    queue.print_commands(exclude_tags='boilerplate', with_locks=False)
+    # queue.print_commands(exclude_tags='boilerplate', with_locks=False)
+    queue.print_commands(with_status=False, with_gaurds=False, with_locks=1,
+                         exclude_tags=None)
     queue.run()
 
 
@@ -2200,7 +2176,7 @@ def coerce_pipeline(pipeline):
     """
     if isinstance(pipeline, str):
         # New experimental pipelines
-        dag = _experimental_resolve_pipeline(pipeline)
+        dag = _resolve_pipeline(pipeline)
     else:
         if isinstance(pipeline, Pipeline):
             return pipeline
@@ -2209,19 +2185,19 @@ def coerce_pipeline(pipeline):
     return dag
 
 
-def _experimental_resolve_pipeline(pipeline):
+def _resolve_pipeline(pipeline):
     """
     Users need to be able to build and specify their own pipelines here
     (similar to how kwiver pipelines work). This is initial support.
 
     Ignore:
         from kwdagger.pipeline import *  # NOQA
-        from kwdagger.pipeline import _experimental_resolve_pipeline
+        from kwdagger.pipeline import _resolve_pipeline
         pipeline = 'user_module.pipelines.custom_pipeline_func()'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
         pipeline = 'example_user_module.pipelines.my_demo_pipeline()'
-        _experimental_resolve_pipeline(pipeline)
+        _resolve_pipeline(pipeline)
     """
     # Case: given in the format `{module_name}.{attribute_expression}`
     # Note the attribute_expression allows arbitrary code execution

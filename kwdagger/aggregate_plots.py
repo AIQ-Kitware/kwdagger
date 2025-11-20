@@ -6,11 +6,6 @@ Used by ./aggregate.py
 """
 import ubelt as ub
 
-try:
-    from line_profiler import profile
-except ImportError:
-    profile = ub.identity
-
 
 def build_plotter(agg, rois, plot_config):
     """
@@ -103,7 +98,6 @@ def build_plotter(agg, rois, plot_config):
     return plotter
 
 
-@profile
 def build_all_param_plots(agg, rois, plot_config):
     """
     Main entry point for plotting results from an :class:`Aggregator`.

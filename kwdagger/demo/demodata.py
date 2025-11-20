@@ -99,7 +99,7 @@ Example:
     >>> fpath2.write_text('data2')
     >>> schedule_config['params']['matrix']['stage1_predict.src_fpath'] = [
     ...     fpath1, fpath2]
-    >>> schedule.main(cmdline=False, **schedule_config)
+    >>> schedule.__cli__.main(argv=False, **schedule_config)
     >>> #
     >>> # Also load the results
     >>> from kwdagger import aggregate
@@ -125,7 +125,7 @@ Example:
     >>>     ''')
     >>> aggregate_config['target'] = [eval_dpath]
     >>> aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
-    >>> aggregate.main(cmdline=False, **aggregate_config)
+    >>> aggregate.__cli__.main(argv=False, **aggregate_config)
 """
 from kwdagger.pipeline import ProcessNode
 from kwdagger.pipeline import Pipeline
@@ -151,8 +151,8 @@ class Stage1PredictCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(cls, cmdline=1, **kwargs):
-        config = cls.cli(cmdline=cmdline, data=kwargs, strict=True,
+    def main(cls, argv=1, **kwargs):
+        config = cls.cli(argv=argv, data=kwargs, strict=True,
                          verbose='auto')
 
         data = {
@@ -196,8 +196,8 @@ class Stage1EvaluateCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(cls, cmdline=1, **kwargs):
-        config = cls.cli(cmdline=cmdline, data=kwargs, strict=True,
+    def main(cls, argv=1, **kwargs):
+        config = cls.cli(argv=argv, data=kwargs, strict=True,
                          verbose='auto')
 
         data = {
@@ -445,7 +445,7 @@ def run_demo_schedule():
     fpath2.write_text('data2')
     schedule_config['params']['matrix']['stage1_predict.src_fpath'] = [
         fpath1, fpath2]
-    schedule.main(cmdline=False, **schedule_config)
+    schedule.__cli__.main(argv=False, **schedule_config)
 
     info = {
         'pipeline': 'kwdagger.demo.demodata.my_demo_pipeline()',
@@ -482,7 +482,7 @@ def run_demo_aggregate():
         ''')
     aggregate_config['target'] = [eval_dpath]
     aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
-    aggregate.main(cmdline=False, **aggregate_config)
+    aggregate.main(argv=False, **aggregate_config)
 
 
 if __name__ == '__main__':

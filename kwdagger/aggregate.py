@@ -69,11 +69,6 @@ import ubelt as ub
 from typing import Dict, Any
 from scriptconfig import DataConfig, Value
 
-try:
-    from line_profiler import profile
-except ImportError:
-    profile = ub.identity
-
 
 class AggregateLoader(DataConfig):
     """
@@ -142,7 +137,6 @@ class AggregateLoader(DataConfig):
                 resolved.extend(list(resolve_item(inputs)))
             self.target = resolved
 
-    @profile
     def coerce_aggregators(config):
         from kwutil import util_path
         from kwdagger.aggregate_loader import build_tables
@@ -275,7 +269,6 @@ class AggregateEvluationConfig(AggregateLoader):
             }
         self.stdout_report = Yaml.coerce(self.stdout_report)
 
-    @profile
     def coerce_aggregators(config):
         eval_type_to_aggregator = super().coerce_aggregators()
         output_dpath = ub.Path(config['output_dpath'])
@@ -283,55 +276,56 @@ class AggregateEvluationConfig(AggregateLoader):
             agg.output_dpath = output_dpath
         return eval_type_to_aggregator
 
+    @classmethod
+    def main(cls, argv=True, **kwargs):
+        """
+        Aggregate entry point.
 
-def main(cmdline=True, **kwargs):
-    """
-    Aggregate entry point.
+        Loads results for each evaluation node_type, constructs aggregator objects,
+        and then executes user specified commands that could include filtering,
+        macro-averaging, reporting, plotting, etc...
 
-    Loads results for each evaluation node_type, constructs aggregator objects,
-    and then executes user specified commands that could include filtering,
-    macro-averaging, reporting, plotting, etc...
+        CommandLine:
+            xdoctest -m kwdagger.aggregate AggregateEvluationConfig.main
 
-    Example:
-        >>> from kwdagger.demo.demodata import run_demo_schedule
-        >>> from kwdagger.aggregate import *  # NOQA
-        >>> import kwutil
-        >>> # Ensure an evaluation has happened
-        >>> info = run_demo_schedule()
-        >>> # Call this command
-        >>> kwargs = kwutil.Yaml.coerce(
-        >>>     '''
-        >>>     resource_report: 0
-        >>>     io_workers: 0
-        >>>     eval_nodes:
-        >>>         - stage1_evaluate
-        >>>     stdout_report:
-        >>>         top_k: 100
-        >>>         per_group: null
-        >>>         macro_analysis: 0
-        >>>         analyze: 0
-        >>>         print_models: True
-        >>>         reference_region: null
-        >>>         concise: 'split'
-        >>>         show_csv: 0
-        >>>     plot_params:
-        >>>         enabled: 0
-        >>>     cache_resolved_results: False
-        >>>     ''')
-        >>> kwargs['pipeline'] = info['pipeline']
-        >>> kwargs['target'] = info['eval_dpath']
-        >>> kwargs['output_dpath'] = info['eval_dpath'] / 'full_aggregate'
-        >>> # Test the standard case
-        >>> main(cmdline=False, **kwargs)
-        >>> # Test the display 1 case
-        >>> kwargs['stdout_report']['top_k'] = 1
-        >>> main(cmdline=False, **kwargs)
+        Example:
+            >>> from kwdagger.demo.demodata import run_demo_schedule
+            >>> from kwdagger.aggregate import *  # NOQA
+            >>> import kwutil
+            >>> # Ensure an evaluation has happened
+            >>> info = run_demo_schedule()
+            >>> # Call this command
+            >>> kwargs = kwutil.Yaml.coerce(
+            >>>     '''
+            >>>     resource_report: 0
+            >>>     io_workers: 0
+            >>>     eval_nodes:
+            >>>         - stage1_evaluate
+            >>>     stdout_report:
+            >>>         top_k: 100
+            >>>         per_group: null
+            >>>         macro_analysis: 0
+            >>>         analyze: 0
+            >>>         print_models: True
+            >>>         reference_region: null
+            >>>         concise: 'split'
+            >>>         show_csv: 0
+            >>>     plot_params:
+            >>>         enabled: 0
+            >>>     cache_resolved_results: False
+            >>>     ''')
+            >>> kwargs['pipeline'] = info['pipeline']
+            >>> kwargs['target'] = info['eval_dpath']
+            >>> kwargs['output_dpath'] = info['eval_dpath'] / 'full_aggregate'
+            >>> # Test the standard case
+            >>> AggregateEvluationConfig.main(argv=False, **kwargs)
+            >>> # Test the display 1 case
+            >>> kwargs['stdout_report']['top_k'] = 1
+            >>> AggregateEvluationConfig.main(argv=False, **kwargs)
 
-    """
-    config = AggregateEvluationConfig.cli(cmdline=cmdline, data=kwargs, strict=True)
-    import rich
-    rich.print('config = {}'.format(ub.urepr(config, nl=1)))
-    run_aggregate(config)
+        """
+        config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
+        run_aggregate(config)
 
 
 def run_aggregate(config):
@@ -477,7 +471,7 @@ def run_aggregate(config):
                     # from kwdagger import confusor_analysis
                     # for region_id, group in subagg.index.groupby('region_id'):
                     #     group_agg = subagg.filterto(index=group.index)
-                    #     # confusor_analysis.main(cmdline=0, )
+                    #     # confusor_analysis.main(argv=0, )
     return eval_type_to_aggregator
 
 
@@ -2169,7 +2163,6 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             print(f'Building a single macro table: rois={rois!r}')
             agg.build_single_macro_table(rois, **kwargs)
 
-    @profile
     def build_single_macro_table(agg, rois, average='mean'):
         """
         Builds a single macro table for a choice of regions.
@@ -2324,7 +2317,7 @@ def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
                 true_site_dpath=true_site_dpath,
                 true_region_dpath=true_region_dpath,
             )
-            confusor_analysis.main(cmdline=0, **confusor_config)
+            confusor_analysis.main(argv=0, **confusor_config)
 
         confusion_fpaths = list((eval_fpath.parent / 'bas_summary_viz').glob('confusion_*.jpg'))
         if len(confusion_fpaths):
@@ -2339,7 +2332,6 @@ def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
             kwimage.imwrite(agg_group_dpath / f'confusion_{region_id}_{param_hashid}.jpg', im)
 
 
-@profile
 def aggregate_param_cols(df, aggregator=None, hash_cols=None, allow_nonuniform=False):
     """
     Aggregates parameter columns. Specified hash_cols should be
@@ -2667,7 +2659,6 @@ def find_uniform_columns(df_comparable):
     return mask
 
 
-@profile
 def macro_aggregate(agg, group, aggregator, average='mean'):
     """
     Helper function
@@ -2912,12 +2903,11 @@ def _build_metrics_info_table(agg, node):
 
 
 __cli__ = AggregateEvluationConfig
-__cli__.main = main
 
 
 if __name__ == '__main__':
     """
     CommandLine:
-        python ~/code/watch/kwdagger/aggregate_evaluation.py --help
+        python ~/code/kwdagger/kwdagger/aggregate.py --help
     """
-    main()
+    __cli__.main()

@@ -109,7 +109,6 @@ def build_schedule(config):
 
     if config.run:
         kwdagger_meta = (root_dpath / '_kwdagger_schedule').ensuredir()
-        (root_dpath / '_cmd_queue_schedule').ensuredir()
         # Write some metadata to help aggregate set its defaults automatically
         most_recent_fpath = kwdagger_meta / 'most_recent_run.json'
         data = {
@@ -178,7 +177,7 @@ def build_schedule(config):
         job.log = False
 
     if config.run:
-        ub.ensuredir(dag.root_dpath)
+        ub.Path(dag.root_dpath).ensuredir()
 
     print_kwargs = {
         'with_status': 0,
