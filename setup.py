@@ -210,21 +210,35 @@ if __name__ == "__main__":
     )
     setupkw["extras_require"] = {
         "all": parse_requirements("requirements.txt", versions="loose"),
-        "headless": parse_requirements("requirements/headless.txt", versions="loose"),
+        "runtime": parse_requirements("requirements/runtime.txt", versions="loose"),
+        "tests": parse_requirements("requirements/tests.txt", versions="loose"),
+        "optional": parse_requirements("requirements/optional.txt", versions="loose"),
+        "docs": parse_requirements("requirements/docs.txt", versions="loose"),
+        "gdal": parse_requirements("requirements/gdal.txt", versions="loose"),
         "graphics": parse_requirements("requirements/graphics.txt", versions="loose"),
+        "headless": parse_requirements("requirements/headless.txt", versions="loose"),
         "all-strict": parse_requirements("requirements.txt", versions="strict"),
-        "headless-strict": parse_requirements(
-            "requirements/headless.txt", versions="strict"
+        "runtime-strict": parse_requirements(
+            "requirements/runtime.txt", versions="strict"
         ),
+        "tests-strict": parse_requirements("requirements/tests.txt", versions="strict"),
+        "optional-strict": parse_requirements(
+            "requirements/optional.txt", versions="strict"
+        ),
+        "docs-strict": parse_requirements("requirements/docs.txt", versions="strict"),
+        "gdal-strict": parse_requirements("requirements/gdal.txt", versions="strict"),
         "graphics-strict": parse_requirements(
             "requirements/graphics.txt", versions="strict"
+        ),
+        "headless-strict": parse_requirements(
+            "requirements/headless.txt", versions="strict"
         ),
     }
     setupkw["name"] = NAME
     setupkw["version"] = VERSION
     setupkw["author"] = "Jon Crall"
     setupkw["author_email"] = "erotemic@gmail.com"
-    setupkw["url"] = None
+    setupkw["url"] = "https://gitlab.kitware.com/computer-vision/kwdagger"
     setupkw["description"] = "The kwdagger module"
     setupkw["long_description"] = parse_description()
     setupkw["long_description_content_type"] = "text/x-rst"
@@ -244,4 +258,9 @@ if __name__ == "__main__":
         "Programming Language :: Python :: 3.14",
     ]
     setupkw["package_data"] = {"": ["requirements/*.txt"]}
+    setupkw["entry_points"] = {
+        "console_scripts": [
+            "kwdagger = kwdagger.__main__:main",
+        ],
+    }
     setup(**setupkw)

@@ -76,7 +76,7 @@ stages:
     python -m uv pip install pygments
     python --version  # Print out python version for debugging
   script:
-  - export INSTALL_EXTRAS="tests,headless"
+  - export INSTALL_EXTRAS="tests"
   - echo "Finding the path to the wheel"
   - ls dist || echo "dist does not exist"
   - 'echo "Installing helpers: update pip"'
@@ -103,7 +103,6 @@ stages:
         item = cls(fpath)
         print(item.version)
     ")
-  - python -m uv pip install -r requirements/gdal.txt
   - echo "WHEEL_FPATH=$WHEEL_FPATH"
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"
@@ -147,7 +146,7 @@ stages:
     python -m uv pip install pygments
     python --version  # Print out python version for debugging
   script:
-  - export INSTALL_EXTRAS="tests,optional,headless"
+  - export INSTALL_EXTRAS="tests,optional"
   - echo "Finding the path to the wheel"
   - ls dist || echo "dist does not exist"
   - 'echo "Installing helpers: update pip"'
@@ -174,7 +173,6 @@ stages:
         item = cls(fpath)
         print(item.version)
     ")
-  - python -m uv pip install -r requirements/gdal.txt
   - echo "WHEEL_FPATH=$WHEEL_FPATH"
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"
@@ -218,7 +216,7 @@ stages:
     python -m uv pip install pygments
     python --version  # Print out python version for debugging
   script:
-  - export INSTALL_EXTRAS="tests-strict,runtime-strict,headless-strict"
+  - export INSTALL_EXTRAS="tests-strict,runtime-strict"
   - echo "Finding the path to the wheel"
   - ls dist || echo "dist does not exist"
   - 'echo "Installing helpers: update pip"'
@@ -245,8 +243,6 @@ stages:
         item = cls(fpath)
         print(item.version)
     ")
-  - sed 's/>=/==/' "requirements/gdal.txt" > "requirements/gdal-strict.txt"
-  - python -m uv pip install -r requirements/gdal-strict.txt
   - echo "WHEEL_FPATH=$WHEEL_FPATH"
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"
@@ -290,7 +286,7 @@ stages:
     python -m uv pip install pygments
     python --version  # Print out python version for debugging
   script:
-  - export INSTALL_EXTRAS="tests-strict,runtime-strict,optional-strict,headless-strict"
+  - export INSTALL_EXTRAS="tests-strict,runtime-strict,optional-strict"
   - echo "Finding the path to the wheel"
   - ls dist || echo "dist does not exist"
   - 'echo "Installing helpers: update pip"'
@@ -317,8 +313,6 @@ stages:
         item = cls(fpath)
         print(item.version)
     ")
-  - sed 's/>=/==/' "requirements/gdal.txt" > "requirements/gdal-strict.txt"
-  - python -m uv pip install -r requirements/gdal-strict.txt
   - echo "WHEEL_FPATH=$WHEEL_FPATH"
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"

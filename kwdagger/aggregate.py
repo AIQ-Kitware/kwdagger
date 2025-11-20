@@ -13,9 +13,6 @@ files in this directory
 
 * aggregate_plots.py - handles plotting relationships between parameters and metrics
 
-* smart_global_helper.py - quick and dirty project specific stuff that ideally wont
-    get in the way of general use-cases but should eventually be factored out.
-
 Ignore:
 
     # Real data
@@ -201,7 +198,6 @@ class AggregateEvluationConfig(AggregateLoader):
     Aggregates results from multiple DAG evaluations.
     """
     __command__ = 'aggregate'
-    __alias__ = ['mlops_aggregate']
 
     output_dpath = Value('./aggregate', help=ub.paragraph(
         '''
@@ -1830,18 +1826,6 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             >>> assert subagg.table['context.demo_node.uuid'].str.startswith('c').all()
             >>> assert not agg.table['context.demo_node.uuid'].str.startswith('c').all()
             >>> print(subagg.table['context.demo_node.uuid'])
-
-        FIXME:
-            On 2024-02-12 CI failed this test with. Not sure where
-            non-determinisim came from.
-            assert len(subagg) > 0, 'query should return something'
-            AssertionError: query should return something
-
-            Another instance on 2024-04-19. Job log is:
-            https://gitlab.kitware.com/computer-vision/kwdagger/-/jobs/9652752
-
-            This is likely because of unseeded UUIDs, which should now be
-            fixed.
         """
         import numpy as np
         import kwarray
@@ -1939,13 +1923,12 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
     @property
     def default_vantage_points(self):
-        from kwdagger.smart_global_helper import SMART_HELPER
         try:
             if self.dag is not None:
                 node = self.dag.nodes[self.node_type]
                 vantage_points = node.default_vantage_points
         except Exception:
-            vantage_points = SMART_HELPER.default_vantage_points(self.node_type)
+            vantage_points = []
         return vantage_points
 
     def build_effective_params(self):
@@ -1971,23 +1954,14 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         import pandas as pd
         import itertools as it
         from kwdagger.utils import util_pandas
-        from kwdagger.smart_global_helper import SMART_HELPER
         requested_params = self.requested_params
         effective_params = requested_params.copy()
-
-        HACK_FIX_JUNK_PARAMS = True
-        if HACK_FIX_JUNK_PARAMS:
-            # hacks to remove junk params that happen to be in our tables
-            junk_suffixes = ['space_basale']
-            junk_cols = util_pandas.pandas_suffix_columns(effective_params, junk_suffixes)
-            effective_params = effective_params.drop(junk_cols, axis=1)
 
         model_cols = self.model_cols
         test_dset_cols = self.test_dset_cols
 
         mappings : Dict[str, Dict[Any, str]] = {}
         path_colnames = model_cols + test_dset_cols
-        path_colnames = path_colnames + SMART_HELPER.EXTRA_PATH_COLUMNS
         existing_path_colnames = requested_params.columns.intersection(path_colnames)
 
         for colname in existing_path_colnames:
@@ -1996,9 +1970,6 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             mappings[colname] = mapper
             effective_params[colname] = condensed
 
-        for colname in SMART_HELPER.EXTRA_HASHID_IGNORE_COLUMNS:
-            effective_params[colname] = 'ignore'
-
         _specified = util_pandas.DotDictDataFrame(self.specified_params)
         _specified_params = _specified.subframe('specified')
         is_param_included = _specified_params > 0
@@ -2006,7 +1977,6 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         # For each unique set of effective parameters compute a hashid
         # TODO: better mechanism for user-specified ignore param columns
         hashid_ignore_columns = list(self.test_dset_cols)
-        hashid_ignore_columns += SMART_HELPER.EXTRA_HASHID_IGNORE_COLUMNS
 
         param_cols = ub.oset(effective_params.columns).difference(hashid_ignore_columns)
         param_cols = list(param_cols - {'region_id', 'node'})
@@ -2024,24 +1994,6 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             # be manually excluded.
             from kwdagger.utils.result_analysis import varied_value_counts
             varied_value_counts(effective_params, min_variations=2)
-
-        if 0:
-            # check behavior of groupby with None:
-            df = pd.DataFrame([
-                {'a': None, 'b': 4, 'c': 1},
-                {'a': None, 'b': 1, 'c': 1},
-                {'a': None, 'b': 1, 'c': 2},
-                {'a': 1, 'b': 2, 'c': 2},
-                {'a': 1, 'b': 3, 'c': 2},
-            ], dtype=object)
-            group_keys = ['a', 'c']
-            grouped = df.groupby(group_keys, dropna=False)
-            for group_vals, group in grouped:
-                group_key1 = dict(zip(group_keys, group_vals))
-                group_key2 = group.iloc[0][group_keys].to_dict()
-                print('---')
-                print(f'group_key1={group_key1}')
-                print(f'group_key2={group_key2}')
 
         # Preallocate a series with the appropriate index
         hashids_v1 = pd.Series([None] * len(self.index), index=self.index.index)
@@ -2944,24 +2896,19 @@ def _build_metrics_info_table(agg, node):
                 agg.display_metric_cols = list(ub.oset(agg.primary_metric_cols + agg.display_metric_cols))
         else:
             # TODO: deprecate the old _default_metrics stuff entirely
-            try:
-                from kwdagger.smart_global_helper import SMART_HELPER
-                # TODO: deprecate SMART-stuff
-                _primary_metrics_suffixes, _display_metrics_suffixes = SMART_HELPER._default_metrics(agg)
-            except Exception:
-                if hasattr(node, '_default_metrics'):
-                    _primary_metrics_suffixes, _display_metrics_suffixes = node._default_metrics()
-                    # should we prevent double prefixes?
-                    _primary_metrics = [f'{metrics_prefix}.{s}' for s in _primary_metrics_suffixes]
-                    _display_metrics = [f'{metrics_prefix}.{s}' for s in _display_metrics_suffixes]
-                else:
-                    # fallback to something
-                    _display_metrics = list(agg.table.search_columns('metrics'))[0:3]
-                    _primary_metrics = _display_metrics[0:1]
-                if agg.primary_metric_cols == 'auto':
-                    agg.primary_metric_cols = _primary_metrics
-                if agg.display_metric_cols == 'auto':
-                    agg.display_metric_cols = _display_metrics
+            if hasattr(node, '_default_metrics'):
+                _primary_metrics_suffixes, _display_metrics_suffixes = node._default_metrics()
+                # should we prevent double prefixes?
+                _primary_metrics = [f'{metrics_prefix}.{s}' for s in _primary_metrics_suffixes]
+                _display_metrics = [f'{metrics_prefix}.{s}' for s in _display_metrics_suffixes]
+            else:
+                # fallback to something
+                _display_metrics = list(agg.table.search_columns('metrics'))[0:3]
+                _primary_metrics = _display_metrics[0:1]
+            if agg.primary_metric_cols == 'auto':
+                agg.primary_metric_cols = _primary_metrics
+            if agg.display_metric_cols == 'auto':
+                agg.display_metric_cols = _display_metrics
 
 
 __cli__ = AggregateEvluationConfig

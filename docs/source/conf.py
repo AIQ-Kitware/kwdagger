@@ -45,7 +45,7 @@ Notes:
 
         Enter the following information:
             Set the Repository NAME: kwdagger
-            Set the Repository URL: None
+            Set the Repository URL: https://gitlab.kitware.com/computer-vision/kwdagger
 
         Make sure you have a .readthedocs.yml file
 
@@ -68,7 +68,7 @@ Notes:
 
         Then go to
 
-            None/hooks
+            https://gitlab.kitware.com/computer-vision/kwdagger/hooks
 
             Click "Add new webhook".
 

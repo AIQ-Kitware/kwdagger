@@ -20,7 +20,6 @@ def build_plotter(agg, rois, plot_config):
     Returns:
         ParamPlotter
     """
-    from kwdagger.smart_global_helper import SMART_HELPER
     from kwdagger.utils import util_kwplot
     from kwutil import Yaml
 
@@ -29,11 +28,13 @@ def build_plotter(agg, rois, plot_config):
     single_table = table = agg.table
     single_table = preprocess_table_for_seaborn(agg, table)
 
-    MARK_DELIVERED = plot_config.get('mark_delivered', False)
-    if MARK_DELIVERED:
-        SMART_HELPER.mark_delivery(single_table)
-
-    modifier: util_kwplot.LabelModifier = SMART_HELPER.label_modifier()
+    modifier = util_kwplot.LabelModifier()
+    def _humanize_label(text):
+        text = text.replace('params.', '')
+        text = text.replace('metrics.', '')
+        text = text.replace('fit.', 'fit.')
+        return text
+    modifier.add_mapping(_humanize_label)
 
     config_label_mappings = plot_config.get('label_mappings', {})
     modifier.update(config_label_mappings)
@@ -43,14 +44,10 @@ def build_plotter(agg, rois, plot_config):
         macro_table = agg.region_to_tables[agg.primary_macro_region].copy()
         macro_table = preprocess_table_for_seaborn(agg, macro_table)
 
-        if MARK_DELIVERED:
-            SMART_HELPER.mark_delivery(macro_table)
-        param_to_palette = SMART_HELPER.shared_palettes(macro_table)
-        if 0:
-            SMART_HELPER.mark_star_models(macro_table)
+        param_to_palette = {}
     else:
         macro_table = None
-        param_to_palette = SMART_HELPER.shared_palettes(single_table)
+        param_to_palette = {}
 
     plot_dpath = plot_config.get('plot_dpath', None)
     if plot_dpath is None:
@@ -153,7 +150,6 @@ def preprocess_table_for_seaborn(agg, table):
     table = table.applymap(lambda x: str(x) if isinstance(x, list) else x)
 
     from kwdagger.utils import util_pandas
-    from kwdagger.smart_global_helper import SMART_HELPER
     table = util_pandas.DataFrame(table)
     channel_cols = table.match_columns('*.channels')
     if len(channel_cols):
@@ -162,9 +158,6 @@ def preprocess_table_for_seaborn(agg, table):
             unique_channels = sorted(unique_channels)
         except TypeError:
             ...
-        channel_mapping = SMART_HELPER.custom_channel_relabel_mapping(unique_channels, coarsen=False)
-        for col in channel_cols:
-            table[col] = table[col].apply(channel_mapping.get)
 
     if 'resolved_params.bas_pxl_fit.initializer.init' in table:
         # SMART hack
@@ -297,7 +290,6 @@ class ParamPlotter:
         import kwplot
         import kwimage
         import rich
-        from kwdagger.smart_global_helper import SMART_HELPER
         sns = kwplot.autosns()
         plt = kwplot.autoplt()  # NOQA
         kwplot.close_figures()
@@ -343,7 +335,7 @@ class ParamPlotter:
             if 'sv_poly_eval' in x.split('.'):
                 plotter._add_sv_hack_lines(ax, single_table, x, y)
         if 'delivered_params' in single_table:
-            val_to_color = SMART_HELPER.delivery_to_color
+            val_to_color = {}
             if 0:
                 kwplot.imshow(kwplot.make_legend_img(val_to_color, mode='star', dpi=300))
             scatterplot_highlight(data=single_table, x=x, y=y,
@@ -406,7 +398,6 @@ class ParamPlotter:
         import kwimage
         import numpy as np
         import rich
-        from kwdagger.smart_global_helper import SMART_HELPER
 
         rich.print('[white]### Plot Vantage Macro Overview:')
         rich.print(f'[white] * {vantage}')
@@ -456,7 +447,7 @@ class ParamPlotter:
                 size=300)
         if 'delivered_params' in macro_table:
             import kwimage
-            val_to_color = SMART_HELPER.delivery_to_color
+            val_to_color = {}
             if 0:
                 kwplot.imshow(kwplot.make_legend_img(val_to_color, mode='star', dpi=300))
             scatterplot_highlight(data=macro_table, x=x, y=y,
@@ -523,8 +514,7 @@ class ParamPlotter:
         main_objective = vantage['objective1']
         metric_objectives = {main_metric: main_objective}
 
-        from kwdagger.smart_global_helper import SMART_HELPER
-        blocklist = SMART_HELPER.VIZ_BLOCKLIST
+        blocklist = {}
 
         resolved_params = util_pandas.DotDictDataFrame(macro_table).subframe('resolved_params', drop_prefix=False)
         resolved_params['param_hashid'] = macro_table['param_hashid']
@@ -648,10 +638,6 @@ class ParamPlotter:
         # stats['moments']
         anova_rank_p = stats.get('anova_rank_p', None)
         # param_name = stats['param_name']
-
-        # if 0:
-        #     # macro_table[param_name] = macro_table[param_name].apply(lambda x: config_label_mappings.get(x, x))
-        #     param_to_palette[param_name] = SMART_HELPER.make_param_palette(macro_table[param_name].unique())
 
         try:
             macro_table = macro_table.sort_values(param_name)

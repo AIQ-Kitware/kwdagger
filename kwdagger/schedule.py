@@ -10,183 +10,7 @@ file.
 TODO:
     - [ ] Differentiate between pixel models for different tasks.
     - [ ] Allow the output of tracking to feed into activity classification
-    - [ ] Rename to "schedule". The pipeline does not have to be an evaluation.
-
-
-Example:
-
-    # Dummy inputs, just for demonstration
-
-    python -m kwdagger.schedule \
-        --params="
-            matrix:
-                bas_pxl.package_fpath:
-                    - ./my_bas_model1.pt
-                    - ./my_bas_model2.pt
-                bas_pxl.test_dataset:
-                    - ./my_test_dataset/bas_ready_data.kwcoco.json
-                bas_pxl.window_space_scale: 15GSD
-                bas_pxl.time_sampling:
-                    - 'auto'
-                bas_pxl.input_space_scale:
-                    - '15GSD'
-                bas_poly_eval.true_site_dpath: null
-                bas_poly_eval.true_region_dpath: null
-                bas_poly.moving_window_size:
-                bas_poly.thresh:
-                    - 0.1
-                    - 0.2
-                sc_pxl.test_dataset:
-                    - crop.dst
-                sc_pxl.window_space_scale:
-                    - auto
-                sc_poly.thresh:
-                    - 0.1
-                sc_poly.use_viterbi:
-                    - 0
-                sc_pxl.package_fpath:
-                    - my_sc_model1.pt
-                    - my_sc_model2.pt
-                sc_poly_viz.enabled:
-                    - false
-        " \
-        --root_dpath=./my_dag_runs \
-        --devices="0,1" --tmux_workers=2 \
-        --backend=serial --skip_existing=0 \
-        --pipeline=joint_bas_sc \
-        --run=0
-
-    python -m kwdagger.schedule \
-        --params="
-            matrix:
-                bas_pxl.package_fpath:
-                    - ./my_bas_model1.pt
-                    - ./my_bas_model2.pt
-                bas_pxl.test_dataset:
-                    - ./my_test_dataset/bas_ready_data.kwcoco.json
-                bas_pxl.window_space_scale: 15GSD
-                bas_pxl.time_sampling:
-                    - 'auto'
-                bas_pxl.input_space_scale:
-                    - '15GSD'
-                bas_poly.moving_window_size:
-                bas_poly.thresh:
-                    - 0.1
-                    - 0.2
-                bas_pxl.enabled: 1
-                bas_poly_eval.true_site_dpath: true-site
-                bas_poly_eval.true_region_dpath: true-region
-        " \
-        --root_dpath=./my_dag_runs \
-        --devices="0,1" \
-        --backend=serial --skip_existing=0 \
-        --pipeline=bas \
-        --run=0
-
-    # Real inputs, this actually will run something given the DVC repos
-    DVC_DATA_DPATH=$(kwdagger_dvc --tags='phase2_data' --hardware=auto)
-    DVC_EXPT_DPATH=$(kwdagger_dvc --tags='phase2_expt' --hardware=auto)
-
-    SC_MODEL=$DVC_EXPT_DPATH/models/fusion/Drop4-SC/packages/Drop4_tune_V30_8GSD_V3/Drop4_tune_V30_8GSD_V3_epoch=2-step=17334.pt.pt
-    BAS_MODEL=$DVC_EXPT_DPATH/models/fusion/Drop4-BAS/packages/Drop4_TuneV323_BAS_30GSD_BGRNSH_V2/package_epoch0_step41.pt.pt
-
-    python -m kwdagger.schedule \
-        --params="
-            matrix:
-                bas_pxl.package_fpath:
-                    - $BAS_MODEL
-                bas_pxl.test_dataset:
-                    - $DVC_DATA_DPATH/Drop4-BAS/KR_R001.kwcoco.json
-                bas_pxl.window_space_scale: 15GSD
-                bas_pxl.time_sampling:
-                    - "auto"
-                bas_pxl.input_space_scale:
-                    - "15GSD"
-                bas_poly.moving_window_size:
-                bas_poly.thresh:
-                    - 0.1
-                sc_pxl.test_dataset:
-                    - crop.dst
-                sc_pxl.window_space_scale:
-                    - auto
-                sc_poly.thresh:
-                    - 0.1
-                sc_poly.use_viterbi:
-                    - 0
-                sc_pxl.package_fpath:
-                    - $SC_MODEL
-                sc_poly_viz.enabled:
-                    - false
-        " \
-        --root_dpath=./my_dag_runs \
-        --devices="0,1" --queue_size=2 \
-        --backend=serial --skip_existing=0 \
-        --pipeline=joint_bas_sc_nocrop \
-        --run=0
-
-Example:
-
-    # Real data
-    DVC_DATA_DPATH=$(kwdagger_dvc --tags='phase2_data' --hardware=auto)
-    DVC_EXPT_DPATH=$(kwdagger_dvc --tags='phase2_expt' --hardware=auto)
-
-    python -m kwdagger.schedule \
-        --params="
-            matrix:
-                bas_pxl.package_fpath:
-                    # - $DVC_EXPT_DPATH/models/fusion/Drop4-BAS/packages/Drop4_TuneV323_BAS_30GSD_BGRNSH_V2/package_epoch0_step41.pt.pt
-                    - $DVC_EXPT_DPATH/package_epoch10_step200000.pt
-                bas_pxl.test_dataset:
-                    - $DVC_DATA_DPATH/Drop4-BAS/KR_R001.kwcoco.json
-                    # - $DVC_DATA_DPATH/Drop4-BAS/KR_R002.kwcoco.json
-                bas_pxl.window_space_scale:
-                    - auto
-                    # - "15GSD"
-                    # - "30GSD"
-                # bas_pxl.chip_dims:
-                #     - "256,256"
-                bas_pxl.time_sampling:
-                    - "auto"
-                # bas_pxl.input_space_scale:
-                #     - "window"
-                bas_poly.moving_window_size:
-                    - null
-                    # - 100
-                    # - 200
-                bas_poly.thresh:
-                    - 0.1
-                    # - 0.13
-                    # - 0.2
-                sc_pxl.window_space_scale:
-                    - auto
-                sc_pxl.input_space_scale:
-                    - "window"
-                sc_pxl.chip_dims:
-                    - "256,256"
-                sc_poly.thresh:
-                    - 0.1
-                sc_poly.use_viterbi:
-                    - 0
-                sc_pxl.package_fpath:
-                    - $DVC_EXPT_DPATH/models/fusion/Drop4-SC/packages/Drop4_tune_V30_8GSD_V3/Drop4_tune_V30_8GSD_V3_epoch=2-step=17334.pt.pt
-                bas_poly_eval.enabled: 1
-                bas_pxl_eval.enabled: 1
-                bas_poly_viz.enabled: 1
-                sc_poly_eval.enabled: 1
-                sc_pxl_eval.enabled: 1
-                sc_poly_viz.enabled: 1
-        " \
-        --root_dpath=$DVC_EXPT_DPATH/_testpipe \
-        --enable_links=1 \
-        --devices="0,1" --queue_size=2 \
-        --backend=serial \
-        --pipeline=bas \
-        --cache=1 --rprint=1 --run=1
-
-        --pipeline=joint_bas_sc
-
-
-    xdev tree --dirblocklist "_*" my_expt_dir/_testpipe/ --max_files=1
+    - [x] Rename to "schedule". The pipeline does not have to be an evaluation.
 """
 import ubelt as ub
 import scriptconfig as scfg
@@ -195,13 +19,12 @@ from cmd_queue.cli_boilerplate import CMDQueueConfig
 
 class ScheduleEvaluationConfig(CMDQueueConfig):
     """
-    Driver for GeoWATCH mlops evaluation scheduling
+    Driver for KWDagger scheduling
 
     Builds commands and optionally executes them via slurm, tmux, or serial
     (i.e. one at a time). This is a [link=https://gitlab.kitware.com/computer-vision/cmd_queue]cmd_queue[/link] CLI.
     """
     __command__ = 'schedule'
-    __alias__ = ['mlops_schedule']
 
     params = scfg.Value(None, type=str, help='a yaml/json grid/matrix of prediction params')
 
@@ -215,13 +38,13 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
 
     pred_workers = scfg.Value(4, help='number of prediction workers in each process')
 
-    root_dpath = scfg.Value('auto', help=(
+    root_dpath = scfg.Value('./kwdagger_output', help=(
         'Where do dump all results. If "auto", uses <expt_dvc_dpath>/dag_runs'))
 
-    pipeline = scfg.Value('joint_bas_sc', help=ub.paragraph(
+    pipeline = scfg.Value(None, help=ub.paragraph(
         '''
         The name of the pipeline to run. Can also specify this in the params.
-        This can be a name of an internally registered pipeline, or it can
+        This should be a name of an internally registered pipeline, or it can
         point to a function that defines a pipeline in a Python file. E.g.
         ``user_module.pipelines.custom_pipeline_func()`` or
         ``$HOME/my_code/my_pipeline.py::make_my_pipeline("arg")``.
@@ -230,9 +53,6 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
     enable_links = scfg.Value(True, isflag=True, help='if true enable symlink jobs')
     cache = scfg.Value(True, isflag=True, help=(
         'if true, each a test is appened to each job to skip itself if its output exists'))
-
-    draw_heatmaps = scfg.Value(1, isflag=True, help='if true draw heatmaps on pixel eval')
-    draw_curves = scfg.Value(1, isflag=True, help='if true draw curves on pixel eval')
 
     max_configs = scfg.Value(None, help='if specified only run at most this many of the grid search configs')
 
@@ -247,8 +67,8 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
         if self.queue_size is not None:
             raise Exception('The queue_size argument to schedule evaluation has been removed. Use the tmux_workers argument instead')
             # self.tmux_workers = self.queue_size
-        from cmd_queue.util.util_yaml import Yaml
-        self.slurm_options = Yaml.coerce(self.slurm_options) or {}
+        import kwutil
+        self.slurm_options = kwutil.Yaml.coerce(self.slurm_options) or {}
 
         devices = self.devices
         if devices == 'auto':
@@ -274,61 +94,19 @@ def build_schedule(config):
     import json
     import pandas as pd
     import rich
+    import kwutil
     from kwutil import slugify_ext
     from kwutil import util_progress
-    from kwutil.util_yaml import Yaml
     from kwdagger.pipeline import coerce_pipeline
     from kwdagger.utils.result_analysis import varied_values
     from kwdagger.utils.util_param_grid import expand_param_grid
-
-    # Dont put in post-init because it is called by the CLI!
-    if config['root_dpath'] in {None, 'auto'}:
-        # TODO: SMART specific, remove this.
-        import kwdagger
-        expt_dvc_dpath = kwdagger.find_dvc_dpath(tags='phase2_expt', hardware='auto')
-        config['root_dpath'] = expt_dvc_dpath / 'dag_runs'
 
     root_dpath = ub.Path(config['root_dpath'])
     pipeline = config.pipeline
 
     if config['params'] is not None:
-        param_arg = Yaml.coerce(config['params']) or {}
+        param_arg = kwutil.Yaml.coerce(config['params']) or {}
         pipeline = param_arg.pop('pipeline', config.pipeline)
-
-        # Associate BAS datasets and HighRes datasets
-        # Convinience to make it less tedious to specify datasets.
-        # Hard codes the DVC pattern to associate lowres and hires data.
-        # This is not a robust mechanism.
-        smart_highres_bundle = param_arg.pop('smart_highres_bundle', None)
-        if smart_highres_bundle is not None:
-            smart_highres_bundle = ub.Path(smart_highres_bundle)
-            assert smart_highres_bundle.exists()
-            if 'submatrices' in param_arg:
-                raise Exception('cant hack submatrices with submatrices on')
-
-            submatrices = []
-            from kwdagger import heuristics
-            for bas_fpath in param_arg['matrix']['bas_pxl.test_dataset']:
-                region_id = heuristics.extract_region_id(ub.Path(bas_fpath).name)
-                region_dpath = (smart_highres_bundle / region_id)
-                hires_coco_candidates = [
-                    region_dpath / f'imgonly-{region_id}.kwcoco.zip',
-                    region_dpath / f'imgonly-{region_id}-rawbands.kwcoco.zip',
-                ]
-                hires_coco_fpath = None
-                for cand_fpath in hires_coco_candidates:
-                    if cand_fpath.exists():
-                        hires_coco_fpath = cand_fpath
-                        break
-                if hires_coco_fpath is None:
-                    raise Exception(f'Expected hires path, but no candidates exist: {hires_coco_candidates}')
-
-                submatrices.append({
-                    'bas_pxl.test_dataset': bas_fpath,
-                    'sv_crop.crop_src_fpath': hires_coco_fpath,
-                    'sc_crop.crop_src_fpath': hires_coco_fpath,
-                })
-            param_arg['submatrices'] = submatrices
 
     # Load the requested pipeline
     dag = coerce_pipeline(pipeline)
@@ -336,10 +114,10 @@ def build_schedule(config):
     dag.inspect_configurables()
 
     if config.run:
-        mlops_meta = (root_dpath / '_mlops_schedule').ensuredir()
+        kwdagger_meta = (root_dpath / '_kwdagger_schedule').ensuredir()
         (root_dpath / '_cmd_queue_schedule').ensuredir()
         # Write some metadata to help aggregate set its defaults automatically
-        most_recent_fpath = mlops_meta / 'most_recent_run.json'
+        most_recent_fpath = kwdagger_meta / 'most_recent_run.json'
         data = {
             'pipeline': str(pipeline),
         }
