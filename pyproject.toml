@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 ignore_missing_imports = true
 
 [tool.xcookie]
-tags = [ "kitware", "gitlab", "purepy", "cv2", "gdal",]
+tags = [ "kitware", "gitlab", "purepy"]
 mod_name = "kwdagger"
 repo_name = "kwdagger"
 pkg_name = "kwdagger"
@@ -21,6 +21,12 @@ license = "Apache 2"
 dev_status = "planning"
 remote_host = "https://gitlab.kitware.com"
 remote_group = "computer-vision"
+
+[tool.xcookie.entry_points]
+# the console_scripts entry point creates the xdoctest executable
+console_scripts = [
+    "kwdagger = kwdagger.__main__:main",
+]
 
 [tool.pytest.ini_options]
 addopts = "-p no:doctest --xdoctest --xdoctest-style=google --ignore-glob=setup.py --ignore-glob=dev --ignore-glob=docs"

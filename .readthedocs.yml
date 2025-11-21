@@ -16,8 +16,6 @@ sphinx:
 formats: all
 python:
   install:
-  - requirements: requirements/gdal.txt
-  - requirements: requirements/headless.txt
   - requirements: requirements/docs.txt
   - method: pip
     path: .

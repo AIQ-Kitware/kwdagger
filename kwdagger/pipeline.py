@@ -30,12 +30,6 @@ Collection = Optional[Union[Dict, Set, List]]
 Configurable = Optional[Dict[str, Any]]
 
 
-try:
-    from line_profiler import profile  # NOQA
-except ImportError:
-    profile = ub.identity
-
-
 class Pipeline:
     """
     A container for a group of nodes that have been connected.
@@ -45,7 +39,7 @@ class Pipeline:
     job_config.sh metadata as well as symlinks between node output directories.
 
     Example:
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> node_A1 = ProcessNode(name='node_A1', in_paths={'src'}, out_paths={'dst': 'dst.txt'}, executable='node_A1')
         >>> node_A2 = ProcessNode(name='node_A2', in_paths={'src'}, out_paths={'dst': 'dst.txt'}, executable='node_A2')
         >>> node_A3 = ProcessNode(name='node_A3', in_paths={'src'}, out_paths={'dst': 'dst.txt'}, executable='node_A3')
@@ -127,7 +121,6 @@ class Pipeline:
             node_dict = dict(zip(node_names, self.nodes))
         return node_dict
 
-    @profile
     def build_nx_graphs(self):
         node_dict = self.node_dict
 
@@ -169,7 +162,6 @@ class Pipeline:
 
         self._dirty = False
 
-    @profile
     def inspect_configurables(self):
         """
         Show the user what config options should be specified.
@@ -182,7 +174,7 @@ class Pipeline:
             it nicer.
 
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> self = Pipeline.demo()
             >>> self.inspect_configurables()
         """
@@ -249,7 +241,6 @@ class Pipeline:
             default[row['node'] + '.' + row['key']] = None
         rich.print(util_yaml.Yaml.dumps(default))
 
-    @profile
     def configure(self, config=None, root_dpath=None, cache=True):
         """
         Update the DAG configuration
@@ -259,7 +250,7 @@ class Pipeline:
             it. This behavior will change in the future
 
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> self = Pipeline.demo()
             >>> self.configure()
         """
@@ -295,7 +286,7 @@ class Pipeline:
         """
         Draw the networkx process graph, which only shows if there exists
         a connection between processes, and does not show details of which
-        output connects to which input.  See :func:`PipelineDAG.print_io_graph`
+        output connects to which input.  See :func:`Pipeline.print_io_graph`
         for that level of detail.
         """
         import rich
@@ -344,7 +335,6 @@ class Pipeline:
         self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types,
                             smart_colors=smart_colors)
 
-    @profile
     def submit_jobs(self, queue=None, skip_existing=False, enable_links=True,
                     write_invocations=True, write_configs=True):
         """
@@ -751,7 +741,6 @@ class OutputNode(IONode):
     def template_value(self):
         return self.parent.template_out_paths[self.name]
 
-    @profile
     def matching_fpaths(self):
         """
         Find all paths for this node.
@@ -873,10 +862,10 @@ class ProcessNode(Node):
     class variables.
 
     For examples on how to define a full pipeline see the
-    :doc:`the mlops tutorial <manual/tutorial/examples/mlops/README.rst>
+    :doc:`the mlops tutorial <manual/tutorial/examples/README.rst>
 
     CommandLine:
-        xdoctest -m kwdagger.mlops.pipeline_nodes ProcessNode
+        xdoctest -m kwdagger.pipeline ProcessNode
 
     Notes:
         When a ProcessNode is used for an evaluation node, it can / should be
@@ -926,8 +915,8 @@ class ProcessNode(Node):
         metric results).
 
     Example:
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
-        >>> from kwdagger.mlops.pipeline_nodes import _classvar_init
+        >>> from kwdagger.pipeline import *  # NOQA
+        >>> from kwdagger.pipeline import _classvar_init
         >>> dpath = ub.Path.appdir('kwdagger/tests/pipeline/TestProcessNode')
         >>> dpath.delete().ensuredir()
         >>> pycode = ub.codeblock(
@@ -974,7 +963,7 @@ class ProcessNode(Node):
     Example:
         >>> # How to use a ProcessNode to handle an arbitrary process call
         >>> # First let's write a program to disk
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> import stat
         >>> dpath = ub.Path.appdir('kwdagger/tests/pipeline/TestProcessNode2')
         >>> dpath.delete().ensuredir()
@@ -1199,7 +1188,7 @@ class ProcessNode(Node):
             >>>         print('config = ' + ub.urepr(config, nl=1))
             >>> #
             >>> config_cls = Step1CLI
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> step1 = self = ProcessNode._from_scriptconfig(Step1CLI, executable='python step1.py', name='step1')
             >>> step2 = ProcessNode._from_scriptconfig(Step2CLI, executable='python step2.py', name='step2')
             >>> step1.outputs['dst'].connect(step2.inputs['src'])
@@ -1267,7 +1256,6 @@ class ProcessNode(Node):
         self = cls(**node_kwargs)
         return self
 
-    @profile
     def configure(self, config=None, cache=True, enabled=True):
         """
         Update the node configuration.
@@ -1316,7 +1304,6 @@ class ProcessNode(Node):
         self._finalize_templates()
 
     @memoize_configured_property
-    @profile
     def condensed(self):
         """
         This is the dictionary that supplies the templated strings with the
@@ -1332,7 +1319,6 @@ class ProcessNode(Node):
         return condensed
 
     @memoize_configured_method
-    @profile
     def _build_templates(self):
         templates = {}
         templates['root_dpath'] = str(self.template_root_dpath)
@@ -1342,7 +1328,6 @@ class ProcessNode(Node):
         return self.templates
 
     @memoize_configured_method
-    @profile
     def _finalize_templates(self):
         templates = self.templates
         condensed = self.condensed
@@ -1527,9 +1512,9 @@ class ProcessNode(Node):
         if self._overwrite_group_dpath is not None:
             return ub.Path(self._overwrite_group_dpath)
         if self.group_dname is None:
-            return self.root_dpath / 'flat' / self.name
+            return self.root_dpath / self.name
         else:
-            return self.root_dpath / self.group_dname / 'flat' / self.name
+            return self.root_dpath / self.group_dname / self.name
 
     @memoize_configured_property
     def template_node_dpath(self):
@@ -1553,7 +1538,6 @@ class ProcessNode(Node):
         return self.root_dpath
 
     @memoize_configured_method
-    @profile
     def predecessor_process_nodes(self):
         """
         Process nodes that this one depends on.
@@ -1563,7 +1547,6 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    @profile
     def successor_process_nodes(self):
         """
         Process nodes that depend on this one.
@@ -1573,11 +1556,10 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    @profile
     def ancestor_process_nodes(self):
         """
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> pipe = Pipeline.demo()
             >>> self = pipe.node_dict['node_C1']
             >>> ancestors = self.ancestor_process_nodes()
@@ -1619,7 +1601,6 @@ class ProcessNode(Node):
         return ancestors
 
     @memoize_configured_property
-    @profile
     def depends(self):
         """
         The mapping from ancestor and self node names to their algorithm ids
@@ -1638,7 +1619,6 @@ class ProcessNode(Node):
         return depends
 
     @memoize_configured_property
-    @profile
     def algo_id(self) -> str:
         """
         A unique id to represent the output of a deterministic process.
@@ -1651,7 +1631,6 @@ class ProcessNode(Node):
         return algo_id
 
     @memoize_configured_property
-    @profile
     def process_id(self) -> str:
         """
         A unique id to represent the output of a deterministic process in a
@@ -1667,7 +1646,6 @@ class ProcessNode(Node):
         return proc_id
 
     @staticmethod
-    @profile
     def _make_argstr(config):
         # parts = [f'    --{k}="{v}" \\' for k, v in config.items()]
         parts = []
@@ -1698,7 +1676,6 @@ class ProcessNode(Node):
         return '\n'.join(parts).lstrip().rstrip('\\')
 
     @cached_property
-    @profile
     def inputs(self):
         """
         Input nodes representing specific input locations.
@@ -1714,7 +1691,6 @@ class ProcessNode(Node):
         return inputs
 
     @cached_property
-    @profile
     def outputs(self):
         """
         Output nodes representing specific output locations. These can be
@@ -1727,7 +1703,6 @@ class ProcessNode(Node):
         return outputs
 
     @property
-    @profile
     def command(self) -> str:
         """
         Returns the string shell command that will execute the process.
@@ -1741,13 +1716,12 @@ class ProcessNode(Node):
             command = self.executable
         return command
 
-    @profile
     def test_is_computed_command(self):
         r"""
         Generate a bash command that will test if all output paths exist
 
         Example:
-            >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+            >>> from kwdagger.pipeline import *  # NOQA
             >>> self = ProcessNode(out_paths={
             >>>     'foo': 'foo.txt',
             >>>     'bar': 'bar.txt',
@@ -1809,7 +1783,6 @@ class ProcessNode(Node):
         return test_cmd
 
     @memoize_configured_property
-    @profile
     def does_exist(self) -> bool:
         """
         Check if all of the output paths that would be written by this node
@@ -1822,7 +1795,6 @@ class ProcessNode(Node):
         return all(ub.Path(p).expand().exists() if p is not None else True for p in self.final_out_paths.values())
 
     @memoize_configured_property
-    @profile
     def outputs_exist(self) -> bool:
         """
         Alias for does_exist
@@ -1839,7 +1811,6 @@ class ProcessNode(Node):
             command = command()
         return command
 
-    @profile
     def final_command(self):
         """
         Wraps ``self.command`` with optional checks to prevent the command from
@@ -2009,10 +1980,10 @@ def demodata_pipeline():
 
     Example:
         >>> # Self test
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> demodata_pipeline()
     """
-    dpath = ub.Path.appdir('kwdagger/tests/mlops/pipeline').ensuredir()
+    dpath = ub.Path.appdir('kwdagger/tests/pipeline').ensuredir()
     dpath.delete().ensuredir()
     script_dpath = (dpath / 'src').ensuredir()
     inputs_dpath = (dpath / 'inputs').ensuredir()
@@ -2168,9 +2139,12 @@ def demo_pipeline_run():
     """
     A simple test pipeline.
 
+    CommandLine:
+        xdoctest -m kwdagger.pipeline demo_pipeline_run
+
     Example:
         >>> # Self test
-        >>> from kwdagger.mlops.pipeline_nodes import *  # NOQA
+        >>> from kwdagger.pipeline import *  # NOQA
         >>> demo_pipeline_run()
     """
     dag = Pipeline.demo()
@@ -2184,12 +2158,10 @@ def demo_pipeline_run():
         'backend': 'serial',
     }))
     queue = status['queue']
-    queue.print_commands(exclude_tags='boilerplate', with_locks=False)
+    # queue.print_commands(exclude_tags='boilerplate', with_locks=False)
+    queue.print_commands(with_status=False, with_gaurds=False, with_locks=1,
+                         exclude_tags=None)
     queue.run()
-
-
-# Backwards compat
-PipelineDAG = Pipeline
 
 
 def coerce_pipeline(pipeline):
@@ -2202,22 +2174,9 @@ def coerce_pipeline(pipeline):
     Returns:
         Pipeline
     """
-    EXPERIMENTAL_CUSTOM_PIPELINES = True
     if isinstance(pipeline, str):
-        try:
-            """
-            If this is going to be a real mlops framework, then we need to abstract the
-            pipeline. The user needs to define what the steps are, but then they need to
-            explicitly connect them. We can't make the assumptions we are currently using.
-            """
-            from kwdagger.mlops import smart_pipeline
-            dag = smart_pipeline.make_smart_pipeline(pipeline)
-        except Exception:
-            if EXPERIMENTAL_CUSTOM_PIPELINES:
-                # New experimental pipelines
-                dag = _experimental_resolve_pipeline(pipeline)
-            else:
-                raise
+        # New experimental pipelines
+        dag = _resolve_pipeline(pipeline)
     else:
         if isinstance(pipeline, Pipeline):
             return pipeline
@@ -2226,18 +2185,19 @@ def coerce_pipeline(pipeline):
     return dag
 
 
-def _experimental_resolve_pipeline(pipeline):
+def _resolve_pipeline(pipeline):
     """
     Users need to be able to build and specify their own pipelines here
     (similar to how kwiver pipelines work). This is initial support.
 
     Ignore:
+        from kwdagger.pipeline import *  # NOQA
+        from kwdagger.pipeline import _resolve_pipeline
         pipeline = 'user_module.pipelines.custom_pipeline_func()'
-        pipeline = 'kwdagger.mlops.smart_pipeline.make_smart_pipeline("bas")'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
         pipeline = 'shitspotter.pipelines.heatmap_evaluation_pipeline()'
-        pipeline = '/home/joncrall/code/kwdagger/kwdagger/mlops/smart_pipeline.py::make_smart_pipeline("bas")'
-        _experimental_resolve_pipeline(pipeline)
+        pipeline = 'example_user_module.pipelines.my_demo_pipeline()'
+        _resolve_pipeline(pipeline)
     """
     # Case: given in the format `{module_name}.{attribute_expression}`
     # Note the attribute_expression allows arbitrary code execution
@@ -2255,8 +2215,10 @@ def _experimental_resolve_pipeline(pipeline):
         found = None
         for idx in reversed(range(1, len(parts) + 1)):
             candidate = '.'.join(parts[:idx])
+            print(f'candidate={candidate}')
             try:
                 modpath = _coerce_modpath(candidate)
+                print(f'modpath={modpath}')
             except ValueError:
                 ...
             else:
@@ -2267,14 +2229,21 @@ def _experimental_resolve_pipeline(pipeline):
                 print(f'found = {ub.urepr(found, nl=1)}')
                 break
         if found is None:
-            raise ValueError('unable to resolve pipeline')
+            raise ValueError(f'unable to resolve pipeline: {pipeline}')
         else:
             # This initial specification allows arbitrary code execution.
             # We should define a hardened variant which does not require this.
             (module, modpath, lhs, rhs) = found
             limited_namespace = {'pipeline_module': module}
             statement = f'pipeline_module.{rhs}'
-            dag = eval(statement, limited_namespace)
+            try:
+                dag = eval(statement, limited_namespace)
+            except Exception:
+                print(f'Input: pipeline={pipeline}')
+                print(f'modpath={modpath}')
+                print(f'module = {ub.urepr(module, nl=1)}')
+                print(f'Error with: statement={statement}')
+                raise
             return dag
     else:
         raise ValueError(pipeline)

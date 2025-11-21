@@ -9,7 +9,6 @@ from kwutil import util_parallel
 from kwdagger.utils import util_dotdict
 import parse
 import json
-from kwdagger.mlops import smart_result_parser
 
 
 def build_tables(root_dpath, dag, io_workers, eval_nodes,
@@ -158,11 +157,11 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
             The name of the node (todo: deprecate and just require the node
             object).
 
-        node (None | kwdagger.mlops.pipeline_nodes.Node):
+        node (None | kwdagger.pipeline.Node):
             The node corresponding to the actual process.
             Note: will be required in the future.
 
-        dag (None | kwdagger.mlops.pipeline_nodes.Pipeline):
+        dag (None | kwdagger.pipeline.Pipeline):
             Used to lookup loading functions for predecessor nodes.
             Will be required in the future.
 
@@ -177,14 +176,14 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
                 'resolved_params', 'specified_params', 'other'
 
     Example:
-        >>> from kwdagger.mlops.aggregate_loader import *  # NOQA
-        >>> from kwdagger.mlops.mlops_demodata import run_demo_schedule_evaluation
-        >>> from kwdagger.mlops import pipeline_nodes
+        >>> from kwdagger.aggregate_loader import *  # NOQA
+        >>> from kwdagger.demo.demodata import run_demo_schedule
+        >>> from kwdagger import pipeline
         >>> # Run a demo evaluation so data is populated
-        >>> info = run_demo_schedule_evaluation()
+        >>> info = run_demo_schedule()
         >>> # Grab relevant information about one of the evaluation outputs
         >>> eval_dpath = info['eval_dpath']
-        >>> dag = pipeline_nodes.coerce_pipeline(info['pipeline'])
+        >>> dag = pipeline.coerce_pipeline(info['pipeline'])
         >>> dag.configure(root_dpath=eval_dpath)
         >>> node_name = 'stage1_evaluate'
         >>> node = dag.nodes[node_name]
@@ -196,7 +195,6 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
         >>> use_cache = False
         >>> result = load_result_worker(fpath, node_name, node=node, dag=dag, use_cache=use_cache)
     """
-    import json
     import safer
     import rich
     from kwutil import util_json
@@ -268,13 +266,6 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
                         import warnings
                         warnings.warn(msg)
                     region_ids = 'unknown'
-                else:
-                    IS_SMART = 0
-                    if IS_SMART:
-                        # Disable hack for smart region id names
-                        import re
-                        region_pat = re.compile(r'[A-Z][A-Za-z]*_[A-Z]\d\d\d')
-                        region_ids = ','.join(list(region_pat.findall(region_ids)))
 
             resolved_params_keys = list(flat.query_keys('resolved_params'))
             metrics_keys = list(flat.query_keys('metrics'))
@@ -311,53 +302,6 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
     return result
 
 
-def new_process_context_parser(proc_item):
-    """
-    Load parameters out of data saved by a ProcessContext object
-    """
-    tracker_name_pat = util_pattern.MultiPattern.coerce({
-        'kwdagger.cli.run_tracker',
-        'kwdagger.cli.run_tracker',
-    })
-    heatmap_name_pat = util_pattern.MultiPattern.coerce({
-        'kwdagger.tasks.fusion.predict',
-    })
-    pxl_eval_pat = util_pattern.MultiPattern.coerce({
-        'kwdagger.tasks.fusion.evaluate',
-    })
-    proc_item = smart_result_parser._handle_process_item(proc_item)
-    props = proc_item['properties']
-
-    # Node-specific hacks
-    params = props['config']
-    if tracker_name_pat.match(props['name']):
-        params.update(**json.loads(params.pop('track_kwargs', '{}')))
-    elif heatmap_name_pat.match(props['name']):
-        params.pop('datamodule_defaults', None)
-    elif pxl_eval_pat.match(props['name']):
-        from kwdagger.tasks.fusion import evaluate
-        # We can resolve the params to a dictionary in this instance
-        if isinstance(params, list) or 'true_dataset' not in params:
-            args = props['args']
-            params = evaluate.SegmentationEvalConfig().load(cmdline=args).to_dict()
-
-    resources = smart_result_parser.parse_resource_item(proc_item, add_prefix=False)
-
-    output = {
-        # TODO: better name for this
-        'context': {
-            'task': props['name'],
-            'uuid': props.get('uuid', None),
-            'start_timestamp': props.get('start_timestamp', None),
-            'stop_timestamp': props.get('stop_timestamp', props.get('end_timestamp', None)),
-        },
-        'resolved_params': params,
-        'resources': resources,
-        'machine': props.get('machine', {}),
-    }
-    return output
-
-
 def load_result_resolved(node_dpath, node=None, dag=None):
     """
     Recurse through the DAG filesytem structure and load resolved
@@ -389,8 +333,8 @@ def load_result_resolved(node_dpath, node=None, dag=None):
         >>> # To diagnose issues, construct a path to an evaluation node to get the
         >>> # relevant project-specific entrypoint data.
         >>> # TODO: need a demo pipeline that we can test for robustness here.
-        >>> from kwdagger.mlops.aggregate_loader import *  # NOQA
-        >>> from kwdagger.mlops.aggregate_loader import load_result_resolved
+        >>> from kwdagger.aggregate_loader import *  # NOQA
+        >>> from kwdagger.aggregate_loader import load_result_resolved
         >>> import kwdagger
         >>> import rich
         >>> expt_dpath = kwdagger.find_dvc_dpath(tags='phase3_expt')
@@ -411,34 +355,6 @@ def load_result_resolved(node_dpath, node=None, dag=None):
         >>>     print(f'node_dpath={node_dpath}')
         >>>     flat_resolved = load_result_resolved(node_dpath)
         >>>     rich.print(f'flat_resolved = {ub.urepr(flat_resolved, nl=1)}')
-
-    Ignore:
-        ## OR If you know the node_type of node you want
-        from kwdagger.mlops.aggregate_loader import *  # NOQA
-        import kwdagger
-        import rich
-        expt_dpath = kwdagger.find_dvc_dpath(tags='phase3_expt')
-        mlops_dpath = expt_dpath / '_preeval20_bas_grid'
-
-        node_group, node_type = 'eval', 'bas_poly_eval'
-        node_group, node_type = 'pred', 'sc_pxl'
-        node_group, node_type = 'pred', 'bas_pxl'
-        node_group, node_type = 'eval', 'bas_pxl_eval'
-
-        for node_dpath in mlops_dpath.glob(f'{node_group}/flat/{node_type}/*'):
-            if len(node_dpath.ls()) > 2:
-                print(f'Found node_dpath={node_dpath}')
-                break
-
-        flat_resolved = load_result_resolved(node_dpath)
-        rich.print(f'flat_resolved = {ub.urepr(flat_resolved, nl=1)}')
-
-    Ignore:
-        from kwdagger.mlops.aggregate_loader import *  # NOQA
-        node_dpath = ub.Path('/home/joncrall/remote/toothbrush/data/dvc-repos/smart_expt_dvc/_testpipe/eval/flat/bas_poly_eval/bas_poly_eval_id_1ad531cc')
-        node_dpath = ub.Path('/home/joncrall/remote/toothbrush/data/dvc-repos/smart_expt_dvc/_testpipe/eval/flat/bas_pxl_eval/bas_pxl_eval_id_6028edfe/')
-        node_dpath = ub.Path('/home/joncrall/remote/toothbrush/data/dvc-repos/smart_expt_dvc/_timekernel_test_drop4/eval/flat/bas_pxl_eval/bas_pxl_eval_id_5d38c6b3')
-        got = load_result_resolved(node_dpath)
     """
     # from kwdagger.utils.util_dotdict import explore_nested_dict
     node_dpath = ub.Path(node_dpath)
@@ -460,141 +376,6 @@ def load_result_resolved(node_dpath, node=None, dag=None):
         if flat_resolved is None:
             raise AssertionError('node.load_result should have returned a dict')
 
-    # TODO / FIXME: This function should be completely agnostic about what
-    # nodes are in the pipeline. The following elif statements are were put in
-    # while the API for specifying logic to load results in the pipeline nodes
-    # themselves was being developed. Ultimately this should all be removed and
-    # rely only on the `node.load_result` function.
-
-    elif node_type in {'sc_pxl', 'bas_pxl'}:
-
-        pat = util_pattern.Pattern.coerce(node_dpath / 'pred.kwcoco.*')
-        found = list(pat.paths())
-        if len(found) == 0:
-            raise FileNotFoundError(f'Unable to find expected kwcoco file in {node_type} node_dpath: {node_dpath}')
-        fpath = found[0]
-        bas_pxl_info = smart_result_parser.parse_json_header(fpath)
-        proc_item = smart_result_parser.find_pred_pxl_item(bas_pxl_info)
-        nest_resolved = new_process_context_parser(proc_item)
-        flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
-        flat_resolved = flat_resolved.insert_prefix(node_type, index=1)
-
-        # Record the train-time parameters
-        fit_node_type = node_type + '_fit'
-        extra = proc_item['properties']['extra']
-        fit_config = extra['fit_config']
-        if 'data' not in fit_config:
-            raise Exception(ub.paragraph(
-                f'''
-                A kwcoco has an old fit-config that did not contain all
-                train-time params. To fix this run for a single file run:
-                ``python -m kwdagger.cli.experimental.fixup_predict_kwcoco_metadata {fpath}``
-                ''') +
-                '\n\n' +
-                ub.paragraph(
-                    '''
-                    For more details see:
-                    ``python -m kwdagger.cli.experimental.fixup_predict_kwcoco_metadata --help``
-                    '''))
-
-        fit_nested = {
-            'context': {'task': 'kwdagger.tasks.fusion.fit'},
-            'resolved_params': fit_config,
-            'resources': {},
-            'machine': {},
-        }
-        flat_fit_resolved = util_dotdict.DotDict.from_nested(fit_nested)
-        flat_fit_resolved = flat_fit_resolved.insert_prefix(fit_node_type, index=1)
-        flat_resolved |= flat_fit_resolved
-
-    elif node_type in {'bas_poly', 'sc_poly'}:
-        pat = util_pattern.Pattern.coerce(node_dpath / 'poly.kwcoco.*')
-        fpath = list(pat.paths())[0]
-        try:
-            bas_poly_info = smart_result_parser.parse_json_header(fpath)
-        except Exception:
-            # There are some cases where the kwcoco file was clobbered,
-            # but we can work around by using a manifest file.
-            pat = util_pattern.Pattern.coerce(node_dpath / '*_manifest.json')
-            fpath = list(pat.paths())[0]
-            bas_poly_info = smart_result_parser.parse_json_header(fpath)
-            raise
-
-        proc_item = smart_result_parser.find_track_item(bas_poly_info)
-        nest_resolved = new_process_context_parser(proc_item)
-        flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
-        flat_resolved = flat_resolved.insert_prefix(node_type, index=1)
-
-    elif node_type in {'bas_poly_eval', 'sc_poly_eval', 'sv_poly_eval'}:
-        fpath = node_dpath / 'poly_eval.json'
-        iarpa_result = smart_result_parser.load_iarpa_evaluation(fpath)
-        proc_item = smart_result_parser.find_metrics_framework_item(
-            iarpa_result['iarpa_json']['info'])
-        nest_resolved = new_process_context_parser(proc_item)
-        nest_resolved['metrics'] = iarpa_result['metrics']
-
-        flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
-        flat_resolved['context.region_ids'] = iarpa_result['iarpa_json']['region_ids']
-        flat_resolved = flat_resolved.insert_prefix(node_type, 1)
-
-    elif node_type in {'bas_pxl_eval', 'sc_pxl_eval'}:
-        fpath = node_dpath / 'pxl_eval.json'
-        info = smart_result_parser.load_pxl_eval(fpath, with_param_types=False)
-        metrics = info['metrics']
-
-        proc_item = smart_result_parser.find_pxl_eval_item(
-            info['json_info']['meta']['info'])
-
-        nest_resolved = new_process_context_parser(proc_item)
-        # Hack for region ids
-        nest_resolved['context']['region_ids'] = ub.Path(nest_resolved['resolved_params']['true_dataset']).name.split('.')[0]
-        nest_resolved['metrics'] = metrics
-
-        flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
-        flat_resolved = flat_resolved.insert_prefix(node_type, 1)
-
-    elif node_type in {'valicrop', 'sv_crop'}:
-
-        # TODO: parse resolved params
-        # nest_resolved = {}
-        # flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
-        # flat_resolved = flat_resolved.insert_prefix(node_type, index=1)
-        node_process_name = 'coco_align'
-        fpath = node_dpath / 'sv_crop.kwcoco.zip'
-        if not fpath.exists():
-            fpath = node_dpath / 'valicrop.kwcoco.zip'
-        flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
-
-    elif node_type in {'sc_crop'}:
-        # TODO: parse resolved params
-        node_process_name = 'coco_align'
-        fpath = node_dpath / 'sitecrop.kwcoco.zip'
-        flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
-
-    elif node_type in {'cluster_sites'}:
-        # TODO: write out resolved params in cluster sites
-        flat_resolved = {}
-
-    elif node_type in {'sv_dino_boxes'}:
-        node_process_name = 'box.predict'
-        fpath = node_dpath / 'pred_boxes.kwcoco.zip'
-        flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
-
-    elif node_type in {'sv_dino_filter'}:
-        node_process_name = 'kwdagger.tasks.dino_detector.building_validator'
-        fpath = node_dpath / 'out_site_manifest.json'
-        flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
-    # TODO: it would be nice if just declaring a node gave us this information.
-    elif node_type in {'sv_depth_score'}:
-        from kwdagger.mlops import smart_pipeline
-        fpath = node_dpath / smart_pipeline.SV_DepthPredict.out_paths['out_kwcoco']
-        node_process_name = 'kwdagger.tasks.depth_pcd.score_tracks'
-        flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
-    elif node_type in {'sv_depth_filter'}:
-        from kwdagger.mlops import smart_pipeline
-        fpath = node_dpath / smart_pipeline.SV_DepthFilter.out_paths['output_site_manifest_fpath']
-        node_process_name = 'kwdagger.tasks.depth_pcd.filter_tracks'
-        flat_resolved = _generalized_process_flat_resolved(fpath, node_process_name, node_type)
     else:
         raise NotImplementedError(ub.paragraph(
             f'''
@@ -623,25 +404,6 @@ def load_result_resolved(node_dpath, node=None, dag=None):
     return flat_resolved
 
 
-def _generalized_process_flat_resolved(fpath, node_process_name, node_type):
-    """
-    Parses info out of json files where we conform to a pattern that the top
-    level json object has an "info" section as list of ProcessContext info
-    objects. We grab the context of a metric-less node there. We do need to
-    know the filepath of this json file and what the name used in process
-    context was.
-    """
-    info = smart_result_parser.parse_json_header(fpath)
-    proc_item = smart_result_parser.find_info_items(info, {'process'}, {node_process_name})
-    items = list(proc_item)
-    assert len(items) == 1
-    proc_item = items[0]
-    nest_resolved = new_process_context_parser(proc_item)
-    flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
-    flat_resolved = flat_resolved.insert_prefix(node_type, index=1)
-    return flat_resolved
-
-
 def out_node_matching_fpaths(out_node):
     out_template = out_node.template_value
     parser = parse.Parser(str(out_template))
@@ -650,6 +412,33 @@ def out_node_matching_fpaths(out_node):
     mpat = util_pattern.Pattern.coerce(pat)
     fpaths = list(mpat.paths())
     return fpaths
+
+
+def new_process_context_parser(proc_item):
+    """
+    Load parameters out of data saved by a ProcessContext object
+    """
+    from kwdagger import result_parser
+    proc_item = result_parser._handle_process_item(proc_item)
+    props = proc_item['properties']
+
+    # Node-specific hacks
+    params = props['config']
+    resources = result_parser.parse_resource_item(proc_item, add_prefix=False)
+
+    output = {
+        # TODO: better name for this
+        'context': {
+            'task': props['name'],
+            'uuid': props.get('uuid', None),
+            'start_timestamp': props.get('start_timestamp', None),
+            'stop_timestamp': props.get('stop_timestamp', props.get('end_timestamp', None)),
+        },
+        'resolved_params': params,
+        'resources': resources,
+        'machine': props.get('machine', {}),
+    }
+    return output
 
 
 if 1:
