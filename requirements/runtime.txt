@@ -36,3 +36,7 @@ pygtrie>=2.5.0
 fasteners>=0.17.3
 
 wrapt>=1.17.3
+cmd_queue >= 0.1.20
+
+pint>=0.24.4  ; python_version < '4.0'  and python_version >= '3.13'    # Python 3.13+
+pint>=0.23    ; python_version < '3.13' 
