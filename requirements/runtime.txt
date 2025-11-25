@@ -8,7 +8,7 @@ numpy>=1.21.6  ; python_version < '3.11' and python_version >= '3.10'    # Pytho
 ubelt>=1.3.0
 
 kwarray>=0.6.19
-kwutil>=0.3.4
+kwutil>=0.3.8
 
 networkx>=2.8           ; python_version < '4.0'   and python_version >= '3.11'   # Python 3.11+
 networkx>=2.7           ; python_version < '3.11'  and python_version >= '3.8'    # Python 3.8-3.11
@@ -27,7 +27,11 @@ scriptconfig >= 0.8.3
 
 psutil>=5.9.1
 
-ruamel.yaml>=0.17.22
+# FIXME: need to unpin this
+ruamel.yaml==0.17.22,<=0.17.32
+PyYAML>=6.0.1     ; python_version < '4.0'  and python_version >= '3.12'    # Python 3.12+
+PyYAML>=6.0       ; python_version < '3.12'                                 # Python 3.6 - 3.11
+
 pygtrie>=2.5.0    
 fasteners>=0.17.3
 
