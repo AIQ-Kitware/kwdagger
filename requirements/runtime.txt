@@ -28,3 +28,4 @@ scriptconfig >= 0.8.3
 psutil>=5.9.1
 
 ruamel.yaml>=0.17.22
+pygtrie>=2.5.0    
