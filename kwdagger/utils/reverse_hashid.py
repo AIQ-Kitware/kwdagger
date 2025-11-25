@@ -47,8 +47,8 @@ class ReverseHashTable:
         FULL_TEXT = 1
         DPATH_TEXT = 1
 
-        blake3 = ub.hash_data(data, hasher='blake3')
-        row = {'data': data, 'blake3': blake3}
+        sha256 = ub.hash_data(data, hasher='sha256')
+        row = {'data': data, 'sha256': sha256}
         info = {}
         with self.lock:
             shelf = shelve.open(os.fspath(self.shelf_fpath))
@@ -61,7 +61,7 @@ class ReverseHashTable:
                     datas = shelf[key]
                     found = False
                     for other in datas:
-                        if other['blake3'] == row['blake3']:
+                        if other['sha256'] == row['sha256']:
                             found = True
                             break
                     if not found:

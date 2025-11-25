@@ -23,6 +23,7 @@ class TitleBuilder:
     Simple class for adding information to a line, and then adding new lines.
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:matplotlib)
         >>> from kwdagger.utils.util_kwplot import *  # NOQA
         >>> builder = TitleBuilder()
         >>> builder.add_part('Part 1')
@@ -495,97 +496,6 @@ class FigureFinalizer(ub.NiceRepr):
         return self.finalize(fig, fpath, **kwargs)
 
 
-def fix_matplotlib_dates(dates, format='mdate'):
-    """
-
-    Args:
-        dates (List[None | Coerceble[datetime]]):
-            input dates to fixup
-
-        format (str):
-            can be mdate for direct matplotlib usage or datetime for seaborn usage.
-
-    Note:
-        seaborn seems to do just fine with timestamps...
-        todo:
-            add regular matplotlib test for a real demo of where this is useful
-
-    Example:
-        >>> from kwdagger.utils.util_kwplot import *  # NOQA
-        >>> from kwutil.util_time import coerce_datetime
-        >>> from kwutil.util_time import coerce_timedelta
-        >>> import pandas as pd
-        >>> import numpy as np
-        >>> delta = coerce_timedelta('1 day')
-        >>> n = 100
-        >>> min_date = coerce_datetime('2020-01-01').timestamp()
-        >>> max_date = coerce_datetime('2021-01-01').timestamp()
-        >>> from kwarray.distributions import Uniform
-        >>> distri = Uniform(min_date, max_date)
-        >>> timestamps = distri.sample(n)
-        >>> timestamps[np.random.rand(n) > 0.5] = np.nan
-        >>> dates = list(map(coerce_datetime, timestamps))
-        >>> scores = np.random.rand(len(dates))
-        >>> table = pd.DataFrame({
-        >>>     'isodates': [None if d is None else d.isoformat() for d in dates],
-        >>>     'dates': dates,
-        >>>     'timestamps': timestamps,
-        >>>     'scores': scores
-        >>> })
-        >>> table['fixed_dates'] = fix_matplotlib_dates(table.dates, format='datetime')
-        >>> table['fixed_timestamps'] = fix_matplotlib_dates(table.timestamps, format='datetime')
-        >>> table['fixed_isodates'] = fix_matplotlib_dates(table.isodates, format='datetime')
-        >>> table['mdate_dates'] = fix_matplotlib_dates(table.dates, format='mdate')
-        >>> table['mdate_timestamps'] = fix_matplotlib_dates(table.timestamps, format='mdate')
-        >>> table['mdate_isodates'] = fix_matplotlib_dates(table.isodates, format='mdate')
-        >>> # xdoctest: +REQUIRES(env:PLOTTING_DOCTESTS)
-        >>> import kwplot
-        >>> sns = kwplot.autosns()
-        >>> pnum_ = kwplot.PlotNums(nSubplots=8)
-        >>> ax = kwplot.figure(fnum=1, doclf=1)
-        >>> for key in table.columns.difference({'scores'}):
-        >>>     ax = kwplot.figure(fnum=1, doclf=0, pnum=pnum_()).gca()
-        >>>     sns.scatterplot(data=table, x=key, y='scores', ax=ax)
-        >>>     if key.startswith('mdate_'):
-        >>>         # TODO: make this formatter fixup work better.
-        >>>         import matplotlib.dates as mdates
-        >>>         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        >>>         ax.xaxis.set_major_locator(mdates.DayLocator(interval=90))
-    """
-    from kwutil import util_time
-    import matplotlib.dates as mdates
-    new = []
-    for d in dates:
-        n = util_time.coerce_datetime(d)
-        if n is not None:
-            if format == 'mdate':
-                n = mdates.date2num(n)
-            elif format == 'datetime':
-                ...
-            else:
-                raise KeyError(format)
-        new.append(n)
-    return new
-
-
-def fix_matplotlib_timedeltas(deltas):
-    from kwutil import util_time
-    # import matplotlib.dates as mdates
-    new = []
-    for d in deltas:
-        if d is None:
-            n = None
-        else:
-            try:
-                n = util_time.coerce_timedelta(d)
-            except util_time.TimeValueError:
-                n = None
-        # if n is not None:
-        #     n = mdates.num2timedelta(n)
-        new.append(n)
-    return new
-
-
 def extract_legend(ax):
     """
     Creates a new figure that contains the original legend.
@@ -880,99 +790,6 @@ class ArtistManager:
         # ax.set_ylim(miny, maxy)
 
 
-def time_sample_arcplot(time_samples, yloc=1, ax=None):
-    """
-    Example:
-        >>> from kwdagger.utils.util_kwplot import *  # NOQA
-        >>> time_samples = [
-        >>>     [1, 3, 5, 7, 9],
-        >>>     [2, 3, 4, 6, 8],
-        >>>     [1, 5, 6, 7, 9],
-        >>> ]
-        >>> import kwplot
-        >>> kwplot.autompl()
-        >>> time_sample_arcplot(time_samples)
-        >>> kwplot.show_if_requested()
-
-    References:
-        .. [SO42162787] https://stackoverflow.com/questions/42162787/arc-between-points-in-circle
-    """
-
-    import kwplot
-    import numpy as np
-    # import matplotlib.patches as patches
-
-    USE_BEZIER_PACKAGE = 0
-    if USE_BEZIER_PACKAGE:
-        import bezier
-    else:
-        # bezier_path = np.arange(0, 1.01, 0.01)
-        num_path_points = 20
-        s_vals = np.linspace(0, 1, num_path_points)
-
-    if ax is None:
-        ax = kwplot.plt.gca()
-        # ax.cla()
-        # maxx = 0
-
-    num_samples = len(time_samples)
-    for idx, xlocs in enumerate(time_samples):
-        assert sorted(xlocs) == xlocs
-        ylocs = [yloc] * len(xlocs)
-        # ax.plot(xlocs, ylocs, 'o-')
-        # maxx = max(max(xlocs), maxx)
-
-        dist = ((idx + 1) / num_samples)
-        dist = (dist * 0.5) + 0.5
-        # print(f'dist={dist}')
-
-        xy_sequence = list(zip(xlocs, ylocs))
-        curve_path = []
-
-        for xy1, xy2 in ub.iter_window(xy_sequence, 2):
-
-            x1, y1 = xy1
-            x2, y2 = xy2
-
-            dx = x2 - x1
-            dy = y2 - y1
-            # normals are
-            raw_normal1 = (-dy, dx)
-            # normal2 = (dy, -dx)
-            unit_normal1 = np.array(raw_normal1) / np.linalg.norm(raw_normal1)
-
-            nx, ny = unit_normal1 * dist
-
-            xm, ym = [(x1 + x2) / 2, (y1 + y2) / 2]
-            xb, yb = [xm + nx, ym + ny]
-
-            if USE_BEZIER_PACKAGE:
-                # Create random bezier control points
-                nodes_f = np.array([
-                    [x1, y1],
-                    [xb, yb],
-                    [x2, y2],
-                ]).T
-                curve = bezier.Curve(nodes_f, degree=2)
-                num = 10
-                s_vals = np.linspace(0, 1, num)
-                # s_vals = np.linspace(*sorted(rng.rand(2)), num)
-                path_f = curve.evaluate_multi(s_vals)
-                curve_path += list(path_f)
-            else:
-                # Compute and store the Bezier curve points
-                # pure numpy version
-                curve_x = (1 - s_vals) ** 2 * x1 + 2 * (1 - s_vals) * s_vals * xb + s_vals ** 2 * x2
-                curve_y = (1 - s_vals) ** 2 * y1 + 2 * (1 - s_vals) * s_vals * yb + s_vals ** 2 * y2
-                curve_path += list(zip(curve_x, curve_y))
-
-        curve_path = np.array(curve_path)
-        ax.plot(curve_path.T[0], curve_path.T[1], '-', alpha=0.5)
-
-    # ax.set_xlim(0, maxx)
-    # ax.set_ylim(0, 3)
-
-
 class Palette(ub.udict):
     """
     Dictionary subclass that maps a label to a particular color.
@@ -981,6 +798,7 @@ class Palette(ub.udict):
     attempt to generate a distinct color.
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:matplotlib)
         >>> from kwdagger.utils.util_kwplot import *  # NOQA
         >>> self1 = Palette()
         >>> self1.add_labels(labels=['a', 'b'])
@@ -1090,37 +908,6 @@ class PaletteManager:
         self.param_to_palette = {}
 
 
-def color_new_labels(label_to_color, labels):
-    import kwimage
-    # Given an existing set of colors, add colors to things without it.
-    missing = {k for k, v in label_to_color.items() if v is None}
-    has_color = set(label_to_color) - missing
-    missing |= set(labels) - has_color
-    existing_colors = list((ub.udict(label_to_color) & has_color).values())
-    new_colors = kwimage.Color.distinct(len(missing), existing=existing_colors, legacy=False)
-    new_label_to_color = label_to_color.copy()
-    new_label_to_color.update(dict(zip(missing, new_colors)))
-    return new_label_to_color
-
-
-def autompl2():
-    """
-    New autompl with inline logic for notebooks
-    """
-    import kwplot
-    try:
-        import IPython
-        ipy = IPython.get_ipython()
-        ipy.config
-        # TODO: general test to see if we are in a notebook where
-        # we want to inline things.
-        if 'colab' in str(ipy.config['IPKernelApp']['kernel_class']):
-            ipy.run_line_magic('matplotlib', 'inline')
-    except NameError:
-        ...
-    kwplot.autompl()
-
-
 class FigureManager:
 
     def __init__(figman, **kwargs):
@@ -1141,20 +928,6 @@ class FigureManager:
     def set_figtitle(self, *args, **kwargs):
         import kwplot
         kwplot.set_figtitle(*args, **kwargs, fig=self.fig)
-
-
-def _format_xaxis_as_timedelta(ax):
-    """
-    TODO: document and better integrate into util_kwplot
-    """
-    import datetime as datetime_mod
-
-    def timeTicks(x, pos):
-        d = datetime_mod.timedelta(seconds=x)
-        return str(d.days)  # + ' days'
-    import matplotlib as mpl
-    formatter = mpl.ticker.FuncFormatter(timeTicks)
-    ax.xaxis.set_major_formatter(formatter)
 
 
 def fix_seaborn_palette_issue(x, snskw):

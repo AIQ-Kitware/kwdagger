@@ -124,7 +124,10 @@ def parse_resource_item(item, arg_prefix='', add_prefix=True):
 
     if 'machine' in pred_prop:
         cpu_name = pred_prop['machine']['cpu_brand']
-        cpu_name = re.sub('.*Gen Intel.R. Core.TM. ', '', cpu_name)
+        if cpu_name is not None:
+            cpu_name = re.sub('.*Gen Intel.R. Core.TM. ', '', cpu_name)
+        else:
+            cpu_name = 'unknown'
         resources['cpu_name'] = cpu_name
         hardware_parts.append(cpu_name)
 
