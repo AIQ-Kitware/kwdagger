@@ -29,3 +29,4 @@ psutil>=5.9.1
 
 ruamel.yaml>=0.17.22
 pygtrie>=2.5.0    
+fasteners>=0.17.3
