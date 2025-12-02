@@ -1,9 +1,9 @@
-The kwdagger Module
-===================
+Kwdagger
+========
 
 
 
-|Pypi| |PypiDownloads| |ReadTheDocs| |GitlabCIPipeline| |GitlabCICoverage|
+|Pypi| |PypiDownloads| |GitlabCIPipeline| |GitlabCICoverage| |ReadTheDocs|
 
 
 +-----------------+-----------------------------------------------------+
