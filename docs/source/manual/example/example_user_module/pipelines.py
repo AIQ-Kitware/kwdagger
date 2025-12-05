@@ -52,7 +52,9 @@ class KeywordSentimentPredict(kwdagger.ProcessNode):
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
-        # Keep the summary small while still exposing what keyword was tried.
+        # TODO: it would be useful if the aggregator could be given some stats
+        # about non-evaluation runs, but currently this does not work because
+        # it does not conform to the output needed by load_results.
         # nest_resolved['result'] = {
         #     'keyword': result['result']['keyword'],
         #     'case_sensitive': result['result']['case_sensitive'],

@@ -9,7 +9,28 @@ The demo task is a node that predicts the sentiment of a review, and then
 another node that evaluates that prediction. We will show how to run this
 pipeline over a grid of different input datasets and algorithm parameters.
 
-As the user you are responsible for writing the code
+As the user you are responsible for writing:
+
+1. The command line executable program for each node in your pipeline, where
+   * all arguments can be specified as key/value pairs
+   * a subset of these arguments define input files corresponding to the data to be ingested
+   * outputs are written to an output file or directory whos path can be specified.
+   * there is at least one output file (whos path can be specified) whos
+     existence indicates the process has completed.
+
+2. A pipeline file that defines
+   * A `kwdagger.ProcessNode` for each process node that specifies the
+     executuable, which CLI arguments correspond to input paths, output paths,
+     algorithm parameters, and performance parameters (ones that do not impact the output).
+
+   * For evaluation nodes you must also define a ``load_result`` that takes the
+     written evaluation outputs and returns them in a form the aggregator can
+     read (if you want to use the aggregator).
+
+   * A pipeline function that constructs the DAG by creating an insteace of
+     each node, and connecting the outputs of nodes to the inputs of others.
+
+In this tutorial we have written toy examples for each of these.
 
 What the pipeline does
 ----------------------
@@ -254,3 +275,7 @@ symlink structure allows for navigation of dependencies within a node. The
 current results), and ``.pred`` holds symlinks to folders of results that the
 current folder depends on. This lets you navigate the path of a specific
 configuration without relying on reconstructing the DAG that produced it.
+
+NOTE: Aggregation features are completely optional, and the scheduling of
+multiple runs and the easy-to-parse and easy-to-nagivate graph based output
+structure can be used independently.
