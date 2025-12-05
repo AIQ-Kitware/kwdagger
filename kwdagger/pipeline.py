@@ -290,12 +290,12 @@ class Pipeline:
         for that level of detail.
         """
         import rich
-        from cmd_queue.util import util_networkx
+        import networkx as nx
         self._ensure_clean()
         _labelize_graph(self.proc_graph, shrink_labels, show_types, smart_colors)
         print('')
         print('Process Graph')
-        util_networkx.write_network_text(self.proc_graph, path=rich.print, end='', vertical_chains=True)
+        nx.write_network_text(self.proc_graph, path=rich.print, end='', vertical_chains=True)
 
     def print_io_graph(self, shrink_labels=1, show_types=0, smart_colors=0):
         """
@@ -303,12 +303,12 @@ class Pipeline:
         the inputs and the outputs of the processes in the pipeline.
         """
         import rich
-        from cmd_queue.util import util_networkx
+        import networkx as nx
         self._ensure_clean()
         _labelize_graph(self.io_graph, shrink_labels, show_types, smart_colors, color_procs=True)
         print('')
         print('IO Graph')
-        util_networkx.write_network_text(self.io_graph, path=rich.print, end='', vertical_chains=True)
+        nx.write_network_text(self.io_graph, path=rich.print, end='', vertical_chains=True)
 
     def print_commands(self, **kwargs):
         """
