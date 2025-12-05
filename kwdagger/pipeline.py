@@ -355,7 +355,7 @@ class Pipeline:
             # Create a simple serial queue if an existing one isn't given.
             default_queue_kw = {
                 'backend': 'serial',
-                'name': 'unnamed-mlops-pipeline',
+                'name': 'unnamed-kwdagger-pipeline',
                 'size': 1,
                 'gres': None,
             }
@@ -862,7 +862,7 @@ class ProcessNode(Node):
     class variables.
 
     For examples on how to define a full pipeline see the
-    :doc:`the mlops tutorial <manual/tutorial/examples/README.rst>
+    :doc:`the kwdagger tutorial <manual/tutorial/examples/README.rst>
 
     CommandLine:
         xdoctest -m kwdagger.pipeline ProcessNode
