@@ -16,7 +16,9 @@ ubelt>=1.3.6
 kwarray>=0.6.19
 kwutil>=0.3.8
 
-networkx>=3.2
+networkx>=3.6      ; python_version < '4.0'  and python_version >= '3.14'    # Python 3.14+
+networkx>=3.2      ; python_version < '3.13' and python_version  
+
 
 # xdev availpkg rich
 rich>=12.5.1
