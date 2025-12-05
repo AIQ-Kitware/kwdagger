@@ -15,10 +15,7 @@
 - The demo pipeline in `kwdagger/demo/demodata.py` provides runnable CLI snippets suitable for smoke testing or onboarding.
 
 ## Development workflow
-- Install dependencies with ``pip install -e . -r requirements.txt`` (a virtualenv is recommended).
+- Install dependencies with ``pip install -e .`` (a virtualenv is recommended).
 - Run the full test suite (PyTest with coverage and xdoctest) via ``python run_tests.py``.
-- Lint fatal errors with ``./run_linter.sh`` and execute doctests with ``./run_doctests.sh``.
+- Lint with ``./run_linter.sh`` and execute doctests with ``./run_doctests.sh``.
 - Build the Sphinx documentation with ``make -C docs html``.
-
-## Unclear or TODO
-- The README and docs reference historical names (e.g., geowatch) and some TODOs in the codebase mention future refactors; if you need authoritative guidance on pipeline registration/discovery beyond the demo, please check with maintainers.

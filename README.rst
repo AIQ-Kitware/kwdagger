@@ -18,7 +18,7 @@ Overview
 KWDagger is a lightweight framework for defining bash-centric DAGs and running
 large parameter sweeps. It builds on top of
 `cmd_queue <https://gitlab.kitware.com/computer-vision/cmd_queue>`_ and
-`scriptconfig <https://github.com/Erotemic/scriptconfig>`_ to provide:
+`scriptconfig <https://gitlab.kitware.com/utils/scriptconfig>`_ to provide:
 
 * Reusable :class:`~kwdagger.pipeline.Pipeline` and :class:`~kwdagger.pipeline.ProcessNode`
   abstractions for wiring inputs / outputs together.
@@ -29,17 +29,6 @@ large parameter sweeps. It builds on top of
   metrics, and optionally plots parameter/metric relationships.
 * A self-contained demo pipeline in :mod:`kwdagger.demo.demodata` that is used
   in CI and serves as a reference implementation.
-
-Installation
-------------
-KWDagger targets Python 3.8+ and depends on ``cmd_queue`` and ``scriptconfig``.
-To install in editable mode for local development, run:
-
-.. code:: bash
-
-    python -m venv .venv
-    source .venv/bin/activate
-    pip install -e . -r requirements.txt
 
 Repository layout
 -----------------
@@ -93,12 +82,16 @@ Run the demo pipeline locally to see the CLI workflow end-to-end:
         --stdout_report="
             top_k: 10
             concise: 1
-        " \
-        --cache_resolved_results=False
+        "
 
 The scheduler will generate per-node job directories with ``invoke.sh`` and
 ``job_config.json`` metadata. The aggregator then consolidates results,
 computes parameter hash IDs, and prints a concise report.
+
+A novel graph based symlink structure allows for navigation of dependencies
+within a node. The ``.succ`` folder holds symlinks to successors (i.e. results
+that depend on the current results), and ``.pred`` holds symlinks to folders of
+results that the current folder depends on.
 
 Command line entry points
 -------------------------
@@ -109,14 +102,6 @@ Command line entry points
   (:class:`kwdagger.aggregate.AggregateEvluationConfig`).
 * ``python -m kwdagger`` – modal CLI that exposes the ``schedule`` and
   ``aggregate`` commands via :class:`kwdagger.__main__.KWDaggerModal`.
-
-Development notes
------------------
-* Run the test suite with ``python run_tests.py`` (PyTest with coverage and
-  xdoctest integration).
-* Lint only fatal errors with ``./run_linter.sh`` and run doctests with
-  ``./run_doctests.sh``.
-* Build the Sphinx docs from ``docs/`` using ``make -C docs html``.
 
 .. |Pypi| image:: https://img.shields.io/pypi/v/kwdagger.svg
     :target: https://pypi.python.org/pypi/kwdagger
