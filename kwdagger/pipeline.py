@@ -1,9 +1,8 @@
 """
-The core pipeline data structure for MLOps.
+The core pipeline data structure for a KWDagger pipeline.
 
 This module outlines the structure for a generic DAG of bash process nodes.  It
-contains examples of generic test pipelines. For the SMART instantiation of
-project-specific dags see: smart_pipeline.py
+contains examples of generic test pipelines.
 
 The basic idea is that each bash process knows about:
 
@@ -282,7 +281,7 @@ class Pipeline:
                 node = self.proc_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
 
-    def print_process_graph(self, shrink_labels=1, show_types=0, smart_colors=0):
+    def print_process_graph(self, shrink_labels=1, show_types=0):
         """
         Draw the networkx process graph, which only shows if there exists
         a connection between processes, and does not show details of which
@@ -292,12 +291,12 @@ class Pipeline:
         import rich
         import networkx as nx
         self._ensure_clean()
-        _labelize_graph(self.proc_graph, shrink_labels, show_types, smart_colors)
+        _labelize_graph(self.proc_graph, shrink_labels, show_types)
         print('')
         print('Process Graph')
         nx.write_network_text(self.proc_graph, path=rich.print, end='', vertical_chains=True)
 
-    def print_io_graph(self, shrink_labels=1, show_types=0, smart_colors=0):
+    def print_io_graph(self, shrink_labels=1, show_types=0):
         """
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
@@ -305,7 +304,7 @@ class Pipeline:
         import rich
         import networkx as nx
         self._ensure_clean()
-        _labelize_graph(self.io_graph, shrink_labels, show_types, smart_colors, color_procs=True)
+        _labelize_graph(self.io_graph, shrink_labels, show_types, color_procs=True)
         print('')
         print('IO Graph')
         nx.write_network_text(self.io_graph, path=rich.print, end='', vertical_chains=True)
@@ -325,15 +324,13 @@ class Pipeline:
         queue = self.make_queue()['queue']
         queue.print_commands(**kwargs)
 
-    def print_graphs(self, shrink_labels=1, show_types=0, smart_colors=0):
+    def print_graphs(self, shrink_labels=1, show_types=0):
         """
         Prints the Process and IO graph for the DAG.
         """
         self.print_process_graph(shrink_labels=shrink_labels,
-                                 show_types=show_types,
-                                 smart_colors=smart_colors)
-        self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types,
-                            smart_colors=smart_colors)
+                                 show_types=show_types)
+        self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types)
 
     def submit_jobs(self, queue=None, skip_existing=False, enable_links=True,
                     write_invocations=True, write_configs=True):
