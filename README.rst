@@ -42,7 +42,7 @@ Repository layout
 * ``kwdagger/demo/demodata.py`` – end-to-end demo pipeline with prediction and
   evaluation stages plus CLI entry points for each node.
 * ``docs/`` – Sphinx sources, including an example user module under
-  ``docs/source/manual/example``.
+  ``docs/source/manual/tutorials/twostage_pipeline``.
 * ``tests/`` – unit and functional coverage for pipeline wiring, scheduler
   behavior, aggregation, and import sanity checks.
 

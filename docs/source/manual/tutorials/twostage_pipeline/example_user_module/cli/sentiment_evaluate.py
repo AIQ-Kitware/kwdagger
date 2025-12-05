@@ -116,8 +116,8 @@ if __name__ == '__main__':
     __cli__.main()
     r"""
     CommandLine:
-        python ~/code/kwdagger/docs/source/manual/example/example_user_module/cli/sentiment_evaluate.py \
-            --true_fpath ~/code/kwdagger/docs/source/manual/example/data/toy_reviews_movies.jsonl \
+        python ~/code/kwdagger/docs/source/manual/tutorials/twostage_pipeline/example_user_module/cli/sentiment_evaluate.py \
+            --true_fpath ~/code/kwdagger/docs/source/manual/tutorials/twostage_pipeline/data/toy_reviews_movies.jsonl \
             --pred_fpath ./keyword_predictions.json \
             --out_fpath out.json
 
