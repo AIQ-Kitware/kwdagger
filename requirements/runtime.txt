@@ -34,8 +34,7 @@ scriptconfig >= 0.8.4
 
 psutil>=5.9.1
 
-# FIXME: need to unpin this
-ruamel.yaml==0.17.22,<=0.17.32
+ruamel.yaml>=0.17.22
 PyYAML>=6.0.1     ; python_version < '4.0'  and python_version >= '3.12'    # Python 3.12+
 PyYAML>=6.0       ; python_version < '3.12'                                 # Python 3.6 - 3.11
 
