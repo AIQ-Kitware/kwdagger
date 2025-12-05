@@ -1875,7 +1875,7 @@ class ProcessNode(Node):
         return rows
 
 
-def _labelize_graph(graph, shrink_labels, show_types, smart_colors, color_procs=0):
+def _labelize_graph(graph, shrink_labels, show_types, color_procs=0):
     """
     Add a label to a networkx graph with rich colors specific to this use-case.
     """
@@ -1929,20 +1929,6 @@ def _labelize_graph(graph, shrink_labels, show_types, smart_colors, color_procs=
             if color is not None:
                 label = data['label']
                 data['label'] = f'[{color}]{label}[/{color}]'
-
-        elif smart_colors:
-            # ub.schedule_deprecation()
-            # SMART specific hack: remove later
-            if 'bas' in data['label']:
-                data['label'] = '[yellow]' + data['label']
-            elif 'sc' in data['label']:
-                data['label'] = '[cyan]' + data['label']
-            elif 'crop' in data['label']:
-                data['label'] = '[white]' + data['label']
-            elif 'building' in data['label']:
-                data['label'] = '[bright_magenta]' + data['label']
-            elif 'sv' in data['label']:
-                data['label'] = '[bright_magenta]' + data['label']
 
 
 def _load_json(fpath):
