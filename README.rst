@@ -20,14 +20,14 @@ large parameter sweeps. It builds on top of
 `cmd_queue <https://gitlab.kitware.com/computer-vision/cmd_queue>`_ and
 `scriptconfig <https://gitlab.kitware.com/utils/scriptconfig>`_ to provide:
 
-* Reusable :class:`~kwdagger.pipeline.Pipeline` and :class:`~kwdagger.pipeline.ProcessNode`
+* Reusable ``kwdagger.pipeline.Pipeline`` and ``kwdagger.pipeline.ProcessNode``
   abstractions for wiring inputs / outputs together.
-* A scheduling CLI (:mod:`kwdagger.schedule`) that materializes pipeline
+* A scheduling CLI (``kwdagger.schedule``) that materializes pipeline
   definitions over a parameter grid and executes them via Slurm, tmux, or a
   serial backend.
-* An aggregation CLI (:mod:`kwdagger.aggregate`) that loads job outputs, computes
+* An aggregation CLI (``kwdagger.aggregate``) that loads job outputs, computes
   metrics, and optionally plots parameter/metric relationships.
-* A self-contained demo pipeline in :mod:`kwdagger.demo.demodata` that is used
+* A self-contained demo pipeline in ``kwdagger.demo.demodata`` that is used
   in CI and serves as a reference implementation.
 
 Repository layout
@@ -96,12 +96,12 @@ results that the current folder depends on.
 Command line entry points
 -------------------------
 * ``python -m kwdagger.schedule`` or ``kwdagger schedule`` – build and run a
-  pipeline over a parameter matrix (see :class:`kwdagger.schedule.ScheduleEvaluationConfig`).
+  pipeline over a parameter matrix (see ``kwdagger.schedule.ScheduleEvaluationConfig``).
 * ``python -m kwdagger.aggregate`` or ``kwdagger aggregate`` – load completed
   runs and generate tabular and plotted summaries
-  (:class:`kwdagger.aggregate.AggregateEvluationConfig`).
+  (``kwdagger.aggregate.AggregateEvluationConfig``).
 * ``python -m kwdagger`` – modal CLI that exposes the ``schedule`` and
-  ``aggregate`` commands via :class:`kwdagger.__main__.KWDaggerModal`.
+  ``aggregate`` commands via ``kwdagger.__main__.KWDaggerModal``.
 
 .. |Pypi| image:: https://img.shields.io/pypi/v/kwdagger.svg
     :target: https://pypi.python.org/pypi/kwdagger
