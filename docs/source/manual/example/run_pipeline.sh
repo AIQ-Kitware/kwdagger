@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 # Copy/paste friendly: set EXAMPLE_DIR to this folder (edit if you run elsewhere).
 EXAMPLE_DIR="${EXAMPLE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$PWD}")" && pwd)}"
@@ -9,6 +8,7 @@ cd "$EXAMPLE_DIR"
 export PYTHONPATH=.
 
 EVAL_DPATH=${EVAL_DPATH:-$PWD/results}
+echo "EVAL_DPATH = $EVAL_DPATH"
 kwdagger schedule \
     --params="
         pipeline: 'example_user_module.pipelines.my_sentiment_pipeline()'
@@ -24,7 +24,7 @@ kwdagger schedule \
     " \
     --root_dpath="${EVAL_DPATH}" \
     --tmux_workers=2 \
-    --backend=tmux --skip_existing=1 \
+    --backend=serial --skip_existing=1 \
     --run=1
 
 kwdagger aggregate \
@@ -33,7 +33,7 @@ kwdagger aggregate \
         - $EVAL_DPATH
     " \
     --output_dpath="$EVAL_DPATH/full_aggregate" \
-    --resource_report=1 \
+    --resource_report=0 \
     --io_workers=0 \
     --eval_nodes="
         - sentiment_evaluate
@@ -44,6 +44,6 @@ kwdagger aggregate \
         concise: 1
     " \
     --plot_params="
-        enabled: 1
+        enabled: 0
     " \
     --cache_resolved_results=False

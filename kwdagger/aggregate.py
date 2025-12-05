@@ -1640,6 +1640,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             agg.node_type = 'unknown-node_type-empty-table'
             return
 
+        if agg.node_type is None:
+            agg.node_type = agg.table['node'].iloc[0]
+
         _table = util_pandas.DotDictDataFrame(agg.table)
 
         known_index_columns = ['node', 'region_id', 'param_hashid', 'fpath']
@@ -1658,11 +1661,15 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         })
         unknown_cols = agg.table.columns.difference(set(ub.flatten(([v.columns for v in subtables.values()]))))
         if len(unknown_cols):
-            raise Exception(str(unknown_cols))
+            raise Exception(ub.paragraph(
+                f'''
+                The aggregator (for {agg.node_type}) expects data returned by
+                `load_results` to have the following top level prefixes in its
+                column names: {_expected_top_level}. But the returned
+                dictionary has keys that do not match this convention:
+                {unknown_cols}.
+                '''))
         agg.subtables = subtables
-
-        if agg.node_type is None:
-            agg.node_type = agg.table['node'].iloc[0]
 
         # Construct primary / display model columns and metric column info lut
         agg._build_metrics_column_preferences()

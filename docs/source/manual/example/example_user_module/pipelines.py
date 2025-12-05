@@ -53,11 +53,11 @@ class KeywordSentimentPredict(kwdagger.ProcessNode):
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
         # Keep the summary small while still exposing what keyword was tried.
-        nest_resolved['result'] = {
-            'keyword': result['result']['keyword'],
-            'case_sensitive': result['result']['case_sensitive'],
-            'num_predictions': len(result['result']['predictions']),
-        }
+        # nest_resolved['result'] = {
+        #     'keyword': result['result']['keyword'],
+        #     'case_sensitive': result['result']['case_sensitive'],
+        #     'num_predictions': len(result['result']['predictions']),
+        # }
         flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
         flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
         return flat_resolved
@@ -86,6 +86,20 @@ class SentimentEvaluate(kwdagger.ProcessNode):
     def load_result(self, node_dpath):
         """
         Return metrics and configuration in a flattened dictionary.
+
+        The returned dictionary should have a key structure that at the very
+        least has keys that look like:
+            "metrics.{node_name}.{metric_name}"
+
+        Other keys like:
+
+            "context.{node_name}.{key_name}"
+            "resolved_params.{node_name}.{key_name}"
+            "resources.{node_name}.{key_name}"
+            "machine.{node_name}.{key_name}"
+
+        Can be filled in by using the ``new_process_context_parser`` helper and
+        kwutil.ProcessContext conventions shown in the CLI examples.
         """
         import json
         from kwdagger.aggregate_loader import new_process_context_parser

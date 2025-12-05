@@ -945,7 +945,7 @@ class ProcessNode(Node):
         >>>     out_paths={'dst': 'there.txt'},
         >>>     primary_out_key='dst',
         >>>     perf_params={'num_workers'},
-        >>>     group_dname='predictions',
+        >>>     group='predictions',
         >>>     #node_dname='proc1/{proc1_algo_id}/{proc1_id}',
         >>>     executable=f'python -c "{chr(10)}{pycode}{chr(10)}"',
         >>>     root_dpath=dpath,
@@ -1017,7 +1017,7 @@ class ProcessNode(Node):
     name : Optional[str] = None
 
     # A path that will specified directly after the DAG root dpath.
-    group_dname : Optional[str] = None
+    group : Optional[str] = None
 
     # resources : Collection = None  # Unused?
 
@@ -1054,7 +1054,7 @@ class ProcessNode(Node):
                  # resources=None,
                  in_paths=None,
                  out_paths=None,
-                 group_dname=None,
+                 group=None,
                  root_dpath=None,
                  config=None,
                  node_dpath=None,  # overwrites configured node dapth
@@ -1113,8 +1113,8 @@ class ProcessNode(Node):
             if len(self.out_paths) == 1:
                 self.primary_out_key = ub.peek(self.out_paths)
 
-        if self.group_dname is None:
-            self.group_dname = '.'
+        if self.group is None:
+            self.group = '.'
 
         if self.root_dpath is None:
             self.root_dpath = '.'
@@ -1511,10 +1511,10 @@ class ProcessNode(Node):
         """
         if self._overwrite_group_dpath is not None:
             return ub.Path(self._overwrite_group_dpath)
-        if self.group_dname is None:
+        if self.group is None:
             return self.root_dpath / self.name
         else:
-            return self.root_dpath / self.group_dname / self.name
+            return self.root_dpath / self.group / self.name
 
     @memoize_configured_property
     def template_node_dpath(self):

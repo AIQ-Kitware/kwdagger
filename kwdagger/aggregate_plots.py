@@ -109,13 +109,13 @@ def build_all_param_plots(agg, rois, plot_config):
 def build_special_columns(agg):
     from kwdagger.utils import util_pandas
     resolved_params = util_pandas.DotDictDataFrame(agg.resolved_params)
-    part1 = resolved_params.query_column('batch_size')
+    part1 = resolved_params.search_columns('batch_size')
     if len(part1) > 1:
         # Disambiguate fit and pred batch size
         part1_ = [p for p in part1 if '_fit' in p]
         if len(part1_) == 1:
             part1 = part1_
-    part2 = resolved_params.query_column('accumulate_grad_batches')
+    part2 = resolved_params.search_columns('accumulate_grad_batches')
     prefix_to_batchsize = ub.group_items(part1, key=lambda x: x.rsplit('.', 2)[0])
     prefix_to_accumbatch = ub.group_items(part2, key=lambda x: x.rsplit('.', 2)[0])
     prefixes = set(prefix_to_batchsize) | set(prefix_to_accumbatch)
@@ -510,7 +510,7 @@ class ParamPlotter:
 
         blocklist = {}
 
-        resolved_params = util_pandas.DotDictDataFrame(macro_table).subframe('resolved_params', drop_prefix=False)
+        resolved_params = util_pandas.DotDictDataFrame(macro_table).prefix_subframe('resolved_params', drop_prefix=False)
         resolved_params['param_hashid'] = macro_table['param_hashid']
         valid_cols = resolved_params.columns.difference(blocklist)
         resolved_params = resolved_params[valid_cols]
