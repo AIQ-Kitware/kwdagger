@@ -1,9 +1,8 @@
 """
-The core pipeline data structure for MLOps.
+The core pipeline data structure for a KWDagger pipeline.
 
 This module outlines the structure for a generic DAG of bash process nodes.  It
-contains examples of generic test pipelines. For the SMART instantiation of
-project-specific dags see: smart_pipeline.py
+contains examples of generic test pipelines.
 
 The basic idea is that each bash process knows about:
 
@@ -282,7 +281,7 @@ class Pipeline:
                 node = self.proc_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
 
-    def print_process_graph(self, shrink_labels=1, show_types=0, smart_colors=0):
+    def print_process_graph(self, shrink_labels=1, show_types=0):
         """
         Draw the networkx process graph, which only shows if there exists
         a connection between processes, and does not show details of which
@@ -290,25 +289,25 @@ class Pipeline:
         for that level of detail.
         """
         import rich
-        from cmd_queue.util import util_networkx
+        import networkx as nx
         self._ensure_clean()
-        _labelize_graph(self.proc_graph, shrink_labels, show_types, smart_colors)
+        _labelize_graph(self.proc_graph, shrink_labels, show_types)
         print('')
         print('Process Graph')
-        util_networkx.write_network_text(self.proc_graph, path=rich.print, end='', vertical_chains=True)
+        nx.write_network_text(self.proc_graph, path=rich.print, end='', vertical_chains=True)
 
-    def print_io_graph(self, shrink_labels=1, show_types=0, smart_colors=0):
+    def print_io_graph(self, shrink_labels=1, show_types=0):
         """
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
         """
         import rich
-        from cmd_queue.util import util_networkx
+        import networkx as nx
         self._ensure_clean()
-        _labelize_graph(self.io_graph, shrink_labels, show_types, smart_colors, color_procs=True)
+        _labelize_graph(self.io_graph, shrink_labels, show_types, color_procs=True)
         print('')
         print('IO Graph')
-        util_networkx.write_network_text(self.io_graph, path=rich.print, end='', vertical_chains=True)
+        nx.write_network_text(self.io_graph, path=rich.print, end='', vertical_chains=True)
 
     def print_commands(self, **kwargs):
         """
@@ -325,15 +324,13 @@ class Pipeline:
         queue = self.make_queue()['queue']
         queue.print_commands(**kwargs)
 
-    def print_graphs(self, shrink_labels=1, show_types=0, smart_colors=0):
+    def print_graphs(self, shrink_labels=1, show_types=0):
         """
         Prints the Process and IO graph for the DAG.
         """
         self.print_process_graph(shrink_labels=shrink_labels,
-                                 show_types=show_types,
-                                 smart_colors=smart_colors)
-        self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types,
-                            smart_colors=smart_colors)
+                                 show_types=show_types)
+        self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types)
 
     def submit_jobs(self, queue=None, skip_existing=False, enable_links=True,
                     write_invocations=True, write_configs=True):
@@ -355,7 +352,7 @@ class Pipeline:
             # Create a simple serial queue if an existing one isn't given.
             default_queue_kw = {
                 'backend': 'serial',
-                'name': 'unnamed-mlops-pipeline',
+                'name': 'unnamed-kwdagger-pipeline',
                 'size': 1,
                 'gres': None,
             }
@@ -862,7 +859,7 @@ class ProcessNode(Node):
     class variables.
 
     For examples on how to define a full pipeline see the
-    :doc:`the mlops tutorial <manual/tutorial/examples/README.rst>
+    :doc:`the kwdagger tutorial <manual/tutorial/examples/README.rst>
 
     CommandLine:
         xdoctest -m kwdagger.pipeline ProcessNode
@@ -945,7 +942,7 @@ class ProcessNode(Node):
         >>>     out_paths={'dst': 'there.txt'},
         >>>     primary_out_key='dst',
         >>>     perf_params={'num_workers'},
-        >>>     group_dname='predictions',
+        >>>     group='predictions',
         >>>     #node_dname='proc1/{proc1_algo_id}/{proc1_id}',
         >>>     executable=f'python -c "{chr(10)}{pycode}{chr(10)}"',
         >>>     root_dpath=dpath,
@@ -1017,7 +1014,7 @@ class ProcessNode(Node):
     name : Optional[str] = None
 
     # A path that will specified directly after the DAG root dpath.
-    group_dname : Optional[str] = None
+    group : Optional[str] = None
 
     # resources : Collection = None  # Unused?
 
@@ -1054,7 +1051,7 @@ class ProcessNode(Node):
                  # resources=None,
                  in_paths=None,
                  out_paths=None,
-                 group_dname=None,
+                 group=None,
                  root_dpath=None,
                  config=None,
                  node_dpath=None,  # overwrites configured node dapth
@@ -1113,8 +1110,8 @@ class ProcessNode(Node):
             if len(self.out_paths) == 1:
                 self.primary_out_key = ub.peek(self.out_paths)
 
-        if self.group_dname is None:
-            self.group_dname = '.'
+        if self.group is None:
+            self.group = '.'
 
         if self.root_dpath is None:
             self.root_dpath = '.'
@@ -1275,15 +1272,7 @@ class ProcessNode(Node):
         if config is None:
             config = {}
         config = _fixup_config_serializability(config)
-        if 'enabled' in config:
-            ub.schedule_deprecation(
-                modname='kwdagger', name='enabled',
-                type='mlops special parameter',
-                migration='use __enabled__ instead',
-                deprecate='0.18.4', error='1.0.0', remove='1.1.0')
-        enabled = config.pop('enabled', enabled)
-        enabled = config.pop('__enabled__', enabled)
-        self.enabled = enabled
+        self.enabled = config.pop('__enabled__', enabled)
         # Special case for process specific slurm options
         self.__slurm_options__ = config.pop('__slurm_options__', '{}')
         self.config = ub.udict(config)
@@ -1511,10 +1500,10 @@ class ProcessNode(Node):
         """
         if self._overwrite_group_dpath is not None:
             return ub.Path(self._overwrite_group_dpath)
-        if self.group_dname is None:
+        if self.group is None:
             return self.root_dpath / self.name
         else:
-            return self.root_dpath / self.group_dname / self.name
+            return self.root_dpath / self.group / self.name
 
     @memoize_configured_property
     def template_node_dpath(self):
@@ -1883,7 +1872,7 @@ class ProcessNode(Node):
         return rows
 
 
-def _labelize_graph(graph, shrink_labels, show_types, smart_colors, color_procs=0):
+def _labelize_graph(graph, shrink_labels, show_types, color_procs=0):
     """
     Add a label to a networkx graph with rich colors specific to this use-case.
     """
@@ -1937,20 +1926,6 @@ def _labelize_graph(graph, shrink_labels, show_types, smart_colors, color_procs=
             if color is not None:
                 label = data['label']
                 data['label'] = f'[{color}]{label}[/{color}]'
-
-        elif smart_colors:
-            # ub.schedule_deprecation()
-            # SMART specific hack: remove later
-            if 'bas' in data['label']:
-                data['label'] = '[yellow]' + data['label']
-            elif 'sc' in data['label']:
-                data['label'] = '[cyan]' + data['label']
-            elif 'crop' in data['label']:
-                data['label'] = '[white]' + data['label']
-            elif 'building' in data['label']:
-                data['label'] = '[bright_magenta]' + data['label']
-            elif 'sv' in data['label']:
-                data['label'] = '[bright_magenta]' + data['label']
 
 
 def _load_json(fpath):

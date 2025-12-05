@@ -16,15 +16,17 @@ ubelt>=1.3.6
 kwarray>=0.6.19
 kwutil>=0.3.8
 
-networkx>=2.8           ; python_version < '4.0'   and python_version >= '3.11'   # Python 3.11+
-networkx>=2.7           ; python_version < '3.11'  and python_version >= '3.8'    # Python 3.8-3.11
+networkx>=3.6      ; python_version < '4.0'  and python_version >= '3.14'    # Python 3.14+
+networkx>=3.2      ; python_version < '3.13'   
+
 
 # xdev availpkg rich
 rich>=12.5.1
 
 # TODO: lets make pandas an optional dependency
 # xdev availpkg pandas
-pandas>=2.2.3  ; python_version < '4.0'  and python_version >= '3.13'    # Python 3.13+
+pandas>=2.3.3  ; python_version < '4.0'  and python_version >= '3.14'    # Python 3.14+
+pandas>=2.2.3  ; python_version < '3.14' and python_version >= '3.13'    # Python 3.13
 pandas>=2.1.1  ; python_version < '3.13' and python_version >= '3.12'    # Python 3.12
 pandas>=1.5.3  ; python_version < '3.12' and python_version >= '3.11'    # Python 3.11
 pandas>=1.5.3  ; python_version < '3.11' and python_version >= '3.10'    # Python 3.10
@@ -33,8 +35,7 @@ scriptconfig >= 0.8.4
 
 psutil>=5.9.1
 
-# FIXME: need to unpin this
-ruamel.yaml==0.17.22,<=0.17.32
+ruamel.yaml>=0.17.22
 PyYAML>=6.0.1     ; python_version < '4.0'  and python_version >= '3.12'    # Python 3.12+
 PyYAML>=6.0       ; python_version < '3.12'                                 # Python 3.6 - 3.11
 

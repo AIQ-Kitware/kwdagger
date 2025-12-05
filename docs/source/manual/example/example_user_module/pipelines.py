@@ -1,7 +1,10 @@
 """
-This file defines a ProcessNode for each CLI process in a pipeline.
-It is important that each CLI have well defined input and output paths.
+Two-stage demo pipeline used by the documentation example.
+
+The first stage performs a tiny keyword-based "model" and the second stage
+evaluates it. Each node documents the pieces kwdagger needs to wire things up.
 """
+
 import kwdagger
 import ubelt as ub
 
@@ -10,32 +13,32 @@ import ubelt as ub
 try:
     EXAMPLE_DPATH = ub.Path(__file__).parent
 except NameError:
-    # for developer convinience
+    # for developer convenience
     EXAMPLE_DPATH = ub.Path('~/code/kwdagger/docs/source/manual/example/example_user_module').expanduser()
 
 
-class Stage1_Predict(kwdagger.ProcessNode):
-    """
-    Example:
-        >>> from example_user_module.pipelines import *  # NOQA
-        >>> self = Stage1_Predict()
-        >>> print(self.command)
-    """
-    name = 'stage1_predict'
-    executable = f'python {EXAMPLE_DPATH}/cli/stage1_predict.py'
+class KeywordSentimentPredict(kwdagger.ProcessNode):
+    """Run the lightweight keyword-based classifier."""
 
+    name = 'keyword_sentiment_predict'
+    executable = f'python {EXAMPLE_DPATH}/cli/keyword_sentiment_predict.py'
+
+    # Describe how the scheduler passes and captures data for this node.
     in_paths = {
         'src_fpath',
     }
     out_paths = {
-        'dst_fpath': 'stage1_prediction.json',
+        'dst_fpath': 'keyword_predictions.json',
         'dst_dpath': '.',
     }
     primary_out_key = 'dst_fpath'
 
+    # algo_params are the knobs you want to sweep over
     algo_params = {
-        'param1': 1,
+        'keyword': 'great',
+        'case_sensitive': False,
     }
+    # perf_params are for execution details (threads, GPUs, etc.)
     perf_params = {
         'workers': 0,
     }
@@ -44,60 +47,76 @@ class Stage1_Predict(kwdagger.ProcessNode):
         import json
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
+
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
+        # TODO: it would be useful if the aggregator could be given some stats
+        # about non-evaluation runs, but currently this does not work because
+        # it does not conform to the output needed by load_results.
+        # nest_resolved['result'] = {
+        #     'keyword': result['result']['keyword'],
+        #     'case_sensitive': result['result']['case_sensitive'],
+        #     'num_predictions': len(result['result']['predictions']),
+        # }
         flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
         flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
         return flat_resolved
 
 
-class Stage1_Evaluate(kwdagger.ProcessNode):
-    name = 'stage1_evaluate'
-    executable = f'python {EXAMPLE_DPATH}/cli/stage1_evaluate.py'
+class SentimentEvaluate(kwdagger.ProcessNode):
+    """Score predictions against labels and expose metrics for aggregation."""
+
+    name = 'sentiment_evaluate'
+    executable = f'python {EXAMPLE_DPATH}/cli/sentiment_evaluate.py'
 
     in_paths = {
         'true_fpath',
         'pred_fpath',
     }
     out_paths = {
-        'out_fpath': 'stage1_evaluation.json',
+        'out_fpath': 'sentiment_metrics.json',
     }
-    algo_params = {
-    }
+    primary_out_key = 'out_fpath'
+
+    algo_params = {}
     perf_params = {
         'workers': 0,
     }
 
     def load_result(self, node_dpath):
         """
-        The specific implementation uses convinience functions that rely on how
-        the script implemention stores results, but any manual implementation
-        will work if it returns a flat dict items of the form:
-        ``"metrics.<node_name>.<metric>": <value>``.
+        Return metrics and configuration in a flattened dictionary.
 
-        Returns:
-            Dict[str, Any]
+        The returned dictionary should have a key structure that at the very
+        least has keys that look like:
+            "metrics.{node_name}.{metric_name}"
+
+        Other keys like:
+
+            "context.{node_name}.{key_name}"
+            "resolved_params.{node_name}.{key_name}"
+            "resources.{node_name}.{key_name}"
+            "machine.{node_name}.{key_name}"
+
+        Can be filled in by using the ``new_process_context_parser`` helper and
+        kwutil.ProcessContext conventions shown in the CLI examples.
         """
         import json
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
+
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
-        nest_resolved['metrics'] = result['result']
+        nest_resolved['metrics'] = result['result']['metrics']
         flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
         flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
         return flat_resolved
 
     def default_metrics(self):
-        """
-        Returns:
-            List[Dict]: containing information on how to interpret and
-            prioritize the metrics returned here.
-        """
         metric_infos = [
             {
                 'metric': 'accuracy',
@@ -106,11 +125,17 @@ class Stage1_Evaluate(kwdagger.ProcessNode):
                 'display': True,
             },
             {
-                'metric': 'hamming_distance',
-                'objective': 'minimize',
-                'primary': True,
+                'metric': 'precision_positive',
+                'objective': 'maximize',
+                'primary': False,
                 'display': True,
-            }
+            },
+            {
+                'metric': 'recall_positive',
+                'objective': 'maximize',
+                'primary': False,
+                'display': True,
+            },
         ]
         return metric_infos
 
@@ -118,44 +143,30 @@ class Stage1_Evaluate(kwdagger.ProcessNode):
     def default_vantage_points(self):
         vantage_points = [
             {
-                'metric1': 'metrics.stage1_evaluate.accuracy',
-                'metric2': 'metrics.stage1_evaluate.hamming_distance',
+                'metric1': 'metrics.sentiment_evaluate.accuracy',
+                'metric2': 'metrics.sentiment_evaluate.precision_positive',
             },
         ]
         return vantage_points
 
 
-def my_demo_pipeline():
-    """
-    Example:
-        >>> from example_user_module.pipelines import *  # NOQA
-        >>> dag = my_demo_pipeline()
-        >>> dag.configure({
-        ...     'stage1_predict.src_fpath': 'my-input-path',
-        ... })
-        >>> dag.print_graphs(shrink_labels=1, show_types=1)
-        >>> queue = dag.make_queue()['queue']
-        >>> queue.print_commands(with_locks=0)
+def my_sentiment_pipeline():
+    """Create the two-stage keyword review pipeline."""
 
-    Ignore:
-        from graphid import util
-        proc_graph = dag.proc_graph.copy()
-        util.util_graphviz.dump_nx_ondisk(proc_graph, 'proc_graph.png')
-        import xdev
-        xdev.startfile('proc_graph.png')
-    """
-    # Define the nodes as stages in the pipeline
-    nodes = {}
-    nodes['stage1_predict'] = Stage1_Predict()
-    nodes['stage1_evaluate'] = Stage1_Evaluate()
+    nodes = {
+        'keyword_sentiment_predict': KeywordSentimentPredict(),
+        'sentiment_evaluate': SentimentEvaluate(),
+    }
 
-    # Next we build the edges
+    # Connect your nodes together: predictions feed into evaluation.
+    nodes['keyword_sentiment_predict'].outputs['dst_fpath'].connect(
+        nodes['sentiment_evaluate'].inputs['pred_fpath']
+    )
 
-    # Outputs can be connected to inputs
-    nodes['stage1_predict'].outputs['dst_fpath'].connect(nodes['stage1_evaluate'].inputs['pred_fpath'])
-
-    # Inputs can be connected to other inputs if they are reused.
-    nodes['stage1_predict'].inputs['src_fpath'].connect(nodes['stage1_evaluate'].inputs['true_fpath'])
+    # Reuse the same labeled data for both prediction input and ground truth.
+    nodes['keyword_sentiment_predict'].inputs['src_fpath'].connect(
+        nodes['sentiment_evaluate'].inputs['true_fpath']
+    )
 
     dag = kwdagger.Pipeline(nodes)
     dag.build_nx_graphs()

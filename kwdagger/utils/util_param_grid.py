@@ -5,76 +5,7 @@ The main function of interest here is :func:`expand_param_grid` and
 its underlying workhorse: :func:`extended_github_action_matrix`.
 """
 import ubelt as ub
-
-
-def handle_yaml_grid(default, auto, arg):
-    """
-    Unused
-
-    Example:
-        >>> from kwdagger.utils.util_param_grid import *  # NOQA
-        >>> default = {}
-        >>> auto = {}
-        >>> arg = ub.codeblock(
-        >>>     '''
-        >>>     matrix:
-        >>>         foo: ['bar', 'baz']
-        >>>     include:
-        >>>         - {'foo': 'buz', 'bug': 'boop'}
-        >>>     ''')
-        >>> grid = handle_yaml_grid(default, auto, arg)
-        >>> print(f'grid = {ub.urepr(grid, nl=1)}')
-
-        >>> default = {'baz': [1, 2, 3]}
-        >>> arg = '''
-        >>>     include:
-        >>>     - {
-        >>>       "thresh": 0.1,
-        >>>       "morph_kernel": 3,
-        >>>       "norm_ord": 1,
-        >>>       "agg_fn": "probs",
-        >>>       "thresh_hysteresis": "None",
-        >>>       "moving_window_size": "None",
-        >>>       "polygon_fn": "heatmaps_to_polys"
-        >>>     }
-        >>>     '''
-        >>> handle_yaml_grid(default, auto, arg)
-    """
-    stdform_keys = {'matrix', 'include'}
-    import ruamel.yaml
-    print('arg = {}'.format(ub.urepr(arg, nl=1)))
-    if arg:
-        if arg is True:
-            arg = 'auto'
-        if isinstance(arg, str):
-            if arg == 'auto':
-                arg = auto
-            if isinstance(arg, str):
-                arg = ruamel.yaml.safe_load(arg)
-    else:
-        arg = {'matrix': default}
-    if isinstance(arg, dict):
-        arg = ub.udict(arg)
-        if len(arg - stdform_keys) == 0 and (arg & stdform_keys):
-            # Standard form
-            ...
-        else:
-            # Transform matrix to standard form
-            arg = {'matrix': arg}
-    elif isinstance(arg, list):
-        # Transform list form to standard form
-        arg = {'include': arg}
-    else:
-        raise TypeError(type(arg))
-    assert set(arg.keys()).issubset(stdform_keys)
-    print('arg = {}'.format(ub.urepr(arg, nl=1)))
-    basis = arg.get('matrix', {})
-    if basis:
-        grid = list(ub.named_product(basis))
-    else:
-        grid = []
-    grid.extend(arg.get('include', []))
-    return grid
+import kwutil
 
 
 def coerce_list_of_action_matrices(arg):
@@ -99,9 +30,8 @@ def coerce_list_of_action_matrices(arg):
         >>> print(arg)
         >>> assert len(arg) == 2
     """
-    import ruamel.yaml
     if isinstance(arg, str):
-        data = ruamel.yaml.safe_load(arg)
+        data = kwutil.Yaml.loads(arg)
     else:
         data = arg.copy()
     action_matrices = []
@@ -347,9 +277,8 @@ def github_action_matrix(arg):
         >>> grid_items = list(github_action_matrix(arg))
         >>> print('grid_items = {}'.format(ub.urepr(grid_items, nl=1)))
     """
-    import ruamel.yaml
     if isinstance(arg, str):
-        data = ruamel.yaml.safe_load(arg)
+        data = kwutil.Yaml.loads(arg)
     else:
         data = arg.copy()
 
@@ -570,11 +499,9 @@ def extended_github_action_matrix(arg):
         >>> print('grid_items = {}'.format(ub.urepr(grid_items, nl=1)))
         >>> assert len(grid_items) == 20
     """
-    import ruamel.yaml
-    from kwutil.util_yaml import Yaml
     import os
     if isinstance(arg, str):
-        data = ruamel.yaml.safe_load(arg)
+        data = kwutil.Yaml.loads(arg)
     else:
         data = arg.copy()
 
@@ -596,7 +523,7 @@ def extended_github_action_matrix(arg):
         for item in v:
             if isinstance(item, (str, os.PathLike)) and str(item).endswith(('.yaml', '.yml')):
                 # use Yaml.coerce instead?
-                final.extend(Yaml.load(item))
+                final.extend(kwutil.Yaml.load(item))
             else:
                 final.append(item)
         return final
