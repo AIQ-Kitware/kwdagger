@@ -56,7 +56,7 @@ if __name__ == '__main__':
     r"""
 
     CommandLine:
-        python ~/code/geowatch/docs/source/manual/tutorial/examples/mlops/mlops_example_module/cli/stage1_predict.py \
+        python ~/code/kwdagger/docs/source/manual/example/example_user_module/cli/stage1_predict.py \
             --src_fpath ~/.bashrc \
             --dst_fpath ./stage1out/out.json
     """

@@ -63,12 +63,9 @@ __cli__ = Stage1EvaluateCLI
 
 if __name__ == '__main__':
     __cli__.main()
-
-
     r"""
-
     CommandLine:
-        python ~/code/geowatch/docs/source/manual/tutorial/examples/mlops/mlops_example_module/cli/stage1_evaluate.py \
+        python ~/code/kwdagger/docs/source/manual/example/example_user_module/cli/stage1_evaluate.py \
             --true_fpath ~/.bashrc \
             --pred_fpath ~/.bashrc \
             --out_fpath out.json
