@@ -498,6 +498,46 @@ def extended_github_action_matrix(arg):
         >>> grid_items = list(extended_github_action_matrix(arg))
         >>> print('grid_items = {}'.format(ub.urepr(grid_items, nl=1)))
         >>> assert len(grid_items) == 20
+
+
+    Example:
+        >>> # Test that __include__ expands YAML files, while plain YAML values remain
+        >>> # literal arguments.
+        >>> from kwdagger.utils.util_param_grid import *  # NOQA
+        >>> dpath = ub.Path.appdir('kwdagger/tests/param_grid').ensuredir()
+        >>> # Create a subgrid file that will be included
+        >>> subgrid_fpath = dpath / 'subgrid.yaml'
+        >>> subgrid_content = [
+        ...     'subgrid-value1',
+        ...     'subgrid-value2',
+        ... ]
+        >>> subgrid_fpath.write_text(kwutil.Yaml.dumps(subgrid_content))
+        >>> # Create a main grid file that uses __include__
+        >>> main_fpath = dpath / 'main.yaml'
+        >>> main_content = {
+        ...     'matrix': {
+        ...         'foo': [
+        ...             {'__include__': str(subgrid_fpath)},  # explicit include
+        ...             str(subgrid_fpath),                   # should remain literal
+        ...         ]
+        ...     }
+        ... }
+        >>> main_fpath.write_text(kwutil.Yaml.dumps(main_content))
+        >>> # Load and expand
+        >>> grid = kwutil.Yaml.load(main_fpath)
+        >>> values = list(extended_github_action_matrix(grid))
+        >>> # The include should expand into 2 entries from the subgrid
+        >>> print(f'values = {ub.urepr(values, nl=1)}')
+        values = [
+            {'foo': 'subgrid-value1'},
+            {'foo': 'subgrid-value2'},
+            {'foo': '.../subgrid.yaml'},
+        ]
+        >>> # Confirm the literal YAML file is *not* expanded
+        >>> assert 'subgrid.yaml' in values[-1]['foo']
+        >>> # Confirm expansion order is preserved
+        >>> assert values[0]['foo'] == 'subgrid-value1'
+        >>> assert values[1]['foo'] == 'subgrid-value2'
     """
     import os
     if isinstance(arg, str):
@@ -517,13 +557,49 @@ def extended_github_action_matrix(arg):
     exclude = list(map(ub.udict, exclude))
 
     def coerce_matrix_value(v):
+        """
+        Normalize values in the param grid / submatrices.
+
+        This now supports an explicit include directive of the form::
+
+            some_param:
+              - __include__: path/to/grid.yaml
+
+        or a list of includes::
+
+            some_param:
+              - __include__:
+                  - path/to/grid1.yaml
+                  - path/to/grid2.yaml
+
+        In these cases the referenced YAML file(s) are loaded and their
+        contents are spliced into the grid. Plain YAML filenames are now
+        treated as literal argument values.
+        """
         if not ub.iterable(v):
             v = [v]
         final = []
         for item in v:
-            if isinstance(item, (str, os.PathLike)) and str(item).endswith(('.yaml', '.yml')):
-                # use Yaml.coerce instead?
-                final.extend(kwutil.Yaml.load(item))
+            # Explicit include syntax: {'__include__': 'path/to/grid.yaml'}
+            if isinstance(item, dict) and set(item.keys()) == {'__include__'}:
+                include_val = item['__include__']
+
+                # Allow a single path or a list/tuple of paths
+                if isinstance(include_val, (str, os.PathLike)) or not ub.iterable(include_val):
+                    include_paths = [include_val]
+                else:
+                    include_paths = list(include_val)
+
+                for include_path in include_paths:
+                    # use Yaml.coerce instead?
+                    loaded = kwutil.Yaml.load(include_path)
+                    # If the loaded object is a sequence (e.g. list of
+                    # matrices), splice it into the grid; otherwise keep it
+                    # as a single value.
+                    if ub.iterable(loaded) and not isinstance(loaded, (str, bytes)):
+                        final.extend(loaded)
+                    else:
+                        final.append(loaded)
             else:
                 final.append(item)
         return final
