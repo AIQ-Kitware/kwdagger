@@ -1,0 +1,6 @@
+prompts:
+  - "What is the capital of Iceland?"
+  - "Translate the following sentence into French: 'The quick brown fox jumps over the lazy dog.'"
+  - "Summarize this paragraph in one sentence: 'Artificial intelligence has become a pervasive technology in modern society...' "
+  - "Explain the concept of quantum entanglement in simple terms."
+  - "Write a Python function that returns the factorial of a number."

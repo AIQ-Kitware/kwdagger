@@ -187,7 +187,7 @@ def build_schedule(config):
     }
 
     rich.print(f'\n\ndag.root_dpath: [link={dag.root_dpath}]{dag.root_dpath}[/link]')
-    config.run_queue(queue, print_kwargs=print_kwargs)
+    config.run_queue(queue, print_kwargs=print_kwargs, system=True)
 
     if not config.run:
         driver_fpath = queue.write()
