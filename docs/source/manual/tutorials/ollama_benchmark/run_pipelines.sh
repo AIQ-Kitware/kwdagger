@@ -38,7 +38,11 @@ kwdagger schedule \
             # --- Model sweep ---
             ollama_benchmark.model:
                 - gemma3:27b
-                - gpt-oss:20b
+                - qwen3:0.6b
+                - gemma3n:e4b
+                - llama3.2:latest
+                # - gemma3:270m
+                #- gpt-oss:20b
                 #- gemma3n:e4b
                 #- olmo2:7b
                 #- ministral-3:14b
@@ -46,9 +50,9 @@ kwdagger schedule \
 
             # --- Cold / warm behavior ---
             ollama_benchmark.cold_trials:
-                - 1          # cold runs (first prompt only, no concurrency)
+                - 3          # cold runs (first prompt only, no concurrency)
             ollama_benchmark.warm_trials:
-                - 1          # warm trials per prompt
+                - 3          # warm trials per prompt
 
             # --- Concurrency for warm runs ---
             ollama_benchmark.concurrency:
@@ -63,6 +67,11 @@ kwdagger schedule \
             # You can override this with COLD_RESET_CMD_DEFAULT in the environment.
             ollama_benchmark.cold_reset_cmd:
                 - '${COLD_RESET_CMD_DEFAULT}'
+
+            # We specify the hostname so the parameter based hashes can be
+            # aggregated across machines
+            ollama_benchmark.notes:
+                - 'Run on $HOSTNAME'
     " \
     --root_dpath="${EVAL_DPATH}" \
     --backend=serial --skip_existing=1 \
