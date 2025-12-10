@@ -81,7 +81,7 @@ if __name__ == '__main__':
 
     r"""
     CommandLine:
-        python ~/code/kwdagger/docs/source/manual/example/example_user_module/cli/keyword_sentiment_predict.py \
-            --src_fpath ~/code/kwdagger/docs/source/manual/example/data/toy_reviews_movies.jsonl \
+        python ~/code/kwdagger/docs/source/manual/tutorials/twostage_pipeline/example_user_module/cli/keyword_sentiment_predict.py \
+            --src_fpath ~/code/kwdagger/docs/source/manual/tutorials/twostage_pipeline/data/toy_reviews_movies.jsonl \
             --dst_fpath ./keyword_predictions.json
     """

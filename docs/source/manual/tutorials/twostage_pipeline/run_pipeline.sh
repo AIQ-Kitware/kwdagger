@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 
-# Copy/paste friendly: set EXAMPLE_DIR to this folder (edit if you run elsewhere).
-EXAMPLE_DIR="${EXAMPLE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$PWD}")" && pwd)}"
-cd "$EXAMPLE_DIR"
+# Copy/paste friendly: set SCRIPT_DIR to this folder (edit if you run elsewhere).
+if [[ -n "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    SCRIPT_DIR="$HOME/code/kwdagger/docs/source/manual/tutorials/twostage_pipeline"
+fi
+cd "$SCRIPT_DIR"
 
 # Set PYTHONPATH to ensure Python can see the example directory.
 export PYTHONPATH=.

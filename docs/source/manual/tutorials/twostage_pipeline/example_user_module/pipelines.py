@@ -14,7 +14,9 @@ try:
     EXAMPLE_DPATH = ub.Path(__file__).parent
 except NameError:
     # for developer convenience
-    EXAMPLE_DPATH = ub.Path('~/code/kwdagger/docs/source/manual/example/example_user_module').expanduser()
+    EXAMPLE_DPATH = ub.Path(
+        '~/code/kwdagger/docs/source/manual/tutorials/twostage_pipeline/example_user_module'
+    ).expanduser()
 
 
 class KeywordSentimentPredict(kwdagger.ProcessNode):
