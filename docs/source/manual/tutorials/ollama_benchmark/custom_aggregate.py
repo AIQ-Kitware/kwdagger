@@ -17,6 +17,10 @@ This script:
     - run_metric_* columns (aggregate metrics duplicated per trial)
     - bookkeeping columns (run_uuid, run_start_timestamp, source_fpath, etc.)
 
+
+Note: The plots produced by this script are not polished, they simply
+demonstrate how custom aggregation can be performed.
+
 Usage
 -----
 
@@ -201,10 +205,11 @@ def plot_ollama_overviews(df, plot_dpath):
         y="ttft_sec",
         hue="cold_start",
     )
+    ax.set_yscale('log')
     ax.set_title("TTFT by model (cold vs warm)")
     ax.set_xlabel("model")
     ax.set_ylabel("TTFT (s)")
-    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+    plt.setp(ax.get_xticklabels(), rotation=90, ha="right")
     finalize.finalize(fig, "ttft_by_model_cold_vs_warm.png")
 
     # --- 2. Throughput vs concurrency by model (warm only) ---
@@ -222,6 +227,7 @@ def plot_ollama_overviews(df, plot_dpath):
         y="tokens_per_sec",
         hue="config.model",
     )
+    ax.set_yscale('log')
     ax.set_title("Warm throughput vs concurrency by model")
     ax.set_xlabel("concurrency")
     ax.set_ylabel("tokens/sec")
@@ -238,8 +244,8 @@ def plot_ollama_overviews(df, plot_dpath):
         data=warm,
         x="latency_total_sec",
         y="tokens_per_sec",
-        hue="concurrency_label",
-        style="config.model",
+        hue="config.model",
+        style="concurrency_label",
         alpha=0.7,
     )
     ax.set_title("Latency vs throughput (warm trials)")
@@ -285,9 +291,10 @@ def plot_ollama_overviews(df, plot_dpath):
                 hue="concurrency_label",
             )
             ax.set_title(f"Throughput for {top_model} across hosts (warm)")
+            ax.set_yscale('log')
             ax.set_xlabel("machine.host")
             ax.set_ylabel("tokens/sec")
-            plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+            plt.setp(ax.get_xticklabels(), rotation=90, ha="right")
             finalize.finalize(fig, f"tps_by_host_{top_model.replace(':', '_')}.png")
 
     hosts = sorted(df['machine.host'].dropna().unique().tolist())
@@ -318,7 +325,7 @@ def plot_ollama_overviews(df, plot_dpath):
             ax.set_title(f"TTFT by model – host={host}, cold_start={cold_label}")
             ax.set_xlabel("model")
             ax.set_ylabel("TTFT (s)")
-            plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+            plt.setp(ax.get_xticklabels(), rotation=90, ha="right")
             fname = f"ttft_by_model_host={safe_host}_cold={cold_label}.png"
             finalize.finalize(fig, fname)
 
@@ -338,7 +345,8 @@ def plot_ollama_overviews(df, plot_dpath):
             ax.set_title(f"Throughput by model – host={host}, cold_start={cold_label}")
             ax.set_xlabel("model")
             ax.set_ylabel("tokens/sec")
-            plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+            ax.set_yscale('log')
+            plt.setp(ax.get_xticklabels(), rotation=90, ha="right")
             fname = f"tps_by_model_host={safe_host}_cold={cold_label}.png"
             finalize.finalize(fig, fname)
 
@@ -370,7 +378,7 @@ def plot_ollama_overviews(df, plot_dpath):
                 hue="config.model",
                 alpha=0.7,
             )
-
+            ax.set_yscale('log')
             ax.set_title(title)
             ax.set_xlabel("TTFT (s)")
             ax.set_ylabel("Throughput (tokens/sec)")
