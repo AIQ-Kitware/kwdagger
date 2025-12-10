@@ -36,6 +36,8 @@ import scriptconfig as scfg
 import ubelt as ub
 import rich
 import glob
+import numpy as np
+import kwplot
 
 
 class OllamaCustomAggregateConfig(scfg.DataConfig):
@@ -61,16 +63,18 @@ class OllamaCustomAggregateConfig(scfg.DataConfig):
             with pd.option_context("display.max_columns", 20, "display.width", 120):
                 print(df.head())
 
-        # Do aggregation
-
-        group_keys = ['config.model', 'machine.host', 'cold_start', 'config.concurrency']
-
+        # Hack to note that 0 and 1 are the same
+        df.loc[df['config.concurrency'] <= 1, 'config.concurrency'] = 0
+        group_keys = ['config.model', 'cold_start', 'config.concurrency', 'machine.host']
         for group_values, group in df.groupby(group_keys):
             group_id = dict(zip(group_keys, group_values))
             print(f'group_id={group_id}')
             description = group.describe()
             print(description)
 
+        plot_dpath = ub.Path('./plots')
+
+        plot_ollama_overviews(df, plot_dpath)
         return df
 
 
@@ -156,6 +160,222 @@ def aggregate_ollama_runs(
 
     df = pd.DataFrame(rows)
     return df
+
+
+def _prep_concurrency_labels(df):
+    """
+    Match your hack: 0 and 1 treated as '0' (no concurrency),
+    but make labels nice strings for seaborn.
+    """
+    df = df.copy()
+    df.loc[df['config.concurrency'] <= 1, 'config.concurrency'] = 0
+    df['concurrency_label'] = df['config.concurrency'].astype(int).astype(str)
+    return df
+
+
+def plot_ollama_overviews(df, plot_dpath):
+    """
+    Build a few overview plots for the ollama benchmark dataframe.
+
+    Args:
+        df (pd.DataFrame): your per-trial table
+        plot_dpath (PathLike): where to write PNGs
+    """
+    from kwdagger.utils import util_kwplot
+    sns = kwplot.autosns()
+    plt = kwplot.autoplt()
+    plot_dpath = ub.Path(plot_dpath).ensuredir()
+    df = _prep_concurrency_labels(df)
+
+    # --- 1. TTFT by model (cold vs warm) ---
+    kwplot.close_figures()
+    finalize = util_kwplot.FigureFinalizer(
+        dpath=plot_dpath,
+        size_inches=np.array([6.4, 4.8]) * 1.0,
+        verbose=True,
+    )
+    fig = kwplot.figure(fnum=1, doclf=True)
+    ax = sns.boxplot(
+        data=df,
+        x="config.model",
+        y="ttft_sec",
+        hue="cold_start",
+    )
+    ax.set_title("TTFT by model (cold vs warm)")
+    ax.set_xlabel("model")
+    ax.set_ylabel("TTFT (s)")
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+    finalize.finalize(fig, "ttft_by_model_cold_vs_warm.png")
+
+    # --- 2. Throughput vs concurrency by model (warm only) ---
+    warm = df[~df["cold_start"]].copy()
+
+    kwplot.close_figures()
+    finalize = util_kwplot.FigureFinalizer(
+        dpath=plot_dpath,
+        size_inches=np.array([6.4, 4.8]) * 1.0,
+    )
+    fig = kwplot.figure(fnum=2, doclf=True)
+    ax = sns.boxplot(
+        data=warm,
+        x="concurrency_label",
+        y="tokens_per_sec",
+        hue="config.model",
+    )
+    ax.set_title("Warm throughput vs concurrency by model")
+    ax.set_xlabel("concurrency")
+    ax.set_ylabel("tokens/sec")
+    finalize.finalize(fig, "tps_vs_concurrency_warm_by_model.png")
+
+    # --- 3. Latency vs throughput scatter, colored by concurrency ---
+    kwplot.close_figures()
+    finalize = util_kwplot.FigureFinalizer(
+        dpath=plot_dpath,
+        size_inches=np.array([6.4, 4.8]) * 1.0,
+    )
+    fig = kwplot.figure(fnum=3, doclf=True)
+    ax = sns.scatterplot(
+        data=warm,
+        x="latency_total_sec",
+        y="tokens_per_sec",
+        hue="concurrency_label",
+        style="config.model",
+        alpha=0.7,
+    )
+    ax.set_title("Latency vs throughput (warm trials)")
+    ax.set_xlabel("latency_total_sec (s)")
+    ax.set_ylabel("tokens/sec")
+    finalize.finalize(fig, "latency_vs_tps_warm_scatter.png")
+
+    # --- 4. Prompt length vs latency (warm), colored by model ---
+    kwplot.close_figures()
+    finalize = util_kwplot.FigureFinalizer(
+        dpath=plot_dpath,
+        size_inches=np.array([6.4, 4.8]) * 1.0,
+    )
+    fig = kwplot.figure(fnum=4, doclf=True)
+    ax = sns.scatterplot(
+        data=warm,
+        x="prompt_text_len",
+        y="latency_total_sec",
+        hue="config.model",
+        alpha=0.7,
+    )
+    ax.set_title("Prompt length vs latency (warm trials)")
+    ax.set_xlabel("prompt_text_len (chars)")
+    ax.set_ylabel("latency_total_sec (s)")
+    finalize.finalize(fig, "prompt_len_vs_latency_warm_scatter.png")
+
+    # --- 5. Host comparison for a single model (example: use top model) ---
+    if "config.model" in df.columns and df["config.model"].nunique() > 0:
+        top_model = df["config.model"].value_counts().index[0]
+        sub = df[(df["config.model"] == top_model) & (~df["cold_start"])]
+
+        if len(sub):
+            kwplot.close_figures()
+            finalize = util_kwplot.FigureFinalizer(
+                dpath=plot_dpath,
+                size_inches=np.array([6.4, 4.8]) * 1.0,
+            )
+            fig = kwplot.figure(fnum=5, doclf=True)
+            ax = sns.boxplot(
+                data=sub,
+                x="machine.host",
+                y="tokens_per_sec",
+                hue="concurrency_label",
+            )
+            ax.set_title(f"Throughput for {top_model} across hosts (warm)")
+            ax.set_xlabel("machine.host")
+            ax.set_ylabel("tokens/sec")
+            plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+            finalize.finalize(fig, f"tps_by_host_{top_model.replace(':', '_')}.png")
+
+    hosts = sorted(df['machine.host'].dropna().unique().tolist())
+    cold_flags = [True, False]
+
+    for host in hosts:
+        for cold_flag in cold_flags:
+            sub = df[(df['machine.host'] == host) & (df['cold_start'] == cold_flag)]
+            if len(sub) == 0:
+                continue
+
+            cold_label = 'cold' if cold_flag else 'warm'
+            safe_host = str(host).replace('.', '_').replace(':', '_')
+
+            # --- 1. TTFT by model for this host + cold/warm ---
+            kwplot.close_figures()
+            finalize = util_kwplot.FigureFinalizer(
+                dpath=plot_dpath,
+                size_inches=np.array([6.4, 4.8]) * 1.0,
+            )
+            fig = kwplot.figure(fnum=1, doclf=True)
+            ax = sns.boxplot(
+                data=sub,
+                x='config.model',
+                y='ttft_sec',
+                hue='concurrency_label',
+            )
+            ax.set_title(f"TTFT by model – host={host}, cold_start={cold_label}")
+            ax.set_xlabel("model")
+            ax.set_ylabel("TTFT (s)")
+            plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+            fname = f"ttft_by_model_host={safe_host}_cold={cold_label}.png"
+            finalize.finalize(fig, fname)
+
+            # --- 2. Throughput (tokens/sec) by model for this host + cold/warm ---
+            kwplot.close_figures()
+            finalize = util_kwplot.FigureFinalizer(
+                dpath=plot_dpath,
+                size_inches=np.array([6.4, 4.8]) * 1.0,
+            )
+            fig = kwplot.figure(fnum=2, doclf=True)
+            ax = sns.boxplot(
+                data=sub,
+                x='config.model',
+                y='tokens_per_sec',
+                hue='concurrency_label',
+            )
+            ax.set_title(f"Throughput by model – host={host}, cold_start={cold_label}")
+            ax.set_xlabel("model")
+            ax.set_ylabel("tokens/sec")
+            plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+            fname = f"tps_by_model_host={safe_host}_cold={cold_label}.png"
+            finalize.finalize(fig, fname)
+
+    concs = sorted(df['concurrency_label'].dropna().unique().tolist())
+    for host in hosts:
+        for conc in concs:
+            sub = df[(df['machine.host'] == host) &
+                     (df['concurrency_label'] == conc) &
+                     (~df['cold_start'])]  # warm-only for meaningful throughput
+
+            if len(sub) == 0:
+                continue
+
+            safe_host = str(host).replace('.', '_').replace(':', '_')
+            title = f"TTFT vs Throughput – host={host}, concurrency={conc}"
+            fname = f"ttft_vs_tps_host={safe_host}_concurrency={conc}.png"
+
+            kwplot.close_figures()
+            finalize = util_kwplot.FigureFinalizer(
+                dpath=plot_dpath,
+                size_inches=np.array([6.4, 4.8]) * 1.0,
+            )
+
+            fig = kwplot.figure(doclf=True, fnum=1)
+            ax = sns.scatterplot(
+                data=sub,
+                x="ttft_sec",
+                y="tokens_per_sec",
+                hue="config.model",
+                alpha=0.7,
+            )
+
+            ax.set_title(title)
+            ax.set_xlabel("TTFT (s)")
+            ax.set_ylabel("Throughput (tokens/sec)")
+
+            finalize.finalize(fig, fname)
 
 
 __cli__ = OllamaCustomAggregateConfig

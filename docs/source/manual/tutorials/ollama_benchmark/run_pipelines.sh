@@ -37,16 +37,38 @@ kwdagger schedule \
 
             # --- Model sweep ---
             ollama_benchmark.model:
-                - gemma3:27b
-                - qwen3:0.6b
+                - gemma3:12b
+                - gemma3:1b
+                - gemma3:4b
                 - gemma3n:e4b
-                - llama3.2:latest
-                # - gemma3:270m
-                #- gpt-oss:20b
+                - llama3.2:3b
+                - phi3:3.8b
+                - qwen3:0.6b
+                - qwen3:1.7b
+                - qwen3:4b
+                - qwen3:8b
+                - qwen3:14b
+
+                #- qwen3-vl:2b
+                #- qwen3-vl:4b
+                #- qwen3-vl:8b
+
+                #- llama3.2:1b
+                #- gemma3:27b
+
+                #- deepseek-r1:1.5b
+                #- deepseek-r1:7b
+                #- deepseek-r1:8b
+
+                #- ministral-3:3b
+                #- ministral-3:8b
+
+                #- gemma3:270m
                 #- gemma3n:e4b
-                #- olmo2:7b
+                #- gpt-oss:20b
                 #- ministral-3:14b
                 #- olmo2:13b
+                #- olmo2:7b
 
             # --- Cold / warm behavior ---
             ollama_benchmark.cold_trials:
@@ -56,7 +78,7 @@ kwdagger schedule \
 
             # --- Concurrency for warm runs ---
             ollama_benchmark.concurrency:
-                - 1          # no concurrency
+                - 0          # no concurrency
                 #- 4          # 4 concurrent warm requests
 
             # --- Server config ---
@@ -75,10 +97,15 @@ kwdagger schedule \
     " \
     --root_dpath="${EVAL_DPATH}" \
     --backend=serial --skip_existing=1 \
-    --run=1
+    --run=0
 
 
-## Technically aggregate does work here
+## Technically aggregate does work here, but because parmeters like cold_trials
+# and warm_trials impact the stats, and not the underlying method, it isn't the
+# most appropriate tool. The aggregate tool assume categorical diffrences
+# between different parameters, which is often useful, but less so here.  Still
+# this does give you a quick and dirty view of your main results if there
+# aren't too many.
 
 kwdagger aggregate \
     --pipeline='pipelines.py::ollama_benchmark_pipeline()' \
@@ -97,8 +124,10 @@ kwdagger aggregate \
         concise: 1
     " \
     --plot_params="
-        enabled: 1
+        enabled: 0
     "
 
 # But it might be more useful to write a custom aggregator for this instance
 # and leverage the kwdagger scheduling to manage
+python custom_aggregate.py \
+    --pattern="results_ollama/ollama_benchmark/*/ollama_benchmark.json"
