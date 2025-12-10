@@ -1,25 +1,25 @@
 """Simulate segmentation predictions by writing saliency maps."""
 
 from __future__ import annotations
-
+import kwarray
 import kwcoco
 import kwimage
-import numpy as np
 import scriptconfig as scfg
 import ubelt as ub
-from scipy import ndimage
+import numpy as np
 
 
 class PredictHeatmapConfig(scfg.DataConfig):
-    """CLI options for writing saliency maps."""
+    """
+    CLI options for writing saliency maps.
+    """
 
     coco_fpath = scfg.Value(None, help="Input ground-truth kwcoco dataset")
     dst_coco_fpath = scfg.Value("pred_saliency.kwcoco.json", help="Output kwcoco file")
-    aux_dpath = scfg.Value("saliency", help="Where to store written saliency maps")
-    saliency_channel = scfg.Value("saliency", help="Name of the saliency channel")
+    asset_dpath = scfg.Value("saliency", help="Where to store written heatmaps")
+    heatmap_channel = scfg.Value("saliency", help="Name of the output heatmap channel")
     sigma = scfg.Value(7.0, help="Gaussian blur applied to binary mask")
-    noise = scfg.Value(0.01, help="Amount of random noise added before clipping")
-    seed = scfg.Value(0, help="Random seed for reproducible noise")
+    thresh = scfg.Value(0.5, help="Threshold for minimum heatmap value")
 
     @classmethod
     def main(cls, argv=1, **kwargs):
@@ -27,70 +27,105 @@ class PredictHeatmapConfig(scfg.DataConfig):
         run_predict_heatmap(**config)
 
 
-def run_predict_heatmap(
-    coco_fpath,
-    dst_coco_fpath="pred_saliency.kwcoco.json",
-    aux_dpath="saliency",
-    saliency_channel="saliency",
-    sigma=7.0,
-    noise=0.01,
-    seed=0,
-): 
-    rng = np.random.default_rng(seed)
-
+def run_predict_heatmap(coco_fpath,
+                        dst_coco_fpath="pred_saliency.kwcoco.json",
+                        asset_dpath="saliency",
+                        heatmap_channel="saliency",
+                        sigma=7.0, thresh=0.5):
+    """
+    Run saliency prediction over all images in a COCO dataset.
+    """
     src_coco = kwcoco.CocoDataset.coerce(coco_fpath)
     pred_coco = src_coco.copy()
     pred_coco.fpath = str(dst_coco_fpath)
-    pred_coco.bundle_dpath = str(ub.Path(dst_coco_fpath).parent)
+    dst_parent = ub.Path(dst_coco_fpath).parent
+    pred_coco.bundle_dpath = str(dst_parent)
 
-    aux_dpath = ub.Path(aux_dpath)
-    aux_dpath.ensuredir()
+    asset_dpath = ub.Path(asset_dpath)
+    asset_dpath.ensuredir()
 
-    for gid, img in pred_coco.imgs.items():
-        shape = (img["height"], img["width"])
-        mask = _rasterize_segmentation(pred_coco, gid, shape)
+    for image_id in pred_coco.imgs.keys():
 
-        smooth = ndimage.gaussian_filter(mask.astype(float), sigma=sigma)
-        if smooth.max() > 0:
-            smooth = smooth / smooth.max()
-        if noise:
-            smooth = np.clip(smooth + rng.normal(scale=noise, size=smooth.shape), 0, 1)
+        coco_img = pred_coco.coco_image(image_id)
 
-        aux_fname = f"{ub.Path(img.get('name', f'image-{gid}')).stem}_saliency.png"
-        aux_fpath = aux_dpath / aux_fname
-        kwimage.imwrite(aux_fpath, (smooth * 255).astype(np.uint8))
+        smooth = _predict_image_heatmap(
+            coco_img=coco_img,
+            thresh=thresh,
+            sigma=sigma,
+        )
 
-        coco_img = pred_coco.coco_image(gid)
+        # Write saliency image
+        img_name = coco_img.img.get("name", f"image-{image_id}")
+        heatmap_fname = f"{ub.Path(img_name).stem}_saliency.png"
+        heatmap_fpath = asset_dpath / heatmap_fname
+
+        kwimage.imwrite(heatmap_fpath, smooth)
+
+        rel_path = ub.Path(heatmap_fpath).relative_to(dst_parent)
+        # Register as an auxiliary asset in the COCO dataset
         coco_img.add_asset(
-            file_name=ub.Path(aux_fpath).relative_to(ub.Path(dst_coco_fpath).parent),
-            channels=saliency_channel,
-            width=shape[1],
-            height=shape[0],
-            warp_aux_to_img=kwimage.Affine.eye(),
+            file_name=rel_path,
+            channels=heatmap_channel,
+            width=smooth.shape[1],
+            height=smooth.shape[0],
         )
 
     pred_coco.dump(dst_coco_fpath, newlines=True)
-    return {
-        "saliency_coco": dst_coco_fpath,
-    }
 
 
-def _rasterize_segmentation(coco: kwcoco.CocoDataset, gid: int, shape) -> np.ndarray:
-    """Rasterize polygons or boxes for a single image."""
+def _predict_image_heatmap(
+    coco_img,
+    *,
+    sigma: float,
+    thresh: float,
+) -> np.ndarray:
+    """
+    Compute a saliency heatmap for a single image.
 
-    annots = coco.annots(gid=gid)
-    canvas = np.zeros(shape, dtype=np.float32)
-    for ann in annots.objs:
-        seg = ann.get("segmentation")
-        if seg:
-            mask = kwimage.Mask.coerce(seg, dims=shape).to_mask(dims=shape).data.astype(bool)
-        elif ann.get("bbox"):
-            boxes = kwimage.Boxes([ann["bbox"]], "xywh")
-            mask = boxes.to_polygons().to_mask(dims=shape).data.astype(bool)
-        else:
-            continue
-        canvas |= mask
-    return canvas
+    This tries to highlight "white blobby things" by:
+        * converting RGB -> HSV
+        * measuring whiteness = value * (1 - saturation)
+        * smoothing with a Gaussian (blobby response)
+
+    Example:
+        >>> import kwcoco
+        >>> dset = kwcoco.CocoDataset.demo('vidshapes8')
+        >>> coco_img = dset.coco_image(1)
+        >>> sigma = 7
+        >>> thresh = 0.4
+        >>> smooth = _predict_image_heatmap(coco_img, sigma=sigma, thresh=thresh)
+        >>> # xdoctest: +REQUIRES(--show)
+        >>> import kwplot
+        >>> kwplot.autompl()
+        >>> rgb = coco_img.imdelay().finalize()
+        >>> kwplot.imshow(rgb, pnum=(1, 2, 1), title='RGB')
+        >>> kwplot.imshow(smooth, pnum=(1, 2, 2), title='White-blob heatmap')
+        >>> kwplot.show_if_requested()
+    """
+    # Load image: (H, W, C)
+    img = coco_img.imdelay().finalize()
+    img = kwarray.atleast_nd(img, 3)
+    rgb01 = kwimage.ensure_float01(img)
+
+    # Convert to HSV to separate brightness & saturation
+    hsv = kwimage.convert_colorspace(rgb01, src_space="rgb", dst_space="hsv")
+    sat = hsv[..., 1]
+    val = hsv[..., 2]
+
+    # Heuristic "whiteness":
+    #   * whites are bright (high value)
+    #   * and low saturation (near gray)
+    whiteness = val * (1.0 - sat)
+
+    # Smooth to emphasize blob-like regions
+    smooth = kwimage.gaussian_blur(whiteness, sigma=sigma)
+
+    # Optional threshold: zero-out weak responses
+    if thresh is not None:
+        smooth = smooth.astype(np.float32)
+        smooth[smooth < thresh] = 0.0
+
+    return smooth
 
 
 if __name__ == "__main__":

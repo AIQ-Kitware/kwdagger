@@ -1,12 +1,11 @@
 """Turn saliency rasters into bounding box detections."""
 
 from __future__ import annotations
-
 import kwcoco
-import kwimage
 import scriptconfig as scfg
 from skimage import measure
 import ubelt as ub
+import numpy as np
 
 
 class ExtractBoxesConfig(scfg.DataConfig):
@@ -14,7 +13,7 @@ class ExtractBoxesConfig(scfg.DataConfig):
 
     coco_fpath = scfg.Value(None, help="Input kwcoco file with saliency aux data")
     dst_coco_fpath = scfg.Value("pred_boxes.kwcoco.json", help="Where to write box predictions")
-    saliency_channel = scfg.Value("saliency", help="Channel name to search for")
+    heatmap_channel = scfg.Value("saliency", help="Channel name to search for")
     threshold = scfg.Value(0.5, help="Threshold for binarizing saliency")
     min_area = scfg.Value(4, help="Filter out tiny components")
 
@@ -24,61 +23,109 @@ class ExtractBoxesConfig(scfg.DataConfig):
         run_extract_boxes(**config)
 
 
+def extract_boxes_from_heatmap(
+    heatmap: np.ndarray,
+    *,
+    threshold: float,
+    min_area: int,
+):
+    """
+    Extract bounding boxes from a saliency heatmap.
+
+    Args:
+        heatmap (H, W ndarray): float array in [0,1] or uint8
+        threshold (float): threshold for binarizing heatmap
+        min_area (int): skip small connected components
+
+    Returns:
+        list of dicts:
+            {
+                "bbox": [x, y, w, h],
+                "score": float
+            }
+
+    Example:
+        >>> import numpy as np
+        >>> # Create a heatmap with two bright blobs
+        >>> heatmap = kwimage.checkerboard(dsize=(64, 64), num_squares=2)
+        >>> detections = extract_boxes_from_heatmap(
+        ...     heatmap, threshold=0.7, min_area=1
+        ... )
+        >>> # Two detections found
+        >>> len(detections)
+        >>> # xdoctest: +REQUIRES(--show)
+        >>> # xdoctest: +REQUIRES(module:kwplot)
+        >>> import kwimage
+        >>> import kwplot
+        >>> kwplot.autompl()
+        >>> # Make a simple background image matching the heatmap size
+        >>> canvas = kwimage.atleast_3channels(heatmap).copy()
+        >>> from kwimage import Boxes
+        >>> boxes_obj = Boxes([d["bbox"] for d in detections], "xywh")
+        >>> boxes_obj.draw_on(canvas, color='kitware_blue')
+        >>> kwplot.imshow(canvas, fnum=1, doclf=1,
+        ...               title='extract_boxes_from_heatmap demo')
+        >>> kwplot.show_if_requested()
+    """
+    import kwimage
+    mask = heatmap >= threshold
+    mask = kwimage.morphology(mask, mode='erode', kernel=16)
+
+    labeled = measure.label(mask)
+    props = measure.regionprops(labeled, intensity_image=heatmap)
+
+    detections = []
+    for region in props:
+        if region.area < min_area:
+            continue
+        y0, x0, y1, x1 = region.bbox
+        w = x1 - x0
+        h = y1 - y0
+        bbox = [float(x0), float(y0), float(w), float(h)]
+        score = float(region.mean_intensity) if region.mean_intensity is not None else 1.0
+        detections.append({"bbox": bbox, "score": score})
+    return detections
+
+
 def run_extract_boxes(
     coco_fpath,
     dst_coco_fpath="pred_boxes.kwcoco.json",
-    saliency_channel="saliency",
+    heatmap_channel="saliency",
     threshold=0.5,
     min_area=4,
 ):
     src_coco = kwcoco.CocoDataset.coerce(coco_fpath)
     pred_coco = src_coco.copy()
-    pred_coco.fpath = str(dst_coco_fpath)
-    pred_coco.bundle_dpath = str(ub.Path(dst_coco_fpath).parent)
+    pred_coco.clear_annotations()
 
-    catid = pred_coco.ensure_category(name="object")["id"]
+    catid = pred_coco.ensure_category(name="object")
 
-    for gid, img in pred_coco.imgs.items():
-        sal_fpath = _find_saliency_path(pred_coco, img, saliency_channel)
-        if sal_fpath is None:
-            continue
-        sal_data = kwimage.imread(sal_fpath, space="gray").astype(float)
-        if sal_data.max() > 1:
-            sal_data = sal_data / 255.0
-        mask = sal_data >= float(threshold)
-        labeled = measure.label(mask)
-        props = measure.regionprops(labeled, intensity_image=sal_data)
-        for region in props:
-            if region.area < min_area:
-                continue
-            y0, x0, y1, x1 = region.bbox
-            w = x1 - x0
-            h = y1 - y0
-            bbox = [float(x0), float(y0), float(w), float(h)]
-            score = float(region.mean_intensity) if region.mean_intensity is not None else 1.0
+    for image_id in pred_coco.imgs.keys():
+        coco_img = pred_coco.coco_image(image_id)
+
+        # load saliency channel
+        delayed = coco_img.imdelay(channels=heatmap_channel)
+        heatmap = delayed.finalize()
+
+        detections = extract_boxes_from_heatmap(
+            heatmap,
+            threshold=float(threshold),
+            min_area=int(min_area),
+        )
+
+        for det in detections:
             pred_coco.add_annotation(
-                image_id=gid,
-                bbox=bbox,
-                score=score,
+                image_id=image_id,
+                bbox=det["bbox"],
+                score=det["score"],
                 category_id=catid,
             )
 
+    pred_coco.fpath = str(dst_coco_fpath)
+    pred_coco.bundle_dpath = str(ub.Path(dst_coco_fpath).parent)
+    ub.Path(dst_coco_fpath).parent.ensuredir()
     pred_coco.dump(dst_coco_fpath, newlines=True)
     return {"boxes_coco": dst_coco_fpath}
-
-
-def _find_saliency_path(coco: kwcoco.CocoDataset, img: dict, channel_name: str) -> ub.Path | None:
-    """Locate the auxiliary saliency asset on an image."""
-
-    aux_items = img.get("auxiliary", [])
-    bundle_root = coco.bundle_dpath or (coco.fpath and ub.Path(coco.fpath).parent)
-    bundle_dpath = ub.Path(bundle_root or ".")
-    for aux in aux_items:
-        channels = kwcoco.FusedChannelSpec.coerce(aux.get("channels", ""))
-        if channel_name in channels:
-            file_name = aux["file_name"]
-            return bundle_dpath / file_name
-    return None
 
 
 if __name__ == "__main__":

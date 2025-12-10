@@ -10,8 +10,8 @@ metrics CLIs.
 Prerequisites
 -------------
 
-* Install ``kwcoco`` and friends (``kwimage``, ``kwdagger``) in your current
-  environment.
+* Install ``kwcoco`` in your current environment.
+
 * Generate a static dataset with the ``kwcoco toydata`` CLI before scheduling
   the pipeline. For example::
 
