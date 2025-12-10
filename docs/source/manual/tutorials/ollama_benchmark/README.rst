@@ -1,28 +1,15 @@
 Tutorial 2: Benchmarking Ollama Models with kwdagger
 ====================================================
 
-This example shows how to use **kwdagger** to benchmark Ollama models—even with a
-pipeline containing only **one node**. It demonstrates:
+This example shows how to use ``kwdagger`` to benchmark Ollama models-even with a
+pipeline containing only *one node*. It demonstrates how to:
 
-* defining a minimal pipeline
-* sweeping parameters with ``kwdagger schedule``
-* collecting results
-* aggregating them with a simple custom script
-
-This tutorial is intentionally concise: follow the steps, run the sweep, and
-inspect the results.
-
-
-Overview
---------
-
-You will:
+At a high level it follows the following steps:
 
 1. Define a single-node pipeline: ``ollama_benchmark``.
-2. Run a model + parameter sweep with ``kwdagger schedule``.
+2. Run a parameter sweep with ``kwdagger schedule``.
 3. Produce structured per-run folders.
-4. Aggregate results with ``custom_aggregate.py``.
-5. Plot metrics such as TTFT and throughput.
+4. Inspect these results with a custom aggregation script: ``custom_aggregate.py``.
 
 Even a one-node DAG benefits from reproducible configuration, clean run
 directories, and consistent metadata.
@@ -30,13 +17,15 @@ directories, and consistent metadata.
 Preqeq: Setting Up an Ollama Server
 ===================================
 
-This pipeline depends on a little bit of setup.  If you do not already have an
-Ollama server running, the simplest option is to start one in Docker.
+This pipeline requires an existing ollama server that you can query. This
+examples assumes that it is running on your localhost machine.  If you do not
+already have an Ollama server running, the simplest option is to start one in
+Docker.
 
 Run the server
 --------------
 
-.. code-block:: bash
+.. code:: bash
 
     docker run --rm -it \
         -p 11434:11434 \
@@ -44,11 +33,12 @@ Run the server
         ollama/ollama:latest
 
 This exposes the standard Ollama API on ``http://localhost:11434``.
-Keep this container running in a separate terminal while you execute the
+Keep this container running in in the background while you execute the
 benchmarking pipeline.
 
-(If you use a remote machine, simply replace ``localhost`` in your configuration
-with the machine’s hostname or IP address.)
+If you use a remote machine, you can replace ``localhost`` in your
+configuration with the machine's hostname or IP address. You will also be
+unable to run the cold-start trials, so set that number to zero to skip them.
 
 
 Pulling Models
@@ -56,27 +46,27 @@ Pulling Models
 
 Assuming that ollama is running on localhost using port 11434, ensure we have relevant models
 
-.. code-block:: bash
+.. code:: bash
 
     curl -X POST http://localhost:11434/api/pull -d '{"model": "gemma3:12b"}'
     curl -X POST http://localhost:11434/api/pull -d '{"model": "gemma3:1b"}'
 
 You only need to pull the models listed in your parameter sweep.
-The benchmarking node will reuse these local model files—no network downloads
+The benchmarking node will reuse these local model files-no network downloads
 occur during the tests.
 
 The Task
 ========
 
-The program `ollama_benchmark.py`  runs a series of cold and warm trials
-against an Ollama server and records detailed timing data (TTFT, total latency,
-throughput, token counts, and Ollama’s internal duration fields). It loads
-prompts from a YAML file, executes the requested number of trials, and writes
-the results to a structured JSON file.
+The program ``ollama_benchmark.py`` runs a series of cold and warm trials
+against an Ollama server and records detailed timing data: TTFT (time to first
+token), total latency, throughput, token counts, and Ollama's internal duration
+fields. It loads prompts from a YAML file, executes the requested number of
+trials, and writes the results to a structured JSON file.
 
 We could run this CLI directly:
 
-.. code-block:: bash
+.. code:: bash
 
     python ollama_benchmark.py \
       --prompt_fpath prompts_5.yaml \
@@ -87,7 +77,6 @@ We could run this CLI directly:
       --cold_trials 2 \
       --warm_trials 3 \
       --append_jsonl manual_run/all_trials.jsonl
-
 
 We can repeat this manually for every combination of parameters, but that
 requires managing output directories, avoiding duplicate runs, and doing
@@ -103,6 +92,7 @@ custom aggregation and plotting.
 
 The Pipeline
 ============
+I think that makes sense. I will need to get to peeling apart the module for any of this anyway. After I finish pulling together slides for our middle managing customer for our monthly
 
 Before defining the pipeline itself, we need a ProcessNode that wraps the benchmark CLI. A ProcessNode simply tells kwdagger:
 
@@ -148,7 +138,7 @@ Here is a shortened version of the node definition used in this tutorial:
             "warm_trials": 3,
             "concurrency": 0,
             "ollama_url": "http://localhost:11434",
-            "cold_reset_cmd": None,
+            "cold_reset_cmd": "docker restart ollama",
         }
 
 
@@ -159,7 +149,7 @@ Once you have a node, you also need to define  the function that builds the
 pipeline. In this case we do not need to connect any inputs to any outputs.
 
 
-.. code-block:: python
+.. code:: python
 
     def ollama_benchmark_pipeline():
         """
@@ -175,7 +165,7 @@ pipeline. In this case we do not need to connect any inputs to any outputs.
         return dag
 
 
-This pipeline has no dependencies—just a single callable node. kwdagger handles
+This pipeline has no dependencies-just a single callable node. kwdagger handles
 parameter expansion, run IDs, and output organization automatically.
 
 
@@ -187,7 +177,10 @@ cold/warm trials, and concurrency.
 
 Excerpt from ``run_pipelines.sh``:
 
-.. code-block:: bash
+.. code:: bash
+
+    OLLAMA_URL_DEFAULT=http://localhost:11434
+    COLD_RESET_CMD_DEFAULT="docker restart ollama"
 
     kwdagger schedule \
         --params="
@@ -198,9 +191,12 @@ Excerpt from ``run_pipelines.sh``:
                 ollama_benchmark.model:
                     - gemma3:12b
                     - gemma3:1b
-                ollama_benchmark.cold_trials: [3]
-                ollama_benchmark.warm_trials: [3]
-                ollama_benchmark.concurrency: [0]
+                ollama_benchmark.cold_trials:
+                    - 3
+                ollama_benchmark.warm_trials:
+                    - 3
+                ollama_benchmark.concurrency:
+                   - 0
                 ollama_benchmark.ollama_url:
                     - '${OLLAMA_URL_DEFAULT}'
                 ollama_benchmark.cold_reset_cmd:
@@ -215,7 +211,7 @@ Excerpt from ``run_pipelines.sh``:
 
 Each parameter combination becomes a clean, deterministic run directory:
 
-::
+.. code::
 
     results_ollama/
         ollama_benchmark/
@@ -228,7 +224,7 @@ Quick Aggregate (Optional)
 
 ``kwdagger aggregate`` gives a quick summary of all runs:
 
-.. code-block:: bash
+.. code:: bash
 
     kwdagger aggregate \
         --pipeline="pipelines.py::ollama_benchmark_pipeline()" \
@@ -237,54 +233,28 @@ Quick Aggregate (Optional)
         --eval_nodes="ollama_benchmark"
 
 
+This can be useful to quickly browse the results, but the ``kwdagger``
+aggregation script is built for the case where different parameter choices are
+categorically different, so it is less valuable if you aren't optimizing over
+varied parameters or there are custom non-trivial groupings of results that
+should be considered jointly.
+
+However, the output format of ``kwdagger`` runs is ammenable to custom
+aggregation, which we sketch out next.
+
 Custom Aggregation
 ------------------
 
-For more detailed analysis, use ``custom_aggregate.py``:
+For a customized analysis tailored to your problem, you can parse the results
+from multiple runs. We provide sample code in ``custom_aggregate.py`` that does
+this. It can be run via:
 
-.. code-block:: bash
+.. code:: bash
 
     python custom_aggregate.py \
         --pattern="results_ollama/ollama_benchmark/*/ollama_benchmark.json"
 
-This script loads each JSON file, extracts both trial-level stats and machine
-metadata, and builds a Pandas DataFrame. Export formats such as CSV, Parquet,
-or Feather are supported.
-
-
-Misc
-====
-
-Ollama Notes
-------------
-
-Helpful ollama commands
-
-Test that you have an ollama server working:
-
-.. code:: bash
-
-    OLLAMA_URL="http://localhost:11434"
-    curl -sSf "${OLLAMA_URL}/api/tags" | jq
-
-
-Test that your ollama server generates results
-
-.. code:: bash
-
-    OLLAMA_URL="http://localhost:11434"
-    curl -sS "${OLLAMA_URL}/api/generate" \
-        -d '{
-              "model": "gpt-oss:20b",
-              "prompt": "Summarize the concept of reinforcement learning in one sentence."
-            }'
-
-
-Automatic ways to grab your container and port
-
-.. code:: bash
-
-   # Grab the container name:
-   OLLAMA_CONTAINER_NAME=$(docker ps --filter "ancestor=ollama/ollama" --format "{{.Names}}")
-   OLLAMA_PORT=$(docker ps --filter "ancestor=ollama/ollama" --format "{{.Ports}}" | sed -n 's/.*:\([0-9]\+\)->.*/\1/p')
-
+The main idea is that we glob over relevant JSON output files, extract both
+trial-level stats and machine metadata, and build a Pandas DataFrame.  We can
+then do custom groupings on this data frame, report stats, and build custom
+plots.
