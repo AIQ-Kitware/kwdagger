@@ -93,6 +93,11 @@ within a node. The ``.succ`` folder holds symlinks to successors (i.e. results
 that depend on the current results), and ``.pred`` holds symlinks to folders of
 results that the current folder depends on.
 
+For more in-depth information see tutorials:
+
+* `Tutorial #1: twostage_pipeline <docs/source/manual/tutorials/twostage_pipeline/README.rst>`_
+* `Tutorial #2: ollama_benchmark <docs/source/manual/tutorials/ollama_benchmark/README.rst>`_
+
 Command line entry points
 -------------------------
 * ``python -m kwdagger.schedule`` or ``kwdagger schedule`` – build and run a
