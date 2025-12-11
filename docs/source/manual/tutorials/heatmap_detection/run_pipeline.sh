@@ -58,6 +58,10 @@ kwdagger schedule \
             extract_boxes.min_area:
                 - 4
                 - 16
+
+            score_boxes.__enabled__: False
+
+
     " \
     --root_dpath="${EVAL_DPATH}" \
     --tmux_workers=2 \
