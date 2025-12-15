@@ -60,17 +60,17 @@ kwdagger schedule \
                 - 16
 
             score_boxes.__enabled__: False
-
-
     " \
     --root_dpath="${EVAL_DPATH}" \
     --tmux_workers=2 \
     --backend=tmux --skip_existing=1 \
-    --run=1 --print-commands
+    --print-commands=True \
+    --run=1
 
 # --------------------------------------------------------------------
 # Aggregate metrics for the pipeline
 # --------------------------------------------------------------------
+export PYTHONPATH=.
 kwdagger aggregate \
     --pipeline='heatmap_example.pipelines.heatmap_detection_pipeline()' \
     --target="
@@ -81,7 +81,7 @@ kwdagger aggregate \
     --io_workers=0 \
     --eval_nodes="
         - score_heatmap
-        - score_boxes
+        #- score_boxes
     " \
     --stdout_report="
         top_k: 10

@@ -13,11 +13,10 @@ class PredictHeatmapConfig(scfg.DataConfig):
     """
     CLI options for writing saliency maps.
     """
-
     coco_fpath = scfg.Value(None, help="Input ground-truth kwcoco dataset")
-    dst_coco_fpath = scfg.Value("pred_saliency.kwcoco.json", help="Output kwcoco file")
-    asset_dpath = scfg.Value("saliency", help="Where to store written heatmaps")
-    heatmap_channel = scfg.Value("saliency", help="Name of the output heatmap channel")
+    dst_coco_fpath = scfg.Value("heatmap.kwcoco.json", help="Output kwcoco file")
+    asset_dpath = scfg.Value("assets/heatmaps", help="Where to store written heatmaps")
+    heatmap_channel = scfg.Value("salient", help="Name of the output heatmap channel")
     sigma = scfg.Value(7.0, help="Gaussian blur applied to binary mask")
     thresh = scfg.Value(0.5, help="Threshold for minimum heatmap value")
 

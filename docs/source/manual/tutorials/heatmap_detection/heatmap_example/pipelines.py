@@ -2,8 +2,8 @@
 from __future__ import annotations
 import json
 import kwdagger
-import ubelt as ub
-from typing import Dict
+
+from kwdagger.utils import util_dotdict
 
 
 class PredictHeatmap(kwdagger.ProcessNode):
@@ -19,8 +19,8 @@ class PredictHeatmap(kwdagger.ProcessNode):
 
     # Matches PredictHeatmapConfig.dst_coco_fpath / asset_dpath
     out_paths = {
-        "dst_coco_fpath": "pred_saliency.kwcoco.json",
-        "asset_dpath": "saliency",
+        "dst_coco_fpath": "heatmap.kwcoco.json",
+        "asset_dpath": "assets/heatmaps",
     }
     primary_out_key = "dst_coco_fpath"
 
@@ -29,14 +29,14 @@ class PredictHeatmap(kwdagger.ProcessNode):
     algo_params = {
         "sigma": 7.0,
         "thresh": 0.5,
-        "heatmap_channel": "saliency",
+        "heatmap_channel": "salient",
     }
 
     def load_result(self, node_dpath):
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         if output_fpath.exists():
-            return {f"metrics.{self.name}.exists": True}
-        return {}
+            return util_dotdict.DotDict({f"metrics.{self.name}.exists": True})
+        return util_dotdict.DotDict()
 
 
 class ExtractBoxes(kwdagger.ProcessNode):
@@ -60,14 +60,14 @@ class ExtractBoxes(kwdagger.ProcessNode):
     algo_params = {
         "threshold": 0.5,
         "min_area": 4,
-        "heatmap_channel": "saliency",
+        "heatmap_channel": "salient",
     }
 
     def load_result(self, node_dpath):
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         if output_fpath.exists():
-            return {f"metrics.{self.name}.exists": True}
-        return {}
+            return util_dotdict.DotDict({f"metrics.{self.name}.exists": True})
+        return util_dotdict.DotDict()
 
 
 class ScoreHeatmap(kwdagger.ProcessNode):
@@ -87,10 +87,55 @@ class ScoreHeatmap(kwdagger.ProcessNode):
     primary_out_key = "eval_fpath"
 
     def load_result(self, node_dpath):
-        eval_dpath = node_dpath / self.out_paths[self.primary_out_key]
-        metrics = _gather_json_metrics(eval_dpath)
-        flat = {f"metrics.{self.name}.{k}": v for k, v in metrics.items()}
+        """
+        Given the path to the output, we need to specify the logic to return
+        summary measurements in a way kwdagger aggregate can handle.
+        """
+        eval_fpath = node_dpath / self.out_paths[self.primary_out_key]
+        # Load raw json data
+        data = json.loads(eval_fpath.read_text())
+
+        # Grab the info written by process context
+        # This is optional, but useful.
+        from kwdagger.aggregate_loader import new_process_context_parser
+        info = data['meta']['info'][-1]
+        nested = {}
+        nested_info = new_process_context_parser(info)
+        # The important part is to put scalars in the "metrics" item
+
+        # Binary classless foreground/background segmentation measures
+        measures = data['nocls_measures']
+        metrics = {}
+        metrics['ap'] = measures['ap']
+        metrics['auc'] = measures['auc']
+
+        nested.update(nested_info)
+        nested['metrics'] = metrics
+
+        # The return structure is a flat dictionary.
+        flat = util_dotdict.DotDict.from_nested(nested)
+        flat = flat.insert_prefix(self.name, index=1)
         return flat
+
+    def default_metrics(self):
+        """
+        Returns:
+            List[Dict]: containing information on how to interpret and
+            prioritize the metrics returned here.
+        """
+        metric_infos = [
+            {
+                'metric': 'ap',
+                'objective': 'maximize',
+                'primary': True,
+            },
+            {
+                'metric': 'auc',
+                'objective': 'maximize',
+                'primary': True,
+            },
+        ]
+        return metric_infos
 
 
 class ScoreBoxes(kwdagger.ProcessNode):
@@ -114,31 +159,12 @@ class ScoreBoxes(kwdagger.ProcessNode):
     }
 
     def load_result(self, node_dpath):
-        eval_dpath = node_dpath / self.out_paths[self.primary_out_key]
-        metrics = _gather_json_metrics(eval_dpath)
-        flat = {f"metrics.{self.name}.{k}": v for k, v in metrics.items()}
-        return flat
-
-
-def _gather_json_metrics(eval_dpath: ub.Path) -> Dict[str, float]:
-    metrics: Dict[str, float] = {}
-    if eval_dpath is None or not eval_dpath.exists():
-        return metrics
-    for json_fpath in eval_dpath.rglob("*.json"):
-        try:
-            data = json.loads(json_fpath.read_text())
-        except Exception:
-            continue
-        key_prefix = (
-            json_fpath.relative_to(eval_dpath)
-            .as_posix()
-            .replace("/", ".")
-            .removesuffix(".json")
+        # eval_dpath = node_dpath / self.out_paths["out_dpath"]
+        metrics = {}
+        flat = util_dotdict.DotDict(
+            {f"metrics.{self.name}.{k}": v for k, v in metrics.items()}
         )
-        if isinstance(data, dict):
-            for k, v in data.items():
-                metrics[f"{key_prefix}.{k}"] = v
-    return metrics
+        return flat
 
 
 def heatmap_detection_pipeline():
