@@ -3,9 +3,9 @@
 from __future__ import annotations
 import kwcoco
 import scriptconfig as scfg
-from skimage import measure
 import ubelt as ub
 import numpy as np
+from skimage import measure
 
 
 class ExtractBoxesConfig(scfg.DataConfig):
@@ -47,7 +47,8 @@ def extract_boxes_from_heatmap(
     Example:
         >>> import numpy as np
         >>> # Create a heatmap with two bright blobs
-        >>> heatmap = kwimage.checkerboard(dsize=(64, 64), num_squares=2)
+        >>> heatmap = kwimage.checkerboard(dsize=(64, 64), num_squares=3)
+        >>> heatmap = kwimage.morphology(heatmap, mode='erode', kernel=8)
         >>> detections = extract_boxes_from_heatmap(
         ...     heatmap, threshold=0.7, min_area=1
         ... )
@@ -69,7 +70,6 @@ def extract_boxes_from_heatmap(
     """
     import kwimage
     mask = heatmap >= threshold
-    mask = kwimage.morphology(mask, mode='erode', kernel=16)
 
     labeled = measure.label(mask)
     props = measure.regionprops(labeled, intensity_image=heatmap)
@@ -78,10 +78,9 @@ def extract_boxes_from_heatmap(
     for region in props:
         if region.area < min_area:
             continue
-        y0, x0, y1, x1 = region.bbox
-        w = x1 - x0
-        h = y1 - y0
-        bbox = [float(x0), float(y0), float(w), float(h)]
+        min_row, min_col, max_row, max_col = region.bbox
+        box = kwimage.Box.coerce([min_col, min_row, max_col, max_row], format='ltrb')
+        bbox = list(map(float, box.to_xywh().data))
         score = float(region.mean_intensity) if region.mean_intensity is not None else 1.0
         detections.append({"bbox": bbox, "score": score})
     return detections
@@ -107,6 +106,11 @@ def run_extract_boxes(
         delayed = coco_img.imdelay(channels=heatmap_channel)
         heatmap = delayed.finalize()
 
+        # Ensure the heatmap is 2d
+        if len(heatmap.shape) == 3:
+            assert heatmap.shape[2] == 1
+            heatmap = heatmap[..., 0]
+
         detections = extract_boxes_from_heatmap(
             heatmap,
             threshold=float(threshold),
@@ -125,6 +129,7 @@ def run_extract_boxes(
     pred_coco.bundle_dpath = str(ub.Path(dst_coco_fpath).parent)
     ub.Path(dst_coco_fpath).parent.ensuredir()
     pred_coco.dump(dst_coco_fpath, newlines=True)
+    print(f'Write to {dst_coco_fpath}')
     return {"boxes_coco": dst_coco_fpath}
 
 

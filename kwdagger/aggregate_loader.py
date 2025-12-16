@@ -377,13 +377,15 @@ def load_result_resolved(node_dpath, node=None, dag=None):
             raise AssertionError('node.load_result should have returned a dict')
 
     else:
+        return {}
         raise NotImplementedError(ub.paragraph(
             f'''
             Attempted to load a result for {node_type} in {node_dpath}.
             But was unable to determine how to do so.
-            In your pipeline class you a method ``def load_result(self,
+            In your pipeline class, define a method ``def load_result(self,
             node_dpath):`` which returns a flat dot-dictionary of params and
-            results from the node.
+            results from the node. <TODO> point at single source of truth for
+            how we expect the return type of load results.
             '''))
 
     # Determine if this node has any predecessor computations and load results

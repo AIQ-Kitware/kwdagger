@@ -15,13 +15,30 @@ class PredictHeatmapConfig(scfg.DataConfig):
     """
     coco_fpath = scfg.Value(None, help="Input ground-truth kwcoco dataset")
     dst_coco_fpath = scfg.Value("heatmap.kwcoco.json", help="Output kwcoco file")
-    asset_dpath = scfg.Value("assets/heatmaps", help="Where to store written heatmaps")
+    asset_dpath = scfg.Value("assets/heatmaps", help="Where to store written heatmaps, best practice is to spcify this next to the dst coco file.")
     heatmap_channel = scfg.Value("salient", help="Name of the output heatmap channel")
     sigma = scfg.Value(7.0, help="Gaussian blur applied to binary mask")
-    thresh = scfg.Value(0.5, help="Threshold for minimum heatmap value")
+    thresh = scfg.Value(0.0, help="Threshold for minimum heatmap value")
 
     @classmethod
     def main(cls, argv=1, **kwargs):
+        """
+        Example:
+            >>> import sys, ubelt
+            >>> sys.path.append(ubelt.expandpath('~/code/kwdagger/docs/source/manual/tutorials/heatmap_detection'))  # modify as needed
+            >>> from heatmap_example.cli.predict_heatmap import PredictHeatmapConfig
+            >>> import ubelt as ub
+            >>> import kwcoco
+            >>> dset = kwcoco.CocoDataset.demo('vidshapes8')
+            >>> dpath = ub.Path.appdir('kwdagger/tutorial/tests/predict_heatmap').ensuredir()
+            >>> kwargs = {}
+            >>> kwargs['coco_fpath'] = dset.fpath
+            >>> kwargs['dst_coco_fpath'] = dpath / 'out.kwcoco.json'
+            >>> kwargs['asset_dpath'] = dpath / 'assets/heatmaps'
+            >>> kwargs['thresh'] = 0
+            >>> argv = False
+            >>> PredictHeatmapConfig.main(argv=argv, **kwargs)
+        """
         config = cls.cli(argv=argv, data=kwargs, strict=True, verbose="auto")
         run_predict_heatmap(**config)
 
@@ -30,18 +47,20 @@ def run_predict_heatmap(coco_fpath,
                         dst_coco_fpath="pred_saliency.kwcoco.json",
                         asset_dpath="saliency",
                         heatmap_channel="saliency",
-                        sigma=7.0, thresh=0.5):
+                        sigma=7.0, thresh=0.0):
     """
     Run saliency prediction over all images in a COCO dataset.
     """
     src_coco = kwcoco.CocoDataset.coerce(coco_fpath)
+
     pred_coco = src_coco.copy()
+    pred_coco.reroot(absolute=True)
     pred_coco.fpath = str(dst_coco_fpath)
+
     dst_parent = ub.Path(dst_coco_fpath).parent
     pred_coco.bundle_dpath = str(dst_parent)
 
-    asset_dpath = ub.Path(asset_dpath)
-    asset_dpath.ensuredir()
+    asset_dpath = ub.Path(asset_dpath).ensuredir()
 
     for image_id in pred_coco.imgs.keys():
 
@@ -58,18 +77,32 @@ def run_predict_heatmap(coco_fpath,
         heatmap_fname = f"{ub.Path(img_name).stem}_saliency.png"
         heatmap_fpath = asset_dpath / heatmap_fname
 
-        kwimage.imwrite(heatmap_fpath, smooth)
+        # For pngs we need to perform quantization.
+        # We can mark this in the kwcoco file so the image loads as float32 in
+        # subsequent pipelines.
+        quantization = {
+            'orig_min': 0.0,
+            'orig_max': 1.0,
+            'quant_min': 0,
+            'quant_max': 255,
+            'nodata': None,
+        }
+        smooth_uint8 = (smooth * 255).astype(np.uint8)
+
+        kwimage.imwrite(heatmap_fpath, smooth_uint8)
 
         rel_path = ub.Path(heatmap_fpath).relative_to(dst_parent)
-        # Register as an auxiliary asset in the COCO dataset
+        # Register as an asset in the COCO dataset
         coco_img.add_asset(
             file_name=rel_path,
             channels=heatmap_channel,
             width=smooth.shape[1],
             height=smooth.shape[0],
+            quantization=quantization,
         )
 
     pred_coco.dump(dst_coco_fpath, newlines=True)
+    print(f'Wrote {dst_coco_fpath}')
 
 
 def _predict_image_heatmap(
@@ -91,7 +124,7 @@ def _predict_image_heatmap(
         >>> dset = kwcoco.CocoDataset.demo('vidshapes8')
         >>> coco_img = dset.coco_image(1)
         >>> sigma = 7
-        >>> thresh = 0.4
+        >>> thresh = 0.0
         >>> smooth = _predict_image_heatmap(coco_img, sigma=sigma, thresh=thresh)
         >>> # xdoctest: +REQUIRES(--show)
         >>> import kwplot

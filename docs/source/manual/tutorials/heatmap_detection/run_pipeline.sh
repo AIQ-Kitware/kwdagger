@@ -48,21 +48,26 @@ kwdagger schedule \
 
             # Example hyper-params you might want to sweep
             predict_heatmap.sigma:
-                - 3.0
+                - 1.0
                 - 7.0
 
             extract_boxes.threshold:
+                - 0.25
                 - 0.3
-                - 0.5
 
             extract_boxes.min_area:
-                - 4
                 - 16
 
-            score_boxes.__enabled__: False
+            score_boxes.iou_thresh:
+                - 0.1
+                - 0.5
+
+            # Can control which components of the pipeline are on with the __enabled__ flag
+            score_boxes.__enabled__: True
+            score_heatmap.__enabled__: True
     " \
     --root_dpath="${EVAL_DPATH}" \
-    --tmux_workers=2 \
+    --tmux_workers=4 \
     --backend=tmux --skip_existing=1 \
     --print-commands=True \
     --run=1
@@ -81,12 +86,12 @@ kwdagger aggregate \
     --io_workers=0 \
     --eval_nodes="
         - score_heatmap
-        #- score_boxes
+        - score_boxes
     " \
     --stdout_report="
         top_k: 10
         print_models: True
-        concise: 1
+        concise: split
     " \
     --plot_params="
         enabled: 0
