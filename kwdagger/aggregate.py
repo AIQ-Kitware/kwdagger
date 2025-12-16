@@ -226,7 +226,7 @@ class AggregateEvluationConfig(AggregateLoader):
     # TODO: It would be better to distinguish datasets that could be macro (or
     # maybe micro)-combined using a term other than "regions", which made sense
     # for SMART, but is not general. Maybe it's just as simple as "dataset"?
-    rois = Value('auto', help='Comma separated regions of interest')
+    rois = Value(None, help='Comma separated regions of interest')
 
     inspect = Value(None, help='param hashid to look at')
 
