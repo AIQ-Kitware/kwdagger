@@ -15,6 +15,7 @@ TODO:
 import ubelt as ub
 import scriptconfig as scfg
 from cmd_queue.cli_boilerplate import CMDQueueConfig
+from kwdagger.pipeline import coerce_slurm_options
 
 
 class ScheduleEvaluationConfig(CMDQueueConfig):
@@ -66,7 +67,7 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
             raise Exception('The queue_size argument to schedule evaluation has been removed. Use the tmux_workers argument instead')
             # self.tmux_workers = self.queue_size
         import kwutil
-        self.slurm_options = kwutil.Yaml.coerce(self.slurm_options) or {}
+        self.slurm_options = coerce_slurm_options(self.slurm_options)
 
         devices = self.devices
         if devices == 'auto':
@@ -98,9 +99,15 @@ def build_schedule(config):
     root_dpath = ub.Path(config['root_dpath'])
     pipeline = config.pipeline
 
+    param_slurm_options = {}
     if config['params'] is not None:
         param_arg = kwutil.Yaml.coerce(config['params']) or {}
+        if isinstance(param_arg, dict):
+            param_slurm_options = coerce_slurm_options(param_arg.pop('__slurm_options__', None))
         pipeline = param_arg.pop('pipeline', config.pipeline)
+
+    if param_slurm_options:
+        config.slurm_options = ub.udict(config.slurm_options) | param_slurm_options
 
     # Load the requested pipeline
     dag = coerce_pipeline(pipeline)
@@ -136,6 +143,9 @@ def build_schedule(config):
     configured_stats = []
     with pman:
         for row_config in pman.progiter(all_param_grid, desc='configure dags', verbose=3):
+            if param_slurm_options and '__slurm_options__' not in row_config:
+                row_config = ub.udict(row_config)
+                row_config['__slurm_options__'] = param_slurm_options
             dag.configure(
                 config=row_config,
                 root_dpath=root_dpath,

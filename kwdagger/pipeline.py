@@ -24,9 +24,25 @@ import ubelt as ub
 from functools import cached_property
 from typing import Union, Dict, Set, List, Any, Optional
 from kwdagger.utils import util_dotdict
+import kwutil
 
 Collection = Optional[Union[Dict, Set, List]]
 Configurable = Optional[Dict[str, Any]]
+
+
+def coerce_slurm_options(slurm_options) -> Dict[str, Any]:
+    """
+    Normalize slurm option dictionaries.
+    """
+    if slurm_options is None:
+        return {}
+    if isinstance(slurm_options, str):
+        slurm_options = kwutil.Yaml.coerce(slurm_options)
+    if slurm_options is None:
+        return {}
+    if not isinstance(slurm_options, dict):
+        raise TypeError(f'Expected slurm options to be a dict, got {type(slurm_options)}')
+    return dict(slurm_options)
 
 
 class Pipeline:
@@ -74,6 +90,7 @@ class Pipeline:
             nodes = []
         self.nodes = nodes
         self.config = None
+        self.__slurm_options__ = {}
 
         self._dirty = True
         self._unique_hanes = set()
@@ -266,6 +283,9 @@ class Pipeline:
                 node._configured_cache.clear()  # hack, make more elegant
 
         if config is not None:
+            config = dict(config)
+            self.__slurm_options__ = coerce_slurm_options(
+                config.pop('__slurm_options__', self.__slurm_options__))
             self.config = config
             # print('CONFIGURE config = {}'.format(ub.urepr(config, nl=1)))
 
@@ -421,10 +441,15 @@ class Pipeline:
 
                     extra_submitkw = {}
                     if 'slurm' in queue.__class__.__name__.lower():
+                        # Global slurm options apply to every job.
+                        extra_submitkw.update(coerce_slurm_options(getattr(self, '__slurm_options__', {})))
+                        # Allow per-node overrides specified on the class or via
+                        # configuration.
+                        extra_submitkw.update(coerce_slurm_options(getattr(node, 'slurm_options', None)))
                         # Set the slurm output file to be in the node directory
                         # to make debugging somewhat easier.  Need to see if
                         # there is a cleaner way to do this.
-                        extra_submitkw['output_fpath'] = node.final_node_dpath / f'slurm-output-{node_procid}.log'
+                        extra_submitkw.setdefault('output_fpath', node.final_node_dpath / f'slurm-output-{node_procid}.log')
 
                     # TODO: we need to be able to pass per-job slurm options
                     node_job = queue.submit(command=node_command,
@@ -1042,6 +1067,9 @@ class ProcessNode(Node):
 
     primary_out_key : str = None
 
+    # Optional job-level slurm options. Can be overridden via configuration.
+    slurm_options: Dict[str, Any] = None
+
     def __init__(self,
                  *,  # TODO: allow positional arguments after we find a good order
                  name=None,
@@ -1054,6 +1082,7 @@ class ProcessNode(Node):
                  group=None,
                  root_dpath=None,
                  config=None,
+                 slurm_options=None,
                  node_dpath=None,  # overwrites configured node dapth
                  group_dpath=None,  # overwrites configured node dapth
                  primary_out_key=None,
@@ -1100,11 +1129,16 @@ class ProcessNode(Node):
             'perf_params': {},
             'algo_params': {},
             'primary_out_key': None,
+            'slurm_options': None,
         }
         _classvar_init(self, args, fallbacks)
         super().__init__(args['name'])
 
         self._configured_cache = {}
+        # Preserve the baseline slurm options so repeated configure calls start
+        # from the class / instance defaults.
+        self._base_slurm_options = coerce_slurm_options(self.slurm_options)
+        self.slurm_options = dict(self._base_slurm_options)
 
         if self.primary_out_key is None:
             if len(self.out_paths) == 1:
@@ -1274,7 +1308,10 @@ class ProcessNode(Node):
         config = _fixup_config_serializability(config)
         self.enabled = config.pop('__enabled__', enabled)
         # Special case for process specific slurm options
-        self.__slurm_options__ = config.pop('__slurm_options__', '{}')
+        _configured_slurm_options = coerce_slurm_options(
+            config.pop('__slurm_options__', None))
+        self.slurm_options = ub.udict(self._base_slurm_options) | _configured_slurm_options
+        self.__slurm_options__ = dict(self.slurm_options)
         self.config = ub.udict(config)
 
         if isinstance(self.in_paths, dict):
