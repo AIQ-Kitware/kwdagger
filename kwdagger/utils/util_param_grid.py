@@ -164,6 +164,29 @@ def expand_param_grid(arg, max_configs=None):
         >>> from kwdagger.utils.util_dotdict import dotdict_to_nested
         >>> print(ub.urepr([dotdict_to_nested(p) for p in grid_items], nl=-3, sort=0))
         >>> print(len(grid_items))
+
+    Example:
+        >>> # Check that dictionaries are treated as scalar values
+        >>> from kwdagger.utils.util_param_grid import *  # NOQA
+        >>> arg = ub.codeblock(
+            '''
+            - matrix:
+                trk.param1:
+                    key1: value1
+                    key2: value2
+                trk.param2_list_of_dict:
+                    - key1: value1
+                      key2: value2
+                    - key1: value11
+                      key2: value22
+            ''')
+        >>> grid_items = list(expand_param_grid(arg))
+        >>> print('grid_items = {}'.format(ub.urepr(grid_items, nl=1, sort=0)))
+        grid_items = [
+            {'trk.param1': {'key1': 'value1', 'key2': 'value2'}, 'trk.param2_list_of_dict': {'key1': 'value1', 'key2': 'value2'}},
+            {'trk.param1': {'key1': 'value1', 'key2': 'value2'}, 'trk.param2_list_of_dict': {'key1': 'value11', 'key2': 'value22'}},
+        ]
+
     """
     prevalidate_param_grid(arg)  # TODO: may remove prevalidate in the future
     action_matrices = coerce_list_of_action_matrices(arg)
@@ -576,7 +599,10 @@ def extended_github_action_matrix(arg):
         contents are spliced into the grid. Plain YAML filenames are now
         treated as literal argument values.
         """
-        if not ub.iterable(v):
+        if not ub.iterable(v) or isinstance(v, dict):
+            # I think what we want here is to just check that its not list-like
+            # anything that isn't list like should be treated as a "scalar"
+            # value, even if its a dictionary.
             v = [v]
         final = []
         for item in v:

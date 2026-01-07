@@ -142,6 +142,57 @@ def test_simple_slurm_dry_run():
     dag, queue = schedule.build_schedule(config)
 
 
+def test_slurm_options_from_param_grid(tmp_path):
+    from kwdagger import schedule
+    import ubelt as ub
+    dpath = ub.Path(tmp_path) / 'slurm_grid'
+    dpath.delete().ensuredir()
+
+    pipeline_fpath = demodata_pipeline(dpath)
+    input_fpath = dpath / 'input.json'
+    input_fpath.write_text('{"type": "orig_input"}')
+
+    root_dpath = (dpath / 'runs').delete().ensuredir()
+    param_yaml = ub.codeblock(
+        f'''
+        slurm_options:
+            partition: general
+            qos: debug
+        pipeline: {pipeline_fpath}::build_pipeline()
+        matrix:
+            step1.src:
+                - {input_fpath}
+            step1.param1:
+                - option1
+            step1.param2:
+                - option2
+            step1.param3:
+                - 0.1
+            step1.__slurm_options__:
+                - time: 00:01:00
+        ''')
+    config = schedule.ScheduleEvaluationConfig(**{
+        'run': 0,
+        'root_dpath': root_dpath,
+        'backend': 'slurm',
+        'params': param_yaml,
+    })
+
+    dag, queue = schedule.build_schedule(config)
+
+    assert queue._sbatch_kvargs['partition'] == 'general'
+    assert queue._sbatch_kvargs['qos'] == 'debug'
+
+    step1 = dag.node_dict['step1']
+    step1_job = queue.named_jobs[step1.process_id]
+    assert step1_job._sbatch_kvargs['time'] == '00:01:00'
+
+    text = queue.finalize_text()
+    assert '--partition="general"' in text
+    assert '--qos="debug"' in text
+    assert '--time="00:01:00"' in text
+
+
 def test_simple_but_real_custom_pipeline():
     """
     Ignore:
