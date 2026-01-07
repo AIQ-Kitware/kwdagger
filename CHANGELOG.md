@@ -2,7 +2,10 @@
 We [keep a changelog](https://keepachangelog.com/en/1.0.0/).
 We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## Version 0.2.1 - Unreleased
+## Version 0.2.2 - Unreleased
+
+
+## Version 0.2.1 - Released 2026-01-07
 
 ### Changed
 
