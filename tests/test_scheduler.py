@@ -155,7 +155,7 @@ def test_slurm_options_from_param_grid(tmp_path):
     root_dpath = (dpath / 'runs').delete().ensuredir()
     param_yaml = ub.codeblock(
         f'''
-        __slurm_options__:
+        slurm_options:
             partition: general
             qos: debug
         pipeline: {pipeline_fpath}::build_pipeline()
