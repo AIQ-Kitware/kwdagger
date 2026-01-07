@@ -11,7 +11,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--src_fpath', required=True)
     parser.add_argument('--prepared_fpath', required=True)
-    parser.add_argument('--uppercase', action='store_true', help='uppercase the text field')
+    parser.add_argument('--case', default='lower', help='supper or lower the text field')
     args = parser.parse_args(argv)
 
     src = Path(args.src_fpath)
@@ -22,8 +22,12 @@ def main(argv=None):
     text = data.get('text', '')
     values = data.get('values', [])
 
-    if args.uppercase:
+    if args.case == 'upper':
         text = text.upper()
+    elif args.case == 'lower':
+        text = text.lower()
+    else:
+        raise KeyError(args.case)
 
     prepared = {
         'text': text,

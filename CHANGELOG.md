@@ -8,6 +8,10 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 * YAML paths in grid values no longer auto-expand unless explicitly behind an `__include__` key. See docs for details.
 
+### Fixed
+
+* Dictionaries now work correctly as "scalar" values in a parameter grid
+
 
 ## [Version 0.0.1] -
 

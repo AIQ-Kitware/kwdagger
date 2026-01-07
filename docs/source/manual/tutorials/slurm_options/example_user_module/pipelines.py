@@ -9,7 +9,7 @@ class CPUPrepare(kwdagger.ProcessNode):
     in_paths = {'src_fpath'}
     out_paths = {'prepared_fpath': 'prepared.json'}
     primary_out_key = 'prepared_fpath'
-    algo_params = {'uppercase': False}
+    algo_params = {'case': 'upper'}
 
 
 class TorchInfer(kwdagger.ProcessNode):

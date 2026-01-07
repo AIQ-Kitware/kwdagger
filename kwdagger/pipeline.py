@@ -41,7 +41,7 @@ def coerce_slurm_options(slurm_options) -> Dict[str, Any]:
     if slurm_options is None:
         return {}
     if not isinstance(slurm_options, dict):
-        raise TypeError(f'Expected slurm options to be a dict, got {type(slurm_options)}')
+        raise TypeError(f'Expected slurm options to be a dict, got {type(slurm_options)}. {slurm_options=!r}')
     return dict(slurm_options)
 
 
@@ -1305,11 +1305,12 @@ class ProcessNode(Node):
         self._configured_cache.clear()  # Reset memoization caches
         if config is None:
             config = {}
+        print(f'config = {ub.urepr(config, nl=1)}')
         config = _fixup_config_serializability(config)
         self.enabled = config.pop('__enabled__', enabled)
         # Special case for process specific slurm options
-        _configured_slurm_options = coerce_slurm_options(
-            config.pop('__slurm_options__', None))
+        _raw_slurm_opts = config.pop('__slurm_options__', None)
+        _configured_slurm_options = coerce_slurm_options(_raw_slurm_opts)
         self.slurm_options = ub.udict(self._base_slurm_options) | _configured_slurm_options
         self.__slurm_options__ = dict(self.slurm_options)
         self.config = ub.udict(config)

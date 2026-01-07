@@ -4,7 +4,7 @@ Slurm options tutorial
 This tutorial demonstrates how to pass SLURM options through ``kwdagger`` at
 three levels:
 
-* **Global queue defaults** via ``__slurm_options__`` in the parameter grid.
+* **Global queue defaults** via ``slurm_options`` in the top level parameters.
 * **Per-node overrides in YAML** via ``<node>.__slurm_options__``.
 * **Per-node defaults in code** via the ``slurm_options`` attribute on
   ``ProcessNode`` subclasses or instances.
@@ -30,85 +30,63 @@ Files in this tutorial
 * ``example_user_module/pipelines.py`` - pipeline wiring and node definitions,
   including per-node ``slurm_options`` defaults.
 
-Prepare your shell
-------------------
-
-From this folder, make the tutorial module importable:
-
-.. code:: bash
-
-    cd "$(dirname "$0")"
-    export PYTHONPATH=.
-
-Global queue options
---------------------
-
-Add a ``__slurm_options__`` dictionary at the top level of your parameter grid
-to set options for every job. These map directly to ``sbatch`` arguments such
-as ``partition``, ``qos``, and ``account``.
-
-.. code:: yaml
-
-    __slurm_options__:
-      partition: debug
-      qos: normal
-    pipeline: 'example_user_module.pipelines.build_pipeline()'
-    matrix:
-      cpu_prepare.src_fpath:
-        - data/input.json
-
-Per-node YAML overrides
------------------------
-
-Individual nodes can override or extend global options by adding
-``<node_name>.__slurm_options__`` entries inside the matrix. Here, the Torch
-step requests a GPU and a short walltime.
-
-.. code:: yaml
-
-    matrix:
-      cpu_prepare.src_fpath:
-        - data/input.json
-      torch_infer.__slurm_options__:
-        - gres: 'gpu:1'
-          time: '00:10:00'
-
 Per-node defaults in code
 -------------------------
 
-``example_user_module/pipelines.py`` sets ``slurm_options`` on the Torch node so
-that GPU settings apply even without YAML overrides. The YAML layer still wins
-if you provide per-node options in the grid.
+Note that the pipeline code can specify defaults for slurm. The file
+``example_user_module/pipelines.py`` sets ``slurm_options`` on the Torch node
+so that GPU settings apply even without YAML overrides. The YAML layer still
+wins if you provide per-node options in the grid.
 
 Running a dry run (no SLURM needed)
 -----------------------------------
 
-Render the SLURM script without submitting jobs. This shows how global and
-per-node options combine.
+The fastest way to understand SLURM option layering in ``kwdagger`` is to render
+the generated ``sbatch`` commands first (without submitting anything). In a dry
+run, you can include:
+
+* **Global queue defaults** via a top-level ``slurm_options`` dictionary (applies to every job).
+* **Per-node defaults in code** via the ``slurm_options`` attribute on a node (used unless overridden in YAML).
+* **Per-node YAML overrides** via ``<node>.__slurm_options__`` (only affects that node).
+
+Run the command below to generate the SLURM scripts:
 
 .. code:: bash
 
+    export PYTHONPATH=.
     kwdagger schedule \
       --backend=slurm \
-      --run=0 \
-      --root_dpath="$PWD/results" \
+      --root_dpath="$PWD/results_gpu" \
+      --virtualenv_cmd "echo 'source your venv if you want'" \
       --params="
-        __slurm_options__:
-          partition: debug
         pipeline: 'example_user_module.pipelines.build_pipeline()'
+        # Specify global slurm options for all nodes.
+        slurm_options:
+          partition: debug
         matrix:
           cpu_prepare.src_fpath:
-            - data/input.json
+            - data/input1.json
+            - data/input2.json
+          # Specify slurm options for a specific node:
           torch_infer.__slurm_options__:
-            - gres: 'gpu:1'
-              time: '00:10:00'
-      "
+            gres: 'gpu:1'
+            time: '00:10:00'
+      " \
+      --run=0
 
-Inspect the generated ``sbatch`` commands to verify that:
+NOTE: ``virtualenv_cmd`` is broken in ``cmd_queue<0.3.0`` and will be reworked
+to a general ``preamble`` in the future.
 
-* Global options (``partition``) appear on every job.
-* ``torch_infer`` includes GPU and time settings.
-* Per-node defaults defined in code remain in effect unless overridden in YAML.
+Now inspect the generated job scripts / ``sbatch`` commands under
+``$PWD/results`` and confirm the merge behavior you expect:
+
+* The global queue defaults in ``__slurm_options__`` (e.g. ``partition``, ``qos``) appear on every job.
+* The Torch node gets its YAML overrides (e.g. ``gres``, ``time``) in addition to any defaults set in ``example_user_module/pipelines.py`` via the node's ``slurm_options``.
+* Any per-node defaults defined in code remain in effect unless explicitly overridden in the YAML grid.
+
+If you have a GPU and slurm with the appropriate partitions you can modify the
+``--run=0`` to ``--run=1`` and actually execute the jobs.
+
 
 Running on a SLURM cluster
 --------------------------
@@ -122,20 +100,20 @@ For example, a CPU-only run looks like:
 
 .. code:: bash
 
+    export PYTHONPATH=.
     kwdagger schedule \
       --backend=slurm \
-      --run=1 \
-      --root_dpath="$PWD/results" \
+      --root_dpath="$PWD/results_cpu" \
       --params="
         pipeline: 'example_user_module.pipelines.build_pipeline()'
         matrix:
           cpu_prepare.src_fpath:
-            - data/input.json
+            - data/input1.json
           torch_infer.device:
             - cpu
-          torch_infer.__slurm_options__:
-            - {}
-      "
+          torch_infer.__slurm_options__: {}
+      " \
+      --run=1
 
 If you prefer to stay entirely local, swap ``--backend=slurm`` with
 ``--backend=serial`` to bypass SLURM altogether.

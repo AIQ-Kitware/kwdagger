@@ -66,7 +66,6 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
         if self.queue_size is not None:
             raise Exception('The queue_size argument to schedule evaluation has been removed. Use the tmux_workers argument instead')
             # self.tmux_workers = self.queue_size
-        import kwutil
         self.slurm_options = coerce_slurm_options(self.slurm_options)
 
         devices = self.devices
@@ -103,7 +102,7 @@ def build_schedule(config):
     if config['params'] is not None:
         param_arg = kwutil.Yaml.coerce(config['params']) or {}
         if isinstance(param_arg, dict):
-            param_slurm_options = coerce_slurm_options(param_arg.pop('__slurm_options__', None))
+            param_slurm_options = coerce_slurm_options(param_arg.pop('slurm_options', None))
         pipeline = param_arg.pop('pipeline', config.pipeline)
 
     if param_slurm_options:
@@ -143,7 +142,7 @@ def build_schedule(config):
     configured_stats = []
     with pman:
         for row_config in pman.progiter(all_param_grid, desc='configure dags', verbose=3):
-            if param_slurm_options and '__slurm_options__' not in row_config:
+            if param_slurm_options and 'slurm_options' not in row_config:
                 row_config = ub.udict(row_config)
                 row_config['__slurm_options__'] = param_slurm_options
             dag.configure(
