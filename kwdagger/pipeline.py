@@ -1260,13 +1260,15 @@ class ProcessNode(Node):
             >>>     foo = 1
             >>> #
             >>> class DemoNode(ProcessNode):
+            >>>     name = 'demo'
             >>>     params = DemoCfg
             >>>     out_paths = {'dst': 'explicit.txt'}
             >>> #
             >>> with warnings.catch_warnings(record=True) as warns:
             >>>     warnings.simplefilter('always')
             >>>     node = DemoNode()
-            >>>     any('src' in str(w.message) for w in warns)
+            >>>     found = any('src' in str(w.message) for w in warns)
+            >>> found
             True
             >>> node.algo_params['foo'] == 1
             True
