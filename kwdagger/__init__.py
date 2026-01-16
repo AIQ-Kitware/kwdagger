@@ -1,4 +1,4 @@
-__version__ = '0.2.2'
+__version__ = '0.2.3'
 
 __autogen__ = """
 mkinit  ~/code/kwdagger/kwdagger/__init__.py -w
