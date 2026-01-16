@@ -17,7 +17,7 @@ kwarray>=0.6.19
 kwutil>=0.3.8
 
 networkx>=3.6      ; python_version < '4.0'  and python_version >= '3.14'    # Python 3.14+
-networkx>=3.2      ; python_version < '3.13'   
+networkx>=3.2      ; python_version < '3.14'   
 
 
 # xdev availpkg rich

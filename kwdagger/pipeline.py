@@ -21,6 +21,7 @@ import functools
 import networkx as nx
 import os
 import ubelt as ub
+import warnings
 from functools import cached_property
 from typing import Union, Dict, Set, List, Any, Optional
 from kwdagger.utils import util_dotdict
@@ -1070,6 +1071,10 @@ class ProcessNode(Node):
     # Optional job-level slurm options. Can be overridden via configuration.
     slurm_options: Dict[str, Any] = None
 
+    # Optional scriptconfig schema for deriving path/param groups. This is the
+    # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
+    params = None
+
     def __init__(self,
                  *,  # TODO: allow positional arguments after we find a good order
                  name=None,
@@ -1140,6 +1145,43 @@ class ProcessNode(Node):
         self._base_slurm_options = coerce_slurm_options(self.slurm_options)
         self.slurm_options = dict(self._base_slurm_options)
 
+        if self.params is not None:
+            derived = self._derive_groups_from_params_spec(self.params)
+            (
+                derived_in_paths,
+                derived_out_paths,
+                derived_algo_params,
+                derived_perf_params,
+                derived_primary_out_key,
+            ) = derived
+            if self.in_paths is None:
+                self.in_paths = set()
+            if self.out_paths is None:
+                self.out_paths = {}
+            if self.algo_params is None:
+                self.algo_params = {}
+            if self.perf_params is None:
+                self.perf_params = {}
+            if isinstance(self.in_paths, dict):
+                for key in derived_in_paths:
+                    self.in_paths.setdefault(key, None)
+            else:
+                self.in_paths = set(self.in_paths) | set(derived_in_paths)
+            for key, value in derived_out_paths.items():
+                self.out_paths.setdefault(key, value)
+            if isinstance(self.algo_params, dict):
+                for key, value in derived_algo_params.items():
+                    self.algo_params.setdefault(key, value)
+            else:
+                self.algo_params = set(self.algo_params or set()) | set(derived_algo_params)
+            if isinstance(self.perf_params, dict):
+                for key, value in derived_perf_params.items():
+                    self.perf_params.setdefault(key, value)
+            else:
+                self.perf_params = set(self.perf_params or set()) | set(derived_perf_params)
+            if self.primary_out_key is None:
+                self.primary_out_key = derived_primary_out_key
+
         if self.primary_out_key is None:
             if len(self.out_paths) == 1:
                 self.primary_out_key = ub.peek(self.out_paths)
@@ -1188,6 +1230,7 @@ class ProcessNode(Node):
         EXPERIMENTAL
 
         Wrap a scriptconfig object to define a baseline process node.
+        This is a legacy helper; prefer defining ``params`` on the node class.
 
         Ignore:
             >>> import scriptconfig as scfg
@@ -1241,38 +1284,46 @@ class ProcessNode(Node):
             >>>     dag.configure(config)
             >>>     dag.submit_jobs(queue)
             >>> queue.print_commands(with_status=0, exclude_tags='boilerplate')
+
+        Example:
+            >>> import warnings
+            >>> import scriptconfig as scfg
+            >>> class DemoCfg(scfg.DataConfig):
+            >>>     src = scfg.Value('ignored.txt', tags=['in_path'])
+            >>>     dst = scfg.Value('schema.txt', tags=['out_path', 'primary'])
+            >>>     foo = 1
+            >>> #
+            >>> class DemoNode(ProcessNode):
+            >>>     name = 'demo'
+            >>>     params = DemoCfg
+            >>>     out_paths = {'dst': 'explicit.txt'}
+            >>> #
+            >>> with warnings.catch_warnings(record=True) as warns:
+            >>>     warnings.simplefilter('always')
+            >>>     node = DemoNode()
+            >>>     found = any('src' in str(w.message) for w in warns)
+            >>> found
+            True
+            >>> node.algo_params['foo'] == 1
+            True
+            >>> node.out_paths['dst'] == 'explicit.txt'
+            True
+            >>> derived = ProcessNode._derive_groups_from_params_spec(DemoCfg)
+            >>> legacy = ProcessNode._from_scriptconfig(DemoCfg, name='demo')
+            >>> legacy.in_paths == derived[0]
+            True
+            >>> legacy.out_paths == derived[1]
+            True
         """
-        tag_to_group = {
-            'in_path': 'in_paths',
-            'in': 'in_paths',
-            'out_path': 'out_paths',
-            'out': 'out_paths',
-            'algo_param': 'algo_params',
-            'algo': 'algo_params',
-            'perf_param': 'perf_params',
-            'perf': 'perf_params',
-
-        }
+        derived = cls._derive_groups_from_params_spec(config_cls)
         path_kwargs = {
-            'in_paths': set(),
-            'out_paths': {},
-            'perf_params': {},
-            'algo_params': {},
+            'in_paths': derived[0],
+            'out_paths': derived[1],
+            'algo_params': derived[2],
+            'perf_params': derived[3],
         }
-        for key, value in config_cls.__default__.items():
-            if hasattr(value, 'tags'):
-                tags = set(value.tags)
-                have_tags = tag_to_group.keys() & tags
-                assert len(have_tags) <= 1
-                have_groups = {tag_to_group[t] for t in have_tags}
-                if 'primary' in tags and 'out_paths' in have_groups:
-                    path_kwargs['primary_out_key'] = key
-
-                for group_key in have_groups:
-                    if group_key == 'in_paths':
-                        path_kwargs[group_key].add(key)
-                    else:
-                        path_kwargs[group_key][key] = value.value
+        if derived[4] is not None:
+            path_kwargs['primary_out_key'] = derived[4]
 
         name = kwargs.get('name', None)
         if name is None:
@@ -1286,6 +1337,92 @@ class ProcessNode(Node):
         node_kwargs.update(kwargs)
         self = cls(**node_kwargs)
         return self
+
+    @staticmethod
+    def _derive_groups_from_params_spec(params_spec):
+        tag_to_group = {
+            'in_path': 'in_paths',
+            'in': 'in_paths',
+            'out_path': 'out_paths',
+            'out': 'out_paths',
+            'algo_param': 'algo_params',
+            'algo': 'algo_params',
+            'perf_param': 'perf_params',
+            'perf': 'perf_params',
+        }
+        path_kwargs = {
+            'in_paths': set(),
+            'out_paths': {},
+            'perf_params': {},
+            'algo_params': {},
+        }
+        primary_out_key = None
+
+        if params_spec is None:
+            return (
+                path_kwargs['in_paths'],
+                path_kwargs['out_paths'],
+                path_kwargs['algo_params'],
+                path_kwargs['perf_params'],
+                primary_out_key,
+            )
+
+        instance_values = None
+        if isinstance(params_spec, dict):
+            items = params_spec.items()
+        elif hasattr(params_spec, '__default__'):
+            config_cls = params_spec if isinstance(params_spec, type) else params_spec.__class__
+            defaults = config_cls.__default__
+            if not isinstance(params_spec, type):
+                instance_values = {}
+                if hasattr(params_spec, 'items'):
+                    try:
+                        instance_values = dict(params_spec.items())
+                    except Exception:
+                        instance_values = {}
+                if not instance_values:
+                    instance_values = {
+                        key: value for key, value in getattr(params_spec, '__dict__', {}).items()
+                        if not key.startswith('_')
+                    }
+            items = defaults.items()
+        else:
+            raise TypeError(f'Unsupported params_spec type: {type(params_spec)}')
+
+        for key, value in items:
+            if instance_values is not None and key in instance_values:
+                default_value = instance_values[key]
+            else:
+                default_value = value.value if hasattr(value, 'value') else value
+            tags = set(getattr(value, 'tags', []) or [])
+            have_tags = tag_to_group.keys() & tags
+            if len(have_tags) > 1:
+                raise ValueError(
+                    f'Parameter "{key}" has conflicting tags: {sorted(have_tags)}')
+            have_groups = {tag_to_group[t] for t in have_tags}
+            if 'primary' in tags and 'out_paths' in have_groups:
+                primary_out_key = key
+            if not have_groups:
+                have_groups = {'algo_params'}
+            for group_key in have_groups:
+                if group_key == 'in_paths':
+                    if default_value is not None:
+                        warnings.warn(
+                            f'Ignoring default for in_path "{key}" defined in params.')
+                    path_kwargs[group_key].add(key)
+                elif group_key == 'out_paths':
+                    if isinstance(default_value, str) and default_value:
+                        path_kwargs[group_key][key] = default_value
+                else:
+                    path_kwargs[group_key][key] = default_value
+
+        return (
+            path_kwargs['in_paths'],
+            path_kwargs['out_paths'],
+            path_kwargs['algo_params'],
+            path_kwargs['perf_params'],
+            primary_out_key,
+        )
 
     def configure(self, config=None, cache=True, enabled=True):
         """
