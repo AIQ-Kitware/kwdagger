@@ -138,7 +138,7 @@ def parse_version(fpath):
     return visitor.version
 
 project = 'kwdagger'
-copyright = '2025, Jon Crall'
+copyright = '2026, Jon Crall'
 author = 'Jon Crall'
 modname = 'kwdagger'
 
