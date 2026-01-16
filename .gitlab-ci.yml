@@ -117,7 +117,7 @@ stages:
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"
   - echo "MOD_VERSION=$MOD_VERSION"
-  - python -m uv pip install "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
+  - python -m pip install --prefer-binary "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
   - echo "Install finished."
   - echo "Creating test sandbox directory"
   - export WORKSPACE_DNAME="sandbox"
@@ -187,7 +187,7 @@ stages:
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"
   - echo "MOD_VERSION=$MOD_VERSION"
-  - python -m uv pip install "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
+  - python -m pip install --prefer-binary "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
   - echo "Install finished."
   - echo "Creating test sandbox directory"
   - export WORKSPACE_DNAME="sandbox"
@@ -257,7 +257,7 @@ stages:
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"
   - echo "MOD_VERSION=$MOD_VERSION"
-  - python -m uv pip install "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
+  - python -m pip install --prefer-binary "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
   - echo "Install finished."
   - echo "Creating test sandbox directory"
   - export WORKSPACE_DNAME="sandbox"
@@ -327,7 +327,7 @@ stages:
   - echo "INSTALL_EXTRAS=$INSTALL_EXTRAS"
   - echo "UV_RESOLUTION=$UV_RESOLUTION"
   - echo "MOD_VERSION=$MOD_VERSION"
-  - python -m uv pip install "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
+  - python -m pip install --prefer-binary "kwdagger[$INSTALL_EXTRAS]==$MOD_VERSION" -f dist
   - echo "Install finished."
   - echo "Creating test sandbox directory"
   - export WORKSPACE_DNAME="sandbox"
@@ -353,10 +353,10 @@ stages:
   - echo "pytest command finished, moving the coverage file to the repo root"
 build/sdist:
   <<: *build_sdist_template
-  image: python:3.14.0
+  image: python:3.14
 test/sdist/minimal-loose/cp314-linux-x86_64:
   <<: *test_minimal-loose_template
-  image: python:3.14.0
+  image: python:3.14
   needs:
   - build/sdist
 build/cp310-linux-x86_64:
@@ -453,30 +453,30 @@ test/full-strict/cp313-linux-x86_64:
   - build/cp313-linux-x86_64
 build/cp314-linux-x86_64:
   <<: *build_wheel_template
-  image: python:3.14.0
+  image: python:3.14
 test/minimal-loose/cp314-linux-x86_64:
   <<: *test_minimal-loose_template
-  image: python:3.14.0
+  image: python:3.14
   needs:
   - build/cp314-linux-x86_64
 test/full-loose/cp314-linux-x86_64:
   <<: *test_full-loose_template
-  image: python:3.14.0
+  image: python:3.14
   needs:
   - build/cp314-linux-x86_64
 test/minimal-strict/cp314-linux-x86_64:
   <<: *test_minimal-strict_template
-  image: python:3.14.0
+  image: python:3.14
   needs:
   - build/cp314-linux-x86_64
 test/full-strict/cp314-linux-x86_64:
   <<: *test_full-strict_template
-  image: python:3.14.0
+  image: python:3.14
   needs:
   - build/cp314-linux-x86_64
 lint:
   <<: *common_template
-  image: python:3.14.0
+  image: python:3.14
   stage: lint
   before_script:
   - df -h
@@ -487,7 +487,7 @@ lint:
   allow_failure: true
 gpgsign/wheels:
   <<: *common_template
-  image: python:3.14.0
+  image: python:3.14
   stage: gpgsign
   artifacts:
     paths:
@@ -551,7 +551,7 @@ gpgsign/wheels:
     artifacts: true
 deploy/wheels:
   <<: *common_template
-  image: python:3.14.0
+  image: python:3.14
   stage: deploy
   only:
     refs:
