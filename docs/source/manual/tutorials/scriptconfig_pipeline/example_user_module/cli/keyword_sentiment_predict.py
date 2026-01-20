@@ -53,8 +53,8 @@ class KeywordSentimentPredictCLI(scfg.DataConfig):
     )
 
     @classmethod
-    def main(cls, cmdline=1, **kwargs):
-        config = cls.cli(cmdline=cmdline, data=kwargs, strict=True)
+    def main(cls, argv=True, **kwargs):
+        config = cls.cli(argv=argv, data=kwargs, strict=True)
         rich.print('config = ' + escape(ub.urepr(config, nl=1)))
 
         data = {

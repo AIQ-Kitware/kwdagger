@@ -22,15 +22,14 @@ class KeywordSentimentPredictCLI(scfg.DataConfig):
 
     src_fpath = scfg.Value(None, help='path to labeled jsonl review file')
     dst_fpath = scfg.Value(None, help='path to prediction file')
-    dst_dpath = scfg.Value(None, help='path to output directory')
 
     keyword = scfg.Value('great', help='word that marks a review as positive')
     case_sensitive = scfg.Value(False, help='toggle case sensitivity')
     workers = scfg.Value(0, help='number of parallel workers (unused)')
 
     @classmethod
-    def main(cls, cmdline=1, **kwargs):
-        config = cls.cli(cmdline=cmdline, data=kwargs, strict=True)
+    def main(cls, argv=True, **kwargs):
+        config = cls.cli(argv=argv, data=kwargs, strict=True)
         rich.print('config = ' + escape(ub.urepr(config, nl=1)))
 
         data = {

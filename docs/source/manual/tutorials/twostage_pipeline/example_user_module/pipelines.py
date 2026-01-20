@@ -31,7 +31,6 @@ class KeywordSentimentPredict(kwdagger.ProcessNode):
     }
     out_paths = {
         'dst_fpath': 'keyword_predictions.json',
-        'dst_dpath': '.',
     }
     primary_out_key = 'dst_fpath'
 
