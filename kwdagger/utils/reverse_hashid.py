@@ -11,6 +11,9 @@ class ReverseHashTable:
     Make a lookup table of hashes we've made, so we can refer to what the heck
     those directory names mean!
 
+    DEPRECATE:
+        This is not used.
+
     Example:
         >>> from kwdagger.utils.reverse_hashid import *  # NOQA
         >>> data = {'test': 'data'}
@@ -121,19 +124,23 @@ def condense_config(params, type, human_opts=None, register=True):
     reverse hash lookup table. Some config parts can be given human readable
     descriptions.
     """
-    from kwdagger.utils.reverse_hashid import ReverseHashTable
     if human_opts is None:
         human_opts = {}
     params = ub.udict(params)
+    if human_opts:
+        raise AssertionError('We are no longer using human opts, if we want an extra tag, it will be specified outside of the params.')
     human_opts = params & human_opts
     other_opts = params - human_opts
     if len(human_opts):
         human_part = ub.urepr(human_opts, compact=1) + '_'
     else:
         human_part = ''
-    cfgstr_suffix = human_part + ub.hash_data(other_opts)[0:8]
+    # This hash convention was modified wrt to the old geowatch version
+    cfgstr_suffix = human_part + ub.hash_data(other_opts, base=36)[0:12]
     cfgstr = f'{type}_{cfgstr_suffix}'
     if register:
+        raise AssertionError('Do not use the reverse hash table. We are removing it.')
+        from kwdagger.utils.reverse_hashid import ReverseHashTable
         rhash = ReverseHashTable(type=type)
         rhash.register(cfgstr, params)
     return cfgstr

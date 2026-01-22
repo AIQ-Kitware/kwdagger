@@ -8,6 +8,10 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 * Support deriving ProcessNode IO/parameter groups from a scriptconfig schema via the new ``params`` class variable.
 
+### Changed
+
+* Increased hash size to reduce collision chance. This is a backwards incompatible change.
+
 
 ## Version 0.2.1 - Released 2026-01-07
 

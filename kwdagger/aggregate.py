@@ -2667,9 +2667,7 @@ def hash_param(row, version=1):
     # TODO: something like multibase
     # https://github.com/multiformats/multibase
     if version == 1:
-        param_hashid = ub.hash_data(row, base=26)[0:12]
-    elif version == 0:
-        param_hashid = ub.hash_data(row)[0:8]
+        param_hashid = ub.hash_data(row, base=36)[0:12]
     else:
         raise KeyError(version)
     return param_hashid
@@ -2677,7 +2675,7 @@ def hash_param(row, version=1):
 
 def hash_regions(rois):
     try:
-        suffix = ub.hash_data(sorted(rois), base=16)[0:6]
+        suffix = ub.hash_data(sorted(rois), base=36)[0:6]
     except Exception:
         print('Error---')
         print('rois = {}'.format(ub.urepr(rois, nl=1)))
