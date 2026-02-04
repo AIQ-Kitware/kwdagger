@@ -1442,7 +1442,7 @@ class ProcessNode(Node):
         self._configured_cache.clear()  # Reset memoization caches
         if config is None:
             config = {}
-        print(f'config = {ub.urepr(config, nl=1)}')
+        # print(f'config = {ub.urepr(config, nl=1)}')
         config = _fixup_config_serializability(config)
         self.enabled = config.pop('__enabled__', enabled)
         # Special case for process specific slurm options
