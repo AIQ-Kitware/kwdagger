@@ -1,4 +1,5 @@
 """Heatmap-to-detections tutorial pipeline for kwdagger."""
+
 from __future__ import annotations
 import json
 import kwdagger
@@ -9,70 +10,70 @@ from kwdagger.utils import util_dotdict
 class PredictHeatmap(kwdagger.ProcessNode):
     """Simulate a segmentation model by writing saliency maps."""
 
-    name = "predict_heatmap"
-    executable = "python -m heatmap_example.cli.predict_heatmap"
+    name = 'predict_heatmap'
+    executable = 'python -m heatmap_example.cli.predict_heatmap'
 
     # Matches PredictHeatmapConfig.coco_fpath
     in_paths = {
-        "coco_fpath",
+        'coco_fpath',
     }
 
     # Matches PredictHeatmapConfig.dst_coco_fpath / asset_dpath
     out_paths = {
-        "dst_coco_fpath": "heatmap.kwcoco.json",
-        "asset_dpath": "assets/heatmaps",
+        'dst_coco_fpath': 'heatmap.kwcoco.json',
+        'asset_dpath': 'assets/heatmaps',
     }
-    primary_out_key = "dst_coco_fpath"
+    primary_out_key = 'dst_coco_fpath'
 
     # Scalar algorithm parameters for the CLI
     # Matches PredictHeatmapConfig: sigma, thresh, heatmap_channel
     algo_params = {
-        "sigma": 7.0,
-        "thresh": 0.0,
-        "heatmap_channel": "salient",
+        'sigma': 7.0,
+        'thresh': 0.0,
+        'heatmap_channel': 'salient',
     }
 
 
 class ExtractBoxes(kwdagger.ProcessNode):
     """Turn the saliency auxiliary channel into box detections."""
 
-    name = "extract_boxes"
-    executable = "python -m heatmap_example.cli.extract_boxes"
+    name = 'extract_boxes'
+    executable = 'python -m heatmap_example.cli.extract_boxes'
 
     # Matches ExtractBoxesConfig.coco_fpath
     in_paths = {
-        "coco_fpath",
+        'coco_fpath',
     }
     # Matches ExtractBoxesConfig.dst_coco_fpath
     out_paths = {
-        "dst_coco_fpath": "pred_boxes.kwcoco.json",
+        'dst_coco_fpath': 'pred_boxes.kwcoco.json',
     }
-    primary_out_key = "dst_coco_fpath"
+    primary_out_key = 'dst_coco_fpath'
 
     # Scalar algorithm parameters for the CLI
     # Matches ExtractBoxesConfig: threshold, min_area, heatmap_channel
     algo_params = {
-        "threshold": 0.5,
-        "min_area": 4,
-        "heatmap_channel": "salient",
+        'threshold': 0.5,
+        'min_area': 4,
+        'heatmap_channel': 'salient',
     }
 
 
 class ScoreHeatmap(kwdagger.ProcessNode):
     """Call the kwcoco segmentation metrics CLI."""
 
-    name = "score_heatmap"
-    executable = "python -m kwcoco.metrics.segmentation_metrics"
+    name = 'score_heatmap'
+    executable = 'python -m kwcoco.metrics.segmentation_metrics'
 
     in_paths = {
-        "true_dataset",
-        "pred_dataset",
+        'true_dataset',
+        'pred_dataset',
     }
     out_paths = {
-        "eval_dpath": "heatmap_eval",
-        "eval_fpath": "heatmap_metrics.json",
+        'eval_dpath': 'heatmap_eval',
+        'eval_fpath': 'heatmap_metrics.json',
     }
-    primary_out_key = "eval_fpath"
+    primary_out_key = 'eval_fpath'
 
     algo_params = {
         'salient_channel': 'salient',
@@ -96,6 +97,7 @@ class ScoreHeatmap(kwdagger.ProcessNode):
         # Grab the info written by process context
         # This is optional, but useful.
         from kwdagger.aggregate_loader import new_process_context_parser
+
         info = data['meta']['info'][-1]
         nested = {}
         nested_info = new_process_context_parser(info)
@@ -139,18 +141,18 @@ class ScoreHeatmap(kwdagger.ProcessNode):
 class ScoreBoxes(kwdagger.ProcessNode):
     """Call kwcoco's detection evaluator CLI."""
 
-    name = "score_boxes"
-    executable = "python -m kwcoco evaluate_detections"
+    name = 'score_boxes'
+    executable = 'python -m kwcoco evaluate_detections'
 
     in_paths = {
-        "true_dataset",
-        "pred_dataset",
+        'true_dataset',
+        'pred_dataset',
     }
     out_paths = {
-        "out_dpath": "detection_eval",
-        "out_fpath": "box_metrics.json",
+        'out_dpath': 'detection_eval',
+        'out_fpath': 'box_metrics.json',
     }
-    primary_out_key = "out_fpath"
+    primary_out_key = 'out_fpath'
 
     algo_params = {
         'compat': 'all',
@@ -162,6 +164,7 @@ class ScoreBoxes(kwdagger.ProcessNode):
 
         import kwutil
         from kwcoco.coco_evaluator import CocoResults
+
         state = kwutil.Json.load(output_fpath)
         coco_result = CocoResults.from_json(state)
         assert len(coco_result) == 1, 'only expecting one area / iou result'
@@ -239,31 +242,31 @@ class ScoreBoxes(kwdagger.ProcessNode):
 
 def heatmap_detection_pipeline():
     nodes = {
-        "predict_heatmap": PredictHeatmap(),
-        "extract_boxes": ExtractBoxes(),
-        "score_heatmap": ScoreHeatmap(),
-        "score_boxes": ScoreBoxes(),
+        'predict_heatmap': PredictHeatmap(),
+        'extract_boxes': ExtractBoxes(),
+        'score_heatmap': ScoreHeatmap(),
+        'score_boxes': ScoreBoxes(),
     }
 
     # Predict -> extract boxes
-    nodes["predict_heatmap"].outputs["dst_coco_fpath"].connect(
-        nodes["extract_boxes"].inputs["coco_fpath"]
+    nodes['predict_heatmap'].outputs['dst_coco_fpath'].connect(
+        nodes['extract_boxes'].inputs['coco_fpath']
     )
 
     # Predict -> score heatmap
-    nodes["predict_heatmap"].outputs["dst_coco_fpath"].connect(
-        nodes["score_heatmap"].inputs["pred_dataset"]
+    nodes['predict_heatmap'].outputs['dst_coco_fpath'].connect(
+        nodes['score_heatmap'].inputs['pred_dataset']
     )
-    nodes["predict_heatmap"].inputs["coco_fpath"].connect(
-        nodes["score_heatmap"].inputs["true_dataset"]
+    nodes['predict_heatmap'].inputs['coco_fpath'].connect(
+        nodes['score_heatmap'].inputs['true_dataset']
     )
 
     # Extract boxes -> score boxes
-    nodes["extract_boxes"].outputs["dst_coco_fpath"].connect(
-        nodes["score_boxes"].inputs["pred_dataset"]
+    nodes['extract_boxes'].outputs['dst_coco_fpath'].connect(
+        nodes['score_boxes'].inputs['pred_dataset']
     )
-    nodes["predict_heatmap"].inputs["coco_fpath"].connect(
-        nodes["score_boxes"].inputs["true_dataset"]
+    nodes['predict_heatmap'].inputs['coco_fpath'].connect(
+        nodes['score_boxes'].inputs['true_dataset']
     )
 
     dag = kwdagger.Pipeline(nodes)

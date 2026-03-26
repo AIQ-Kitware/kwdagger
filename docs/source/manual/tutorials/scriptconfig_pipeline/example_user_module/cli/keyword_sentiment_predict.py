@@ -71,17 +71,25 @@ class KeywordSentimentPredictCLI(scfg.DataConfig):
         proc_context.start()
 
         reviews = _load_reviews(config.src_fpath)
-        keyword = config.keyword if config.case_sensitive else config.keyword.lower()
+        keyword = (
+            config.keyword if config.case_sensitive else config.keyword.lower()
+        )
 
         predictions = []
         for idx, record in enumerate(reviews):
-            haystack = record['text'] if config.case_sensitive else record['text'].lower()
+            haystack = (
+                record['text']
+                if config.case_sensitive
+                else record['text'].lower()
+            )
             predicted_label = 'positive' if keyword in haystack else 'negative'
-            predictions.append({
-                'id': idx,
-                'text': record['text'],
-                'predicted_label': predicted_label,
-            })
+            predictions.append(
+                {
+                    'id': idx,
+                    'text': record['text'],
+                    'predicted_label': predicted_label,
+                }
+            )
 
         data['result'] = {
             'keyword': config.keyword,

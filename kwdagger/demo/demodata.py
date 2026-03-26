@@ -127,6 +127,7 @@ Example:
     >>> aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
     >>> aggregate.__cli__.main(argv=False, **aggregate_config)
 """
+
 from __future__ import annotations
 
 from kwdagger.pipeline import ProcessNode
@@ -144,7 +145,8 @@ class Stage1PredictCLI(scfg.DataConfig):
     """
     The logic for the demo "prediction" process.
     """
-    __command__ = "stage1_predict"
+
+    __command__ = 'stage1_predict'
 
     src_fpath = scfg.Value(None, help='path to input file')
     dst_fpath = scfg.Value(None, help='path to output file')
@@ -155,13 +157,14 @@ class Stage1PredictCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs):
-        config = cls.cli(argv=argv, data=kwargs, strict=True,  # type: ignore
-                         verbose='auto')
+        config = cls.cli(
+            argv=argv,
+            data=kwargs,
+            strict=True,  # type: ignore
+            verbose='auto',
+        )
 
-        data = {
-            'info': [],
-            'result': None
-        }
+        data = {'info': [], 'result': None}
 
         proc_context = kwutil.ProcessContext(
             name='stage1_predict',
@@ -191,7 +194,8 @@ class Stage1EvaluateCLI(scfg.DataConfig):
     """
     The logic for the demo "evaluation" process.
     """
-    __command__ = "stage1_evaluate"
+
+    __command__ = 'stage1_evaluate'
 
     pred_fpath = scfg.Value(None, help='path to predicted file')
     true_fpath = scfg.Value(None, help='path to truth file')
@@ -200,13 +204,14 @@ class Stage1EvaluateCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs):
-        config = cls.cli(argv=argv, data=kwargs, strict=True,  # type: ignore
-                         verbose='auto')
+        config = cls.cli(
+            argv=argv,
+            data=kwargs,
+            strict=True,  # type: ignore
+            verbose='auto',
+        )
 
-        data : dict[str, Any] = {
-            'info': [],
-            'result': None
-        }
+        data: dict[str, Any] = {'info': [], 'result': None}
 
         proc_context = kwutil.ProcessContext(
             name='stage1_evaluate',
@@ -225,16 +230,16 @@ class Stage1EvaluateCLI(scfg.DataConfig):
         true_int = int(true_hashid, 16)
         pred_int = int(pred_hashid, 16)
         hamming_distance = bin(true_int ^ pred_int).count('1')
-        size = (len(true_hashid) * 4)
+        size = len(true_hashid) * 4
         acc = (size - hamming_distance) / size
 
-        metrics : dict[str, Any] = {
+        metrics: dict[str, Any] = {
             'accuracy': acc,
             'hamming_distance': hamming_distance,
         }
 
         # A dummy evaluate computation
-        data['result'] = metrics  
+        data['result'] = metrics
 
         obj = proc_context.stop()
         data['info'].append(obj)
@@ -250,6 +255,7 @@ class DemodataScript(scfg.ModalCLI):
     To self contain multiple "processes" in the same file we make a simple
     modal CLI.
     """
+
     stage1_predict = Stage1PredictCLI
     stage1_evaluate = Stage1EvaluateCLI
 
@@ -267,6 +273,7 @@ class Stage1_Predict(ProcessNode):
         >>> self = Stage1_Predict()
         >>> print(self.command)
     """
+
     name = 'stage1_predict'
     executable = 'python -m kwdagger.demo.demodata stage1_predict'
 
@@ -290,6 +297,7 @@ class Stage1_Predict(ProcessNode):
         import json
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
+
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
@@ -306,6 +314,7 @@ class Stage1_Evaluate(ProcessNode):
         >>> self = Stage1_Evaluate()
         >>> print(self.command)
     """
+
     name = 'stage1_evaluate'
     executable = 'python -m kwdagger.demo.demodata stage1_evaluate'
 
@@ -316,8 +325,7 @@ class Stage1_Evaluate(ProcessNode):
     out_paths = {
         'out_fpath': 'stage1_evaluation.json',
     }
-    algo_params = {
-    }
+    algo_params = {}
     perf_params = {
         'workers': 0,
     }
@@ -335,6 +343,7 @@ class Stage1_Evaluate(ProcessNode):
         import json
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
+
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
@@ -362,7 +371,7 @@ class Stage1_Evaluate(ProcessNode):
                 'objective': 'minimize',
                 'primary': True,
                 'display': True,
-            }
+            },
         ]
         return metric_infos
 
@@ -404,14 +413,19 @@ def my_demo_pipeline() -> Pipeline:
     # Next we build the edges
 
     # Outputs can be connected to inputs
-    nodes['stage1_predict'].outputs['dst_fpath'].connect(nodes['stage1_evaluate'].inputs['pred_fpath'])
+    nodes['stage1_predict'].outputs['dst_fpath'].connect(
+        nodes['stage1_evaluate'].inputs['pred_fpath']
+    )
 
     # Inputs can be connected to other inputs if they are reused.
-    nodes['stage1_predict'].inputs['src_fpath'].connect(nodes['stage1_evaluate'].inputs['true_fpath'])
+    nodes['stage1_predict'].inputs['src_fpath'].connect(
+        nodes['stage1_evaluate'].inputs['true_fpath']
+    )
 
     dag = Pipeline(nodes)
     dag.build_nx_graphs()
     return dag
+
 
 ### Programatic code to execute the pipeline that can be used in tests
 
@@ -425,9 +439,10 @@ def run_demo_schedule() -> dict[str, Any]:
     # TODO: use these in doctests in a useful way where
     # the doctest has some control
     from kwdagger import schedule
+
     eval_dpath = ub.Path.appdir('kwdagger/demo1/pipeline_output').ensuredir()
     schedule_config = kwutil.Yaml.coerce(
-        r'''
+        r"""
         backend: serial
         skip_existing: 1
         run: 1
@@ -439,15 +454,18 @@ def run_demo_schedule() -> dict[str, Any]:
                     - 456
                     - 33
                 stage1_evaluate.workers: 4
-        ''')
+        """
+    )
     schedule_config['root_dpath'] = eval_dpath
     # Specify files with absolute paths, so we dont need to cd
-    fpath1 = (eval_dpath / 'file1.txt')
-    fpath2 = (eval_dpath / 'file2.txt')
+    fpath1 = eval_dpath / 'file1.txt'
+    fpath2 = eval_dpath / 'file2.txt'
     fpath1.write_text('data1')
     fpath2.write_text('data2')
     schedule_config['params']['matrix']['stage1_predict.src_fpath'] = [
-        fpath1, fpath2]
+        fpath1,
+        fpath2,
+    ]
     schedule.__cli__.main(argv=False, **schedule_config)
 
     info = {
@@ -462,9 +480,10 @@ def run_demo_aggregate() -> object:
     # the doctest has some control
     # Also load the results
     from kwdagger import aggregate
+
     eval_dpath = ub.Path.appdir('kwdagger/demo1/pipeline_output').ensuredir()
     aggregate_config = kwutil.Yaml.coerce(
-        '''
+        """
         pipeline: 'kwdagger.demo.demodata.my_demo_pipeline()'
         resource_report: 0
         io_workers: 0
@@ -482,7 +501,8 @@ def run_demo_aggregate() -> object:
         plot_params:
             enabled: 0
         cache_resolved_results: False
-        ''')
+        """
+    )
     aggregate_config['target'] = [eval_dpath]
     aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
     aggregate.__cli__.main(argv=False, **aggregate_config)

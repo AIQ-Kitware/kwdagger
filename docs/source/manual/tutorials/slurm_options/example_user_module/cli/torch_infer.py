@@ -2,6 +2,7 @@
 """
 Simple Torch-based computation to demonstrate GPU-aware SLURM options.
 """
+
 import argparse
 import json
 from pathlib import Path
@@ -12,7 +13,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_fpath', required=True)
     parser.add_argument('--summary_fpath', required=True)
-    parser.add_argument('--device', default='auto', choices=['auto', 'cpu', 'cuda'], help='device to run on')
+    parser.add_argument(
+        '--device',
+        default='auto',
+        choices=['auto', 'cpu', 'cuda'],
+        help='device to run on',
+    )
     args = parser.parse_args(argv)
 
     device = args.device
@@ -24,7 +30,9 @@ def main(argv=None):
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     data = json.loads(src.read_text())
-    values = torch.tensor(data.get('values', [0]), dtype=torch.float32, device=device)
+    values = torch.tensor(
+        data.get('values', [0]), dtype=torch.float32, device=device
+    )
 
     squared = values.pow(2)
     total = squared.sum().item()

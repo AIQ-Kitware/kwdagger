@@ -118,7 +118,7 @@ else:
     HAS_PYYAML = True
 
 
-GroupType = Literal["and", "or"]
+GroupType = Literal['and', 'or']
 Expr = str
 Group = Tuple[GroupType, List[Expr]]
 
@@ -147,11 +147,14 @@ class QueryPlan:
         * strict=False: warn and skip that expression
         * strict=True: raise
     """
+
     plan: Dict[str, List[Group]] = field(default_factory=dict)
     strict: bool = True  # set True to fail fast on bad expressions
 
     @classmethod
-    def parse(QueryPlan, cli_arg: Optional[str], *, strict: bool = True) -> 'QueryPlan':
+    def parse(
+        QueryPlan, cli_arg: Optional[str], *, strict: bool = True
+    ) -> 'QueryPlan':
         """
         Parse the CLI --query argument (YAML or raw) into a QueryPlan.
 
@@ -205,25 +208,25 @@ class QueryPlan:
 
         if data is None:
             # Raw string → __all__ AND group
-            plan = {"__all__": [("and", [str(cli_arg)])]}
+            plan = {'__all__': [('and', [str(cli_arg)])]}
             return QueryPlan(plan=plan, strict=strict)  # type: ignore
 
         # YAML scalar -> same as raw string
         if isinstance(data, str):
-            plan = {"__all__": [("and", [data])]}
+            plan = {'__all__': [('and', [data])]}
             return QueryPlan(plan=plan, strict=strict)  # type: ignore
 
         # YAML list -> __all__ AND chain
         if isinstance(data, list):
             exprs = [str(x) for x in data]
-            plan = {"__all__": [("and", exprs)]}
+            plan = {'__all__': [('and', exprs)]}
             return QueryPlan(plan=plan, strict=strict)  # type: ignore
 
         # YAML mapping -> per-node
         if isinstance(data, dict):
             plan: Dict[str, List[Group]] = {}
             for key, val in data.items():
-                if key == "options":
+                if key == 'options':
                     # currently ignored; you can extend (e.g., strict/error modes) here
                     continue
                 node = str(key)
@@ -232,7 +235,7 @@ class QueryPlan:
                     plan[node] = groups
             return QueryPlan(plan=plan, strict=strict)
 
-        raise TypeError(f"Unsupported --query type: {type(data).__name__}")
+        raise TypeError(f'Unsupported --query type: {type(data).__name__}')
 
     # ----------------------------
     # Public API
@@ -245,13 +248,15 @@ class QueryPlan:
 
         current = df
         for gtype, exprs in groups:
-            if gtype == "and":
+            if gtype == 'and':
                 for expr in exprs:
                     mask = self._eval_expr_as_mask(current, expr, node=node)
-                    if mask is None:  # skipped due to warning in non-strict mode
+                    if (
+                        mask is None
+                    ):  # skipped due to warning in non-strict mode
                         continue
                     current = current.loc[mask]
-            elif gtype == "or":
+            elif gtype == 'or':
                 masks = []
                 for expr in exprs:
                     mask = self._eval_expr_as_mask(current, expr, node=node)
@@ -267,10 +272,12 @@ class QueryPlan:
                     # all exprs failed/skipped; keep df unchanged
                     pass
             else:
-                raise ValueError(f"Unknown group type: {gtype!r}")
+                raise ValueError(f'Unknown group type: {gtype!r}')
         return current
 
-    def apply_all(self, node_to_df: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+    def apply_all(
+        self, node_to_df: Dict[str, pd.DataFrame]
+    ) -> Dict[str, pd.DataFrame]:
         """Apply the plan to many nodes in one go."""
         out: Dict[str, pd.DataFrame] = {}
         for node, df in node_to_df.items():
@@ -296,18 +303,22 @@ class QueryPlan:
         cumulative = pd.Series(True, index=df.index)
 
         for gtype, exprs in groups:
-            if gtype == "and":
+            if gtype == 'and':
                 for expr in exprs:
-                    mask = self._eval_expr_as_mask(df, expr, node=node)  # eval on full df
+                    mask = self._eval_expr_as_mask(
+                        df, expr, node=node
+                    )  # eval on full df
                     if mask is None:
                         continue
                     # align and AND into cumulative
                     mask = mask.reindex(df.index, fill_value=False)
                     cumulative &= mask
-            elif gtype == "or":
+            elif gtype == 'or':
                 or_mask = None
                 for expr in exprs:
-                    mask = self._eval_expr_as_mask(df, expr, node=node)  # eval on full df
+                    mask = self._eval_expr_as_mask(
+                        df, expr, node=node
+                    )  # eval on full df
                     if mask is None:
                         continue
                     mask = mask.reindex(df.index, fill_value=False)
@@ -318,7 +329,7 @@ class QueryPlan:
                     # all OR branches skipped → no change to cumulative
                     pass
             else:
-                raise ValueError(f"Unknown group type: {gtype!r}")
+                raise ValueError(f'Unknown group type: {gtype!r}')
 
             # Early exit: if cumulative already all False, nothing else can bring rows back
             if not cumulative.any():
@@ -331,13 +342,15 @@ class QueryPlan:
     # ----------------------------
     def _groups_for(self, node: str) -> List[Group]:
         groups: List[Group] = []
-        if "__all__" in self.plan:
-            groups.extend(self.plan["__all__"])
+        if '__all__' in self.plan:
+            groups.extend(self.plan['__all__'])
         if node in self.plan:
             groups.extend(self.plan[node])
         return groups
 
-    def _eval_expr_as_mask(self, df: pd.DataFrame, expr: str, *, node: str) -> Optional[pd.Series]:
+    def _eval_expr_as_mask(
+        self, df: pd.DataFrame, expr: str, *, node: str
+    ) -> Optional[pd.Series]:
         """
         Evaluate an expression into a boolean mask aligned to df.index.
         Returns None if skipped (strict=False and an error occurs).
@@ -348,22 +361,22 @@ class QueryPlan:
             ns = globals()
             ns = locals()
             local_env = {
-                "df": df,
-                "table": df,
-                "t": df,
-                "agg": agg,
-                "pd": pd,
-                "np": np,
-                "True": True,
-                "False": False,
-                "None": None,
+                'df': df,
+                'table': df,
+                't': df,
+                'agg': agg,
+                'pd': pd,
+                'np': np,
+                'True': True,
+                'False': False,
+                'None': None,
                 'str': str,
             }
             # Fully-python eval by requirement; Unsafe, could tighten up,
             # but we usually will need access to above data.
             val = eval(expr, ns | local_env, ns | local_env)
         except Exception as ex:
-            msg = f"[query:{node}] skipped expr due to error: {expr!r} -> {type(ex).__name__}: {ex}"
+            msg = f'[query:{node}] skipped expr due to error: {expr!r} -> {type(ex).__name__}: {ex}'
             if self.strict:
                 raise RuntimeError(msg) from ex
             warnings.warn(msg)
@@ -374,21 +387,25 @@ class QueryPlan:
             if isinstance(val, pd.DataFrame):
                 idx = val.index
                 mask = df.index.isin(idx)
-            elif isinstance(val, pd.Series) and val.dtype == bool and val.index.equals(df.index):
+            elif (
+                isinstance(val, pd.Series)
+                and val.dtype == bool
+                and val.index.equals(df.index)
+            ):
                 mask = val
             elif isinstance(val, (pd.Index, list, tuple, np.ndarray)):
                 mask = df.index.isin(list(val))
             else:
                 raise TypeError(
-                    "Expression must return a filtered DataFrame, a boolean Series aligned to df.index, "
-                    "or an index/iterable of row labels."
+                    'Expression must return a filtered DataFrame, a boolean Series aligned to df.index, '
+                    'or an index/iterable of row labels.'
                 )
             # Ensure boolean Series aligned to df
             mask = pd.Series(mask, index=df.index)
             mask = mask.fillna(False).astype(bool)
             return mask
         except Exception as ex:
-            msg = f"[query:{node}] invalid expr result for {expr!r}: {type(val).__name__} ({ex})"
+            msg = f'[query:{node}] invalid expr result for {expr!r}: {type(val).__name__} ({ex})'
             if self.strict:
                 raise RuntimeError(msg) from ex
             warnings.warn(msg)
@@ -404,62 +421,74 @@ class QueryPlan:
         """
         return self._groups_for(node)
 
-    def describe(self, nodes: Optional[Sequence[str]] = None, *, highlight_cols: bool = True) -> str:
+    def describe(
+        self,
+        nodes: Optional[Sequence[str]] = None,
+        *,
+        highlight_cols: bool = True,
+    ) -> str:
         """
         Pretty-print the effective plan per explicit node (i.e., keys other than __all__).
         If `nodes` is None, all explicit nodes in the plan are included.
         """
         import re
+
         # choose nodes to show: explicit ones, not '__all__'
         if nodes is None:
-            nodes = [k for k in self.plan.keys() if k != "__all__"]
+            nodes = [k for k in self.plan.keys() if k != '__all__']
             # if user only supplied __all__, show a synthetic target '*'
-            if not nodes and "__all__" in self.plan:
-                nodes = ["*"]  # represents "all nodes"
+            if not nodes and '__all__' in self.plan:
+                nodes = ['*']  # represents "all nodes"
 
         def _hl_cols(expr: str) -> str:
             if not highlight_cols:
                 return expr
             # Highlight df['col'] / df["col"]
             pattern = r"""df\[\s*(['"])(?P<col>.+?)\1\s*\]"""
+
             def repl(m):
-                col = m.group("col")
+                col = m.group('col')
                 return f"df['**{col}**']"
+
             return re.sub(pattern, repl, expr)
+
         # Build text
         lines: List[str] = []
         # Header
-        if "__all__" in self.plan:
-            ga = self.plan["__all__"]
-            lines.append("QueryPlan (merged per node; __all__ applies to every node)")
-            lines.append("")
-            lines.append("  __all__:")
+        if '__all__' in self.plan:
+            ga = self.plan['__all__']
+            lines.append(
+                'QueryPlan (merged per node; __all__ applies to every node)'
+            )
+            lines.append('')
+            lines.append('  __all__:')
             for gi, (gtype, exprs) in enumerate(ga, start=1):
-                lines.append(f"    - {gtype.upper()} group #{gi}:")
+                lines.append(f'    - {gtype.upper()} group #{gi}:')
                 for ei, e in enumerate(exprs, start=1):
-                    lines.append(f"        [{ei}] { _hl_cols(e) }")
-            lines.append("")
+                    lines.append(f'        [{ei}] {_hl_cols(e)}')
+            lines.append('')
         else:
-            lines.append("QueryPlan (no __all__ groups)")
-            lines.append("")
+            lines.append('QueryPlan (no __all__ groups)')
+            lines.append('')
 
         for node in nodes:
-            lines.append(f"  node: {node}")
-            groups = self._groups_for(node if node != "*" else "__all__")
+            lines.append(f'  node: {node}')
+            groups = self._groups_for(node if node != '*' else '__all__')
             if not groups:
-                lines.append("    (no groups)")
+                lines.append('    (no groups)')
                 continue
             for gi, (gtype, exprs) in enumerate(groups, start=1):
-                lines.append(f"    - {gtype.upper()} group #{gi}:")
+                lines.append(f'    - {gtype.upper()} group #{gi}:')
                 for ei, e in enumerate(exprs, start=1):
-                    lines.append(f"        [{ei}] { _hl_cols(e) }")
-            lines.append("")
-        return "\n".join(lines)
+                    lines.append(f'        [{ei}] {_hl_cols(e)}')
+            lines.append('')
+        return '\n'.join(lines)
 
 
 # ----------------------------
 # Parsing / Coercion
 # ----------------------------
+
 
 def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
     """
@@ -473,12 +502,12 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
     def add_and(exprs: Sequence[str]):
         exprs = [str(e) for e in exprs if str(e).strip()]
         if exprs:
-            groups.append(("and", list(exprs)))
+            groups.append(('and', list(exprs)))
 
     def add_or(exprs: Sequence[str]):
         exprs = [str(e) for e in exprs if str(e).strip()]
         if exprs:
-            groups.append(("or", list(exprs)))
+            groups.append(('or', list(exprs)))
 
     if isinstance(val, str):
         add_and([val])
@@ -495,33 +524,37 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
                 if and_bucket:
                     add_and(and_bucket)
                     and_bucket = []
-                if "and" in item:
-                    add_and(item.get("and", []))
-                if "or" in item:
-                    add_or(item.get("or", []))
+                if 'and' in item:
+                    add_and(item.get('and', []))
+                if 'or' in item:
+                    add_or(item.get('or', []))
             else:
-                raise TypeError(f"Invalid list item type in query: {type(item).__name__}")
+                raise TypeError(
+                    f'Invalid list item type in query: {type(item).__name__}'
+                )
         if and_bucket:
             add_and(and_bucket)
         return groups
 
     if isinstance(val, dict):
         # explicit 'and' and/or 'or'
-        if "and" in val:
-            and_val = val.get("and", [])  # type: ignore
+        if 'and' in val:
+            and_val = val.get('and', [])  # type: ignore
             if isinstance(and_val, str):
                 add_and([and_val])
             else:
                 add_and(and_val)
-        if "or" in val:
-            or_val = val.get("or", [])  # type: ignore
+        if 'or' in val:
+            or_val = val.get('or', [])  # type: ignore
             if isinstance(or_val, str):
                 add_or([or_val])
             else:
                 add_or(or_val)
         # if no and/or keys, treat other keys as error
         if not groups and val:
-            raise ValueError(f"Expected 'and' and/or 'or' keys, got: {list(val.keys())}")
+            raise ValueError(
+                f"Expected 'and' and/or 'or' keys, got: {list(val.keys())}"
+            )
         return groups
 
-    raise TypeError(f"Invalid node value type in query: {type(val).__name__}")
+    raise TypeError(f'Invalid node value type in query: {type(val).__name__}')

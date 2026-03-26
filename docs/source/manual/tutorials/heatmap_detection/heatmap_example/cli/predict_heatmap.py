@@ -13,12 +13,20 @@ class PredictHeatmapConfig(scfg.DataConfig):
     """
     CLI options for writing saliency maps.
     """
-    coco_fpath = scfg.Value(None, help="Input ground-truth kwcoco dataset")
-    dst_coco_fpath = scfg.Value("heatmap.kwcoco.json", help="Output kwcoco file")
-    asset_dpath = scfg.Value("assets/heatmaps", help="Where to store written heatmaps, best practice is to spcify this next to the dst coco file.")
-    heatmap_channel = scfg.Value("salient", help="Name of the output heatmap channel")
-    sigma = scfg.Value(7.0, help="Gaussian blur applied to binary mask")
-    thresh = scfg.Value(0.0, help="Threshold for minimum heatmap value")
+
+    coco_fpath = scfg.Value(None, help='Input ground-truth kwcoco dataset')
+    dst_coco_fpath = scfg.Value(
+        'heatmap.kwcoco.json', help='Output kwcoco file'
+    )
+    asset_dpath = scfg.Value(
+        'assets/heatmaps',
+        help='Where to store written heatmaps, best practice is to spcify this next to the dst coco file.',
+    )
+    heatmap_channel = scfg.Value(
+        'salient', help='Name of the output heatmap channel'
+    )
+    sigma = scfg.Value(7.0, help='Gaussian blur applied to binary mask')
+    thresh = scfg.Value(0.0, help='Threshold for minimum heatmap value')
 
     @classmethod
     def main(cls, argv=1, **kwargs):
@@ -39,15 +47,18 @@ class PredictHeatmapConfig(scfg.DataConfig):
             >>> argv = False
             >>> PredictHeatmapConfig.main(argv=argv, **kwargs)
         """
-        config = cls.cli(argv=argv, data=kwargs, strict=True, verbose="auto")
+        config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
         run_predict_heatmap(**config)
 
 
-def run_predict_heatmap(coco_fpath,
-                        dst_coco_fpath="pred_saliency.kwcoco.json",
-                        asset_dpath="saliency",
-                        heatmap_channel="saliency",
-                        sigma=7.0, thresh=0.0):
+def run_predict_heatmap(
+    coco_fpath,
+    dst_coco_fpath='pred_saliency.kwcoco.json',
+    asset_dpath='saliency',
+    heatmap_channel='saliency',
+    sigma=7.0,
+    thresh=0.0,
+):
     """
     Run saliency prediction over all images in a COCO dataset.
     """
@@ -63,7 +74,6 @@ def run_predict_heatmap(coco_fpath,
     asset_dpath = ub.Path(asset_dpath).ensuredir()
 
     for image_id in pred_coco.imgs.keys():
-
         coco_img = pred_coco.coco_image(image_id)
 
         smooth = _predict_image_heatmap(
@@ -73,8 +83,8 @@ def run_predict_heatmap(coco_fpath,
         )
 
         # Write saliency image
-        img_name = coco_img.img.get("name", f"image-{image_id}")
-        heatmap_fname = f"{ub.Path(img_name).stem}_saliency.png"
+        img_name = coco_img.img.get('name', f'image-{image_id}')
+        heatmap_fname = f'{ub.Path(img_name).stem}_saliency.png'
         heatmap_fpath = asset_dpath / heatmap_fname
 
         # For pngs we need to perform quantization.
@@ -140,7 +150,7 @@ def _predict_image_heatmap(
     rgb01 = kwimage.ensure_float01(img)
 
     # Convert to HSV to separate brightness & saturation
-    hsv = kwimage.convert_colorspace(rgb01, src_space="rgb", dst_space="hsv")
+    hsv = kwimage.convert_colorspace(rgb01, src_space='rgb', dst_space='hsv')
     sat = hsv[..., 1]
     val = hsv[..., 2]
 
@@ -160,5 +170,5 @@ def _predict_image_heatmap(
     return smooth
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     PredictHeatmapConfig.main()

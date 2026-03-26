@@ -25,7 +25,19 @@ from kwdagger import pipeline
 from kwdagger import schedule
 from kwdagger import utils
 
-from kwdagger.pipeline import (Pipeline, ProcessNode,)
+from kwdagger.pipeline import (
+    Pipeline,
+    ProcessNode,
+)
 
-__all__ = ['Pipeline', 'ProcessNode', 'aggregate', 'aggregate_loader',
-           'aggregate_plots', 'demo', 'pipeline', 'schedule', 'utils']
+__all__ = [
+    'Pipeline',
+    'ProcessNode',
+    'aggregate',
+    'aggregate_loader',
+    'aggregate_plots',
+    'demo',
+    'pipeline',
+    'schedule',
+    'utils',
+]

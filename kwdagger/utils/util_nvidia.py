@@ -1,6 +1,7 @@
 """
 Ported from netharn.device, previously called gpu_infos
 """
+
 from __future__ import annotations
 
 import ubelt as ub
@@ -74,8 +75,14 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
     # This is slightly more robust than the old mode, but it also makes
     # more than one call to nvidia-smi and cannot return information about
     # graphics processes.
-    fields = ['index', 'memory.total', 'memory.used', 'memory.free',
-              'name', 'gpu_uuid']
+    fields = [
+        'index',
+        'memory.total',
+        'memory.used',
+        'memory.free',
+        'name',
+        'gpu_uuid',
+    ]
     mode = 'query-gpu'
     try:
         gpu_rows = _query_nvidia_smi(mode, fields)
@@ -117,15 +124,23 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
     if WITH_GPU_PROCS:
         # Hacks in gpu-procs if enabled
         import re
+
         info = ub.cmd('nvidia-smi pmon -c 1')
         for line in info['out'].split('\n'):
             line = line.strip()
-            if line and not line.startswith("#"):
+            if line and not line.startswith('#'):
                 parts = re.split(r'\s+', line, maxsplit=7)
                 if parts[1] != '-':
                     header = [
-                        'gpu_num', 'pid', 'type', 'sm', 'mem', 'enc',
-                        'dec', 'name']
+                        'gpu_num',
+                        'pid',
+                        'type',
+                        'sm',
+                        'mem',
+                        'enc',
+                        'dec',
+                        'name',
+                    ]
                     proc = ub.dzip(header, parts)
                     proc['gpu_num'] = int(proc['gpu_num'])
                     if proc['type'] == 'G':
@@ -187,8 +202,9 @@ def _query_nvidia_smi(mode: str, fields: list[str]) -> list[dict[str, str]]:
     if info['ret'] != 0:
         print(info['out'])
         print(info['err'])
-        raise NvidiaSMIError('unable to call nvidia-smi: ret={}'.format(
-            info['ret']))
+        raise NvidiaSMIError(
+            'unable to call nvidia-smi: ret={}'.format(info['ret'])
+        )
     rows = []
     for line in info['out'].split('\n'):
         line = line.strip()

@@ -18,6 +18,7 @@ Related Work:
 
     https://pypi.org/project/omegaconf/
 """
+
 from __future__ import annotations
 
 import ubelt as ub
@@ -159,14 +160,15 @@ class DotDict(ub.UDict):
     def _suffix_trie(self):
         if 'suffix_trie' not in self._trie_cache:
             reversed_keys = {
-                '.'.join(reversed(k.split('.'))): k
-                for k in self.keys()
+                '.'.join(reversed(k.split('.'))): k for k in self.keys()
             }
             _trie = pygtrie.StringTrie(reversed_keys, separator='.')
             self._trie_cache['suffix_trie'] = _trie
         return self._trie_cache['suffix_trie']
 
-    def suffix_get(self, suffix: str, default=ub.NoParam, backend: str = 'trie'):
+    def suffix_get(
+        self, suffix: str, default=ub.NoParam, backend: str = 'trie'
+    ):
         """
         Retrieve all key-value pairs whose keys end with a given dot-suffix.
 
@@ -189,16 +191,19 @@ class DotDict(ub.UDict):
             {'a.b.c': 1, 'x.b.c': 2}
         """
         if backend == 'loop':
-            matches = DotDict({
-                k: v for k, v in self.items()
-                if k.endswith('.' + suffix) or k == suffix
-            })
+            matches = DotDict(
+                {
+                    k: v
+                    for k, v in self.items()
+                    if k.endswith('.' + suffix) or k == suffix
+                }
+            )
         elif backend == 'trie':
             rev_suffix = '.'.join(reversed(suffix.split('.')))
             try:
-                matches = DotDict({
-                    k: self[k] for k in self._suffix_trie.values(rev_suffix)
-                })
+                matches = DotDict(
+                    {k: self[k] for k in self._suffix_trie.values(rev_suffix)}
+                )
             except KeyError:
                 if default is not ub.NoParam:
                     return default
@@ -233,7 +238,7 @@ class DotDict(ub.UDict):
                 raise
         else:
             for full_key in full_keys:
-                sub_key = full_key[len(key) + 1:]
+                sub_key = full_key[len(key) + 1 :]
                 suffix_dict[sub_key] = self[full_key]
             return suffix_dict
 
@@ -271,7 +276,8 @@ class DotDict(ub.UDict):
         """
         if backend == 'loop':
             result = {
-                k: v for k, v in self.items()
+                k: v
+                for k, v in self.items()
                 if any(k.endswith('.' + suf) or k == suf for suf in suffixes)
             }
         elif backend == 'trie':
@@ -316,8 +322,11 @@ class DotDict(ub.UDict):
         """
         if backend == 'loop':
             result = {
-                k: v for k, v in self.items()
-                if any(k.startswith(pref + '.') or k == pref for pref in prefixes)
+                k: v
+                for k, v in self.items()
+                if any(
+                    k.startswith(pref + '.') or k == pref for pref in prefixes
+                )
             }
         elif backend == 'trie':
             trie = self._prefix_trie
@@ -361,6 +370,7 @@ class DotDict(ub.UDict):
             >>> print('self = {}'.format(ub.urepr(self, nl=1)))
             >>> print('new = {}'.format(ub.urepr(new, nl=1)))
         """
+
         def _generate_new_items():
             sep = '.'
             for k, v in self.items():
@@ -368,6 +378,7 @@ class DotDict(ub.UDict):
                 path.insert(index, prefix)
                 k2 = sep.join(path)
                 yield k2, v
+
         new = self.__class__(_generate_new_items())
         return new
 
@@ -439,6 +450,7 @@ def dotkeys_to_nested(keys):
 
 def indexable_to_graph(data):
     import networkx as nx
+
     graph = nx.DiGraph()
     walker = ub.IndexableWalker(data)
     for path, value in walker:
@@ -449,11 +461,13 @@ def indexable_to_graph(data):
         if not isinstance(value, walker.indexable_cls):
             label = f'{label} : {type(value).__name__} = {value}'
 
-        graph.nodes[key].update({
-            'path': path,
-            'value': value,
-            'label': label,
-        })
+        graph.nodes[key].update(
+            {
+                'path': path,
+                'value': value,
+                'label': label,
+            }
+        )
         if len(path) > 1:
             parent_key = '.'.join(spath[:-1])
             graph.add_edge(parent_key, key)
@@ -468,4 +482,5 @@ def explore_nested_dict(data):
 
     from cmd_queue.util.util_networkx import write_network_text
     import rich
+
     write_network_text(graph, path=rich.print, end='')

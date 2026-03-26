@@ -4,6 +4,7 @@ metrics for BAS and SC.
 
 Used by ./aggregate_loader.py
 """
+
 from __future__ import annotations
 
 import json
@@ -44,6 +45,7 @@ def _handle_process_item(item: dict[str, Any]) -> dict[str, Any]:
 
     if needs_modify:
         import copy
+
         item = copy.deepcopy(item)
         item['properties']['config'] = config
         item['properties']['args'] = args
@@ -59,14 +61,21 @@ def _add_prefix(prefix: str, dict_: Mapping[str, Any]) -> dict[str, Any]:
     return {prefix + k: v for k, v in dict_.items()}
 
 
-def parse_resource_item(item: Mapping[str, Any], arg_prefix: str = '', add_prefix: bool = True) -> dict[str, Any]:
+def parse_resource_item(
+    item: Mapping[str, Any], arg_prefix: str = '', add_prefix: bool = True
+) -> dict[str, Any]:
     import kwutil
+
     resources = {}
     ureg = kwutil.util_units.unit_registry()
     pred_prop = item['properties']
 
-    start_time = util_time.coerce_datetime(pred_prop.get('start_timestamp', None))
-    end_time = util_time.coerce_datetime(pred_prop.get('end_timestamp', pred_prop.get('stop_timestamp', None)))
+    start_time = util_time.coerce_datetime(
+        pred_prop.get('start_timestamp', None)
+    )
+    end_time = util_time.coerce_datetime(
+        pred_prop.get('end_timestamp', pred_prop.get('stop_timestamp', None))
+    )
     iters_per_second = pred_prop.get('iters_per_second', None)
     if start_time is None or end_time is None:
         total_hours = None

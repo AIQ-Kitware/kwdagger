@@ -1,6 +1,7 @@
 """
 Heavilly modified / simplified subset of data frame extensions ported from geowatch
 """
+
 from __future__ import annotations
 
 import ubelt as ub
@@ -31,6 +32,7 @@ class DataFrame(pd.DataFrame):
         0  0.548814  0.715189
         1  0.602763  0.544883
     """
+
     @property
     def _constructor(self):
         return DataFrame
@@ -41,6 +43,7 @@ class DataFrame(pd.DataFrame):
         Create a random data frame for testing.
         """
         import kwarray
+
         rng = kwarray.ensure_rng(rng)
 
         def coerce_index(data):
@@ -48,6 +51,7 @@ class DataFrame(pd.DataFrame):
                 return list(range(data))
             else:
                 return list(data)
+
         columns = coerce_index(columns)
         index = coerce_index(rows)
         rand = getattr(rng, 'rand', None) or getattr(rng, 'random')
@@ -119,8 +123,15 @@ class DataFrame(pd.DataFrame):
         labels = existing.intersection(labels)
         return self.drop(labels, axis=axis)
 
-    def reorder(self, head=None, tail=None, axis=0, missing='error',
-                fill_value=float('nan'), **kwargs):
+    def reorder(
+        self,
+        head=None,
+        tail=None,
+        axis=0,
+        missing='error',
+        fill_value=float('nan'),
+        **kwargs,
+    ):
         """
         Change the order of the row or column index. Unspecified labels will
         keep their existing order after the specified labels.
@@ -176,7 +187,9 @@ class DataFrame(pd.DataFrame):
             >>>     self.reorder(['c'], ['c'], axis=1, missing='error')
         """
         if 'intersect' in kwargs:
-            raise Exception('The intersect argument was removed. Set missing=drop')
+            raise Exception(
+                'The intersect argument was removed. Set missing=drop'
+            )
         if kwargs:
             raise ValueError(f'got unknown kwargs: {list(kwargs.keys())}')
 
@@ -191,18 +204,20 @@ class DataFrame(pd.DataFrame):
         if duplicate_labels:
             raise ValueError(
                 'Cannot specify the same label in both the head and tail.'
-                f'Duplicate labels: {duplicate_labels}')
+                f'Duplicate labels: {duplicate_labels}'
+            )
         if missing == 'drop':
             orig_order = ub.oset(list(existing))
             resolved_head = ub.oset(head) & orig_order
             resolved_tail = ub.oset(tail) & orig_order
         elif missing == 'error':
-            requested = (head_set | tail_set)
+            requested = head_set | tail_set
             unknown = requested - set(existing)
             if unknown:
                 raise ValueError(
                     f"Requested labels that don't exist unknown={unknown}. "
-                    "Specify intersect=True to ignore them.")
+                    'Specify intersect=True to ignore them.'
+                )
             resolved_head = head
             resolved_tail = tail
         elif missing == 'fill':
@@ -212,14 +227,14 @@ class DataFrame(pd.DataFrame):
             raise KeyError(missing)
         remain = existing.difference(resolved_head).difference(resolved_tail)
         new_labels = list(resolved_head) + list(remain) + list(resolved_tail)
-        return self.reindex(labels=new_labels, axis=axis,
-                            fill_value=fill_value)
+        return self.reindex(labels=new_labels, axis=axis, fill_value=fill_value)
 
     def match_columns(self, pat, hint='glob'):
         """
         Find matching columns in O(N)
         """
         from kwutil import util_pattern
+
         pat = util_pattern.Pattern.coerce(pat, hint=hint)
         found = [c for c in self.columns if pat.match(c)]
         return found
@@ -229,12 +244,19 @@ class DataFrame(pd.DataFrame):
         Find matching columns in O(N)
         """
         from kwutil import util_pattern
+
         pat = util_pattern.Pattern.coerce(pat, hint=hint)
         found = [c for c in self.columns if pat.search(c)]
         return found
 
-    def varied_values(self, min_variations=0, max_variations=None,
-                      default=ub.NoParam, dropna=False, on_error='raise'):
+    def varied_values(
+        self,
+        min_variations=0,
+        max_variations=None,
+        default=ub.NoParam,
+        dropna=False,
+        on_error='raise',
+    ):
         """
         Summarize how which values are varied within each column
 
@@ -264,10 +286,14 @@ class DataFrame(pd.DataFrame):
 
         """
         from kwdagger.utils.util_tables import varied_values
+
         varied = varied_values(
-            self, min_variations=min_variations,
+            self,
+            min_variations=min_variations,
             max_variations=max_variations,
-            default=default, dropna=dropna, on_error=on_error,
+            default=default,
+            dropna=dropna,
+            on_error=on_error,
         )
         return varied
 
@@ -293,6 +319,7 @@ class DataFrame(pd.DataFrame):
             }
         """
         from kwdagger.utils.util_tables import varied_value_counts
+
         varied_counts = varied_value_counts(self, **kwargs)
         return varied_counts
 
@@ -353,8 +380,11 @@ class DataFrame(pd.DataFrame):
         """
         import ubelt as ub
         from kwdagger.utils.util_stringalgo import shortest_unique_suffixes
+
         old_cols = self.columns
-        new_cols = shortest_unique_suffixes(old_cols, sep='.', min_length=min_length)
+        new_cols = shortest_unique_suffixes(
+            old_cols, sep='.', min_length=min_length
+        )
         mapping = ub.dzip(old_cols, new_cols)
         new = self.rename(columns=mapping)
         if return_mapping:
@@ -399,6 +429,7 @@ class DataFrame(pd.DataFrame):
             >>> print(self.loc[top_indexes])
         """
         ascending = None
+
         def rectify_ascending(objective_str):
             if objective_str in {'max', 'maximize'}:
                 ascending = False
@@ -461,6 +492,7 @@ class DotDictDataFrame(DataFrame):
         0   1  0.5
         1   1  0.5
     """
+
     @property
     def _constructor(self):
         return DotDictDataFrame
@@ -475,14 +507,16 @@ class DotDictDataFrame(DataFrame):
         else:
             prefix_set = set(prefix)
             prefixes = tuple(p + '.' for p in prefix)
-        cols = [c for c in self.columns if c.startswith(prefixes) or c in prefix_set]
+        cols = [
+            c for c in self.columns if c.startswith(prefixes) or c in prefix_set
+        ]
         mapping = None
         if with_mapping:
             mapping = {}
             for c in cols:
                 for p in prefix_set:
                     if c == p or c.startswith(p + '.'):
-                        mapping[c] = c[len(p) + 1:]
+                        mapping[c] = c[len(p) + 1 :]
         return cols, mapping
 
     def _suffix_columns(self, suffix):
@@ -492,7 +526,9 @@ class DotDictDataFrame(DataFrame):
         else:
             suffix_set = set(suffix)
             suffixes = tuple('.' + s for s in suffix)
-        cols = [c for c in self.columns if c.endswith(suffixes) or c in suffix_set]
+        cols = [
+            c for c in self.columns if c.endswith(suffixes) or c in suffix_set
+        ]
         return cols
 
     def prefix_subframe(self, prefix, drop_prefix=False):

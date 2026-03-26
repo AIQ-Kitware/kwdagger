@@ -1,6 +1,7 @@
 """
 Common table helpers (i.e. List[Dict])
 """
+
 from __future__ import annotations
 
 import ubelt as ub
@@ -8,8 +9,7 @@ import math
 from typing import Any, Iterable
 
 
-class UnhashablePlaceholder(str):
-    ...
+class UnhashablePlaceholder(str): ...
 
 
 def _ensure_longform(longform):
@@ -22,8 +22,14 @@ def _ensure_longform(longform):
     return longform
 
 
-def varied_values(longform, min_variations: int = 0, max_variations: int | None = None,
-                  default=ub.NoParam, dropna: bool = False, on_error: str = 'raise'):
+def varied_values(
+    longform,
+    min_variations: int = 0,
+    max_variations: int | None = None,
+    default=ub.NoParam,
+    dropna: bool = False,
+    on_error: str = 'raise',
+):
     """
     Given a list of dictionaries, find the values that differ between them.
 
@@ -91,9 +97,11 @@ def varied_values(longform, min_variations: int = 0, max_variations: int | None 
     for row in longform:
         if default is ub.NoParam and len(row) != len(columns) and len(columns):
             missing = set(columns).symmetric_difference(set(row))
-            raise KeyError((
-                'No default specified and not every '
-                'row contains columns {}').format(missing))
+            raise KeyError(
+                (
+                    'No default specified and not every row contains columns {}'
+                ).format(missing)
+            )
         columns.update(row.keys())
 
     cannonical_nan = float('nan')
@@ -105,7 +113,11 @@ def varied_values(longform, min_variations: int = 0, max_variations: int | None 
             value = row.get(key, default)
             if isinstance(value, list):
                 value = tuple(value)
-            if isinstance(value, numbers.Number) and not isinstance(value, tuple) and math.isnan(float(value)):
+            if (
+                isinstance(value, numbers.Number)
+                and not isinstance(value, tuple)
+                and math.isnan(float(value))
+            ):
                 if dropna:
                     continue
                 else:
@@ -147,8 +159,14 @@ def varied_values(longform, min_variations: int = 0, max_variations: int | None 
     return varied
 
 
-def varied_value_counts(longform, min_variations: int = 0, max_variations: int | None = None,
-                        default=ub.NoParam, dropna: bool = False, on_error: str = 'raise'):
+def varied_value_counts(
+    longform,
+    min_variations: int = 0,
+    max_variations: int | None = None,
+    default=ub.NoParam,
+    dropna: bool = False,
+    on_error: str = 'raise',
+):
     """
     Given a list of dictionaries, find the values that differ between them.
 
@@ -217,15 +235,18 @@ def varied_value_counts(longform, min_variations: int = 0, max_variations: int |
     for row in longform:
         if default is ub.NoParam and len(row) != len(columns) and len(columns):
             missing = set(columns).symmetric_difference(set(row))
-            raise KeyError((
-                'No default specified and not every '
-                'row contains columns {}').format(missing))
+            raise KeyError(
+                (
+                    'No default specified and not every row contains columns {}'
+                ).format(missing)
+            )
         columns.update(row.keys())
 
     cannonical_nan = float('nan')
 
     # Build up the set of unique values for each column
     from collections import Counter
+
     varied_counts = ub.ddict(Counter)
     for row in longform:
         for key in columns:
@@ -233,7 +254,11 @@ def varied_value_counts(longform, min_variations: int = 0, max_variations: int |
             if isinstance(value, list):
                 value = tuple(value)
 
-            if isinstance(value, numbers.Number) and not isinstance(value, tuple) and math.isnan(float(value)):
+            if (
+                isinstance(value, numbers.Number)
+                and not isinstance(value, tuple)
+                and math.isnan(float(value))
+            ):
                 if dropna:
                     continue
                 else:

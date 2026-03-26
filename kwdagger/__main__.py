@@ -10,10 +10,12 @@ class KWDaggerModal(scfg.ModalCLI):
     """
     Your description here
     """
+
     from kwdagger.schedule import ScheduleEvaluationConfig as schedule
     from kwdagger.aggregate import AggregateEvluationConfig as aggregate
     # Either add other scriptconfig clis as class variables here
     # from module.cli.script import ScriptCLI as script
+
 
 # Or register them here.
 # TemplateModal.register(ScriptCLI)

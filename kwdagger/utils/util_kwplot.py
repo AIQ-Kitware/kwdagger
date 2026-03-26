@@ -13,6 +13,7 @@ TODO:
     - [ ] from kwplot.managers import ArtistManager
     - [ ] etc...
 """
+
 from __future__ import annotations
 
 import ubelt as ub
@@ -39,6 +40,7 @@ class TitleBuilder:
         Part 1, Part 2
         Part 3
     """
+
     def __init__(self):
         self._row = []
         self.title_rows = [self._row]
@@ -69,13 +71,22 @@ class TitleBuilder:
 def cropwhite_ondisk(fpath) -> None:
     import kwimage
     from kwplot.mpl_make import crop_border_by_color
+
     imdata = kwimage.imread(fpath)
     imdata = crop_border_by_color(imdata)
     kwimage.imwrite(fpath, imdata)
 
 
-def dataframe_table(table, fpath, title=None, fontsize: int = 12,
-                    table_conversion: str = 'auto', dpi=None, fnum=None, show: bool | str = False) -> None:
+def dataframe_table(
+    table,
+    fpath,
+    title=None,
+    fontsize: int = 12,
+    table_conversion: str = 'auto',
+    dpi=None,
+    fnum=None,
+    show: bool | str = False,
+) -> None:
     """
     Use dataframe_image (dfi) to render a pandas dataframe.
 
@@ -134,14 +145,17 @@ def dataframe_table(table, fpath, title=None, fontsize: int = 12,
         kwplot.imshow(imdata, fnum=fnum)
     elif show == 'eog':
         import xdev
+
         xdev.startfile(fpath)
     elif show:
         raise KeyError(f'Show can be "imshow" or "eog", not {show!r}')
 
 
-def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=None,
-                       title=None) -> Any:
+def humanize_dataframe(
+    df, col_formats=None, human_labels=None, index_format=None, title=None
+) -> Any:
     import humanize
+
     df2 = df.copy()
     if col_formats is not None:
         for col, fmt in col_formats.items():
@@ -149,6 +163,7 @@ def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=Non
                 df2[col] = df[col].apply(humanize.intcomma)
             if fmt == 'concice_si_display':
                 from kwcoco.metrics.drawing import concice_si_display
+
                 for row in df2.index:
                     val = df2.loc[row, col]
                     # if isinstance(val, str):
@@ -163,7 +178,6 @@ def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=Non
                 df2[col] = df[col].apply(humanize.intcomma)
             if callable(fmt):
                 df2[col] = df[col].apply(fmt)
-    
 
     if human_labels:
         assert isinstance(human_labels, typing.Mapping)
@@ -179,10 +193,12 @@ def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=Non
                 index.names = [human_labels.get(n, n) for n in index.names]
 
     if index_format == 'capcase':
+
         def capcase(x):
             if '_' in x or x.islower():
                 return ' '.join([w.capitalize() for w in x.split('_')])
             return x
+
         assert isinstance(human_labels, typing.Mapping)
         df2.index.values[:] = [human_labels.get(x, x) for x in df2.index.values]
         df2.index.values[:] = list(map(capcase, df2.index.values))
@@ -195,10 +211,21 @@ def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=Non
     return df2_style
 
 
-def scatterplot_highlight(data, x, y, highlight, size: int = 10, color: str = 'orange',
-                          marker: str = '*', val_to_color=None, ax=None, linewidths=None) -> None:
+def scatterplot_highlight(
+    data,
+    x,
+    y,
+    highlight,
+    size: int = 10,
+    color: str = 'orange',
+    marker: str = '*',
+    val_to_color=None,
+    ax=None,
+    linewidths=None,
+) -> None:
     if ax is None:
         import kwplot
+
         plt = kwplot.autoplt()
         ax = plt.gca()
     _starkw = {
@@ -221,17 +248,20 @@ def scatterplot_highlight(data, x, y, highlight, size: int = 10, color: str = 'o
         val_to_group = dict(list(star_data.groupby(highlight)))
         if val_to_color is None:
             import kwimage
-            val_to_color = ub.dzip(val_to_group, kwimage.Color.distinct(len(val_to_group)))
+
+            val_to_color = ub.dzip(
+                val_to_group, kwimage.Color.distinct(len(val_to_group))
+            )
         for val, group in val_to_group.items():
             star_x = group[x]
             star_y = group[y]
             edgecolor = val_to_color[val]
-            ax.scatter(star_x, star_y, marker=marker, edgecolor=edgecolor,
-                       **_starkw)
+            ax.scatter(
+                star_x, star_y, marker=marker, edgecolor=edgecolor, **_starkw
+            )
 
 
-def humanize_labels():
-    ...
+def humanize_labels(): ...
 
 
 def relabel_xticks(mapping, ax=None) -> None:
@@ -244,11 +274,11 @@ def relabel_xticks(mapping, ax=None) -> None:
     """
     if ax is None:
         import kwplot
+
         ax = kwplot.autoplt().gca()
     relabeler = LabelModifier(mapping)
     new_xticklabels = [
-        relabeler._modify_labels(label)
-        for label in ax.get_xticklabels()
+        relabeler._modify_labels(label) for label in ax.get_xticklabels()
     ]
     ax.set_xticklabels(new_xticklabels)
 
@@ -356,7 +386,9 @@ class LabelModifier:
 
     def relabel_yticks(self, ax: Any = None):
         old_ytick_labels = ax.get_yticklabels()
-        new_yticklabels = [self._modify_labels(label) for label in old_ytick_labels]
+        new_yticklabels = [
+            self._modify_labels(label) for label in old_ytick_labels
+        ]
         ax.set_yticks(ax.get_yticks())
         ax.set_yticklabels(new_yticklabels)
 
@@ -372,7 +404,9 @@ class LabelModifier:
         # print(f'new_xticklabels={new_xticklabels}')
         # print(f'new_yticklabels={new_yticklabels}')
         old_xtick_labels = ax.get_xticklabels()
-        new_xticklabels = [self._modify_labels(label) for label in old_xtick_labels]
+        new_xticklabels = [
+            self._modify_labels(label) for label in old_xtick_labels
+        ]
 
         ax.set_xticks(ax.get_xticks())
         ax.set_xticklabels(new_xticklabels)
@@ -394,7 +428,13 @@ class LabelModifier:
         if ax.legend_ is not None:
             self._modify_legend(ax.legend_)
 
-    def relabel(self, ax: Any = None, ticks: bool = True, axes_labels: bool = True, legend: bool = True):
+    def relabel(
+        self,
+        ax: Any = None,
+        ticks: bool = True,
+        axes_labels: bool = True,
+        legend: bool = True,
+    ):
         if axes_labels:
             self.relabel_axes_labels(ax)
         if ticks:
@@ -441,7 +481,7 @@ class FigureFinalizer(ub.NiceRepr):
         cropwhite=True,
         tight_layout=True,
         verbose=0,
-        **kwargs
+        **kwargs,
     ):
         self.verbose = verbose
         self.dpath = dpath
@@ -521,12 +561,13 @@ def extract_legend(ax):
 
     # fnum = 321
     import kwplot
+
     fig_onlylegend = kwplot.figure(
-        fnum=str(ax.figure.number) + '_onlylegend', doclf=1)
+        fnum=str(ax.figure.number) + '_onlylegend', doclf=1
+    )
     new_ax = fig_onlylegend.gca()
     new_ax.axis('off')
-    new_ax.legend(*legend_handles, title=orig_legend_title,
-                            loc='lower center')
+    new_ax.legend(*legend_handles, title=orig_legend_title, loc='lower center')
     return new_ax
 
 
@@ -600,17 +641,20 @@ class ArtistManager:
 
     def __init__(self):
         self.group_to_line_segments = ub.ddict(list)
-        self.group_to_patches = ub.ddict(lambda : ub.ddict(list))
-        self.group_to_ellipse_markers = ub.ddict(lambda: {
-            'xy': [],
-            'rx': [],
-            'ry': [],
-            'angle': [],
-        })
+        self.group_to_patches = ub.ddict(lambda: ub.ddict(list))
+        self.group_to_ellipse_markers = ub.ddict(
+            lambda: {
+                'xy': [],
+                'rx': [],
+                'ry': [],
+                'angle': [],
+            }
+        )
         self.group_to_attrs = {}
 
     def _normalize_attrs(self, attrs):
         import kwimage
+
         attrs = ub.udict(attrs)
         if 'color' in attrs:
             attrs['color'] = kwimage.Color.coerce(attrs['color']).as01()
@@ -624,6 +668,7 @@ class ArtistManager:
         Alternative way to add lines
         """
         import numpy as np
+
         ys = [ys] if not ub.iterable(ys) else ys
         xs = [xs] if not ub.iterable(xs) else xs
         if len(ys) == 1 and len(xs) > 1:
@@ -664,7 +709,9 @@ class ArtistManager:
         self.group_to_patches[hashid]['circle'].append(ell)
         self.group_to_attrs[hashid] = attrs
 
-    def add_ellipse_marker(self, xy, rx, ry, angle: float | Sized = 0, color=None, **attrs):
+    def add_ellipse_marker(
+        self, xy, rx, ry, angle: float | Sized = 0, color=None, **attrs
+    ):
         """
         Args:
             xy : center
@@ -675,6 +722,7 @@ class ArtistManager:
         """
         import numpy as np
         import kwimage
+
         if color is not None:
             if 'edgecolors' not in attrs:
                 attrs['edgecolors'] = kwimage.Color.coerce(color).as01()
@@ -730,6 +778,7 @@ class ArtistManager:
     def build_collections(self, ax=None):
         import numpy as np
         import matploblib.collections  # NOQA
+
         collections = []
         for hashid, segments in self.group_to_line_segments.items():
             attrs = self.group_to_attrs[hashid]
@@ -749,12 +798,15 @@ class ArtistManager:
             ry = np.concatenate(cols['ry'], axis=0)
             angles = np.concatenate(cols['angle'], axis=0)
             collection = mpl.collections.EllipseCollection(
-                widths=rx, heights=ry, offsets=xy, angles=angles,
+                widths=rx,
+                heights=ry,
+                offsets=xy,
+                angles=angles,
                 units='points',
                 # units='x',
                 # units='xy',
                 transOffset=ax.transData,  # type: ignore
-                **attrs
+                **attrs,
             )
             # collection.set_transOffset(ax.transData)
             collections.append(collection)
@@ -763,6 +815,7 @@ class ArtistManager:
 
     def add_to_axes(self, ax=None):
         import kwplot
+
         if ax is None:
             plt = kwplot.autoplt()
             ax = plt.gca()
@@ -773,6 +826,7 @@ class ArtistManager:
 
     def bounds(self):
         import numpy as np
+
         all_lines = []
         for segments in self.group_to_line_segments.values():
             for lines in segments:
@@ -781,22 +835,29 @@ class ArtistManager:
 
         all_coords = np.concatenate(all_lines, axis=0)
         import pandas as pd
+
         flags = pd.isnull(all_coords)
         all_coords[flags] = np.nan
         all_coords = all_coords.astype(float)
 
-        minx, miny = np.nanmin(all_coords, axis=0) if len(all_coords) else (0, 0)
-        maxx, maxy = np.nanmax(all_coords, axis=0) if len(all_coords) else (1, 1)
+        minx, miny = (
+            np.nanmin(all_coords, axis=0) if len(all_coords) else (0, 0)
+        )
+        maxx, maxy = (
+            np.nanmax(all_coords, axis=0) if len(all_coords) else (1, 1)
+        )
         ltrb = minx, miny, maxx, maxy
         return ltrb
 
     def setlims(self, ax=None):
         import kwplot
+
         if ax is None:
             plt = kwplot.autoplt()
             ax = plt.gca()
 
         from kwimage.structs import _generic
+
         minx, miny, maxx, maxy = self.bounds()
         _generic._setlim(minx, miny, maxx, maxy, 1.1, ax=ax)  # type: ignore
         # ax.set_xlim(minx, maxx)
@@ -852,6 +913,7 @@ class Palette(ub.udict):
             labels (List[str] | None): new labels that should take distinct colors
         """
         import kwimage
+
         # Given an existing set of colors, add colors to things without it.
         if label_to_color is None:
             label_to_color = {}
@@ -859,8 +921,11 @@ class Palette(ub.udict):
             labels = []
 
         # Determine which labels in the input mapping are not explicitly given
-        specified = {k: kwimage.Color.coerce(v).as01()
-                     for k, v in label_to_color.items() if v is not None}
+        specified = {
+            k: kwimage.Color.coerce(v).as01()
+            for k, v in label_to_color.items()
+            if v is not None
+        }
         unspecified = ub.oset(label_to_color.keys()) - specified  # type: ignore
 
         # Merge specified colors into this pallet
@@ -871,14 +936,15 @@ class Palette(ub.udict):
         num_new = len(new_labels)
         if num_new:
             existing_colors = list(self.values())
-            new_colors = kwimage.Color.distinct(num_new,
-                                                existing=existing_colors,
-                                                legacy=False)
+            new_colors = kwimage.Color.distinct(
+                num_new, existing=existing_colors, legacy=False
+            )
             new_label_to_color = dict(zip(new_labels, new_colors))
             super().update(new_label_to_color)
 
     def make_legend_img(self, dpi=300, **kwargs):
         import kwplot
+
         legend = kwplot.make_legend_img(self, dpi=dpi, **kwargs)
         return legend
 
@@ -892,7 +958,7 @@ class Palette(ub.udict):
             tail = []
         head_part = self.subdict(head)
         tail_part = self.subdict(tail)
-        end_keys = (head_part.keys() | tail_part.keys())
+        end_keys = head_part.keys() | tail_part.keys()
         mid_part = self - end_keys  # type: ignore
         new = self.__class__(head_part | mid_part | tail_part)
         return new
@@ -917,12 +983,12 @@ class PaletteManager:
     self = PaletteManager()
     self.update_params('region_id', {'region1': 'red'})
     """
+
     def __init__(self):
         self.param_to_palette = {}
 
 
 class FigureManager:
-
     def __init__(figman, **kwargs):
         figman.finalizer = FigureFinalizer(**kwargs)
         figman.labels = LabelModifier()
@@ -930,6 +996,7 @@ class FigureManager:
 
     def figure(figman, *args, **kwargs):
         import kwplot
+
         fig = kwplot.figure(*args, **kwargs)
         figman.fig = fig
         return fig
@@ -940,6 +1007,7 @@ class FigureManager:
 
     def set_figtitle(self, *args, **kwargs):
         import kwplot
+
         kwplot.set_figtitle(*args, **kwargs, fig=self.fig)
 
 
@@ -954,6 +1022,7 @@ def fix_seaborn_palette_issue(x, snskw) -> None:
     """
     import seaborn as sns
     from packaging.version import parse as Version
+
     if Version(sns.__version__) >= Version('0.13.2'):
         if 'palette' in snskw:
             snskw['hue'] = x
