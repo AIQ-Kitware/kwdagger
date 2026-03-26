@@ -40,7 +40,7 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
     root_dpath = scfg.Value('./kwdagger_output', help=(
         'Where do dump all results. If "auto", uses <expt_dvc_dpath>/dag_runs'))
 
-    pipeline = scfg.Value(None, help=ub.paragraph(
+    pipeline = scfg.Value(None, type=str, help=ub.paragraph(
         '''
         The name of the pipeline to run. Can also specify this in the params.
         This should be a name of an internally registered pipeline, or it can
