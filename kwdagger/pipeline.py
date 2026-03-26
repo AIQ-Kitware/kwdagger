@@ -17,15 +17,21 @@ process inputs. This DAG can then be configured with customized input paths and
 parameters. The resulting jobs can then be submitted to a cmd_queue.Queue for
 actual execution.
 """
+
+from __future__ import annotations
+
 import functools
-import networkx as nx
 import os
-import ubelt as ub
+import typing
 import warnings
 from functools import cached_property
-from typing import Union, Dict, Set, List, Any, Optional
-from kwdagger.utils import util_dotdict
+from typing import Any, Dict, List, Optional, Set, Union
+
 import kwutil
+import networkx as nx
+import ubelt as ub
+
+from kwdagger.utils import util_dotdict
 
 Collection = Optional[Union[Dict, Set, List]]
 Configurable = Optional[Dict[str, Any]]
@@ -42,7 +48,9 @@ def coerce_slurm_options(slurm_options) -> Dict[str, Any]:
     if slurm_options is None:
         return {}
     if not isinstance(slurm_options, dict):
-        raise TypeError(f'Expected slurm options to be a dict, got {type(slurm_options)}. {slurm_options=!r}')
+        raise TypeError(
+            f'Expected slurm options to be a dict, got {type(slurm_options)}. {slurm_options=!r}'
+        )
     return dict(slurm_options)
 
 
@@ -110,7 +118,7 @@ class Pipeline:
         if self._dirty:
             self.build_nx_graphs()
 
-    def submit(self, executable, **kwargs):
+    def submit(self, executable: str, **kwargs):
         """
         Dynamically create a new unique process node and add it to the dag
 
@@ -134,7 +142,9 @@ class Pipeline:
             node_names = [node.name for node in self.nodes]
             if len(node_names) != len(set(node_names)):
                 print('node_names = {}'.format(ub.urepr(node_names, nl=1)))
-                raise AssertionError(f'Non unique nodes detected: {len(node_names)}, {len(set(node_names))}')
+                raise AssertionError(
+                    f'Non unique nodes detected: {len(node_names)}, {len(set(node_names))}'
+                )
             node_dict = dict(zip(node_names, self.nodes))
         return node_dict
 
@@ -155,11 +165,17 @@ class Pipeline:
 
         # Add nodes first
         for name, node in node_dict.items():
-            self.io_graph.add_node(node.key, node=node, node_clsname=node.__class__.__name__)
+            self.io_graph.add_node(
+                node.key, node=node, node_clsname=node.__class__.__name__
+            )
             for iname, inode in node.inputs.items():
-                self.io_graph.add_node(inode.key, node=inode, node_clsname=inode.__class__.__name__)
+                self.io_graph.add_node(
+                    inode.key, node=inode, node_clsname=inode.__class__.__name__
+                )
             for oname, onode in node.outputs.items():
-                self.io_graph.add_node(onode.key, node=onode, node_clsname=onode.__class__.__name__)
+                self.io_graph.add_node(
+                    onode.key, node=onode, node_clsname=onode.__class__.__name__
+                )
 
         # Next add edges
         for name, node in node_dict.items():
@@ -179,7 +195,7 @@ class Pipeline:
 
         self._dirty = False
 
-    def inspect_configurables(self):
+    def inspect_configurables(self) -> None:
         """
         Show the user what config options should be specified.
 
@@ -206,6 +222,7 @@ class Pipeline:
         # }
 
         rows = []
+        assert isinstance(self.io_graph, nx.DiGraph)
         for node in self.node_dict.values():
             # Build up information about each node option
 
@@ -215,42 +232,53 @@ class Pipeline:
             # Determine which inputs are connected vs unconnected
             for key, io_node in node.inputs.items():
                 is_connected = self.io_graph.in_degree[io_node.key] > 0
-                rows.append({
-                    'node': node.name,
-                    'key': key,
-                    'connected': is_connected,
-                    'type': 'in_path',
-                    'maybe_required': not is_connected,
-                })
+                rows.append(
+                    {
+                        'node': node.name,
+                        'key': key,
+                        'connected': is_connected,
+                        'type': 'in_path',
+                        'maybe_required': not is_connected,
+                    }
+                )
 
             for key, io_node in node.outputs.items():
                 is_connected = self.io_graph.out_degree[io_node.key] > 0
-                rows.append({
-                    'node': node.name,
-                    'key': key,
-                    'connected': is_connected,
-                    'type': 'out_path',
-                    'maybe_required': False,
-                })
+                rows.append(
+                    {
+                        'node': node.name,
+                        'key': key,
+                        'connected': is_connected,
+                        'type': 'out_path',
+                        'maybe_required': False,
+                    }
+                )
 
             for param in node.algo_params:
-                rows.append({
-                    'node': node.name,
-                    'key': param,
-                    'type': 'algo_param',
-                    'maybe_required': True,
-                })
+                rows.append(
+                    {
+                        'node': node.name,
+                        'key': param,
+                        'type': 'algo_param',
+                        'maybe_required': True,
+                    }
+                )
 
             for param in node.perf_params:
-                rows.append({
-                    'node': node.name,
-                    'key': param,
-                    'type': 'perf_param',
-                    'maybe_required': True,
-                })
+                rows.append(
+                    {
+                        'node': node.name,
+                        'key': param,
+                        'type': 'perf_param',
+                        'maybe_required': True,
+                    }
+                )
 
         df = pd.DataFrame(rows)
-        df = df.sort_values(['maybe_required', 'type', 'node', 'key'], ascending=[False, True, True, True])
+        df = df.sort_values(
+            ['maybe_required', 'type', 'node', 'key'],
+            ascending=[False, True, True, True],
+        )
         rich.print(df.to_string())
 
         default = {}
@@ -258,7 +286,7 @@ class Pipeline:
             default[row['node'] + '.' + row['key']] = None
         rich.print(util_yaml.Yaml.dumps(default))
 
-    def configure(self, config=None, root_dpath=None, cache=True):
+    def configure(self, config=None, root_dpath=None, cache: bool = True):
         """
         Update the DAG configuration
 
@@ -283,10 +311,12 @@ class Pipeline:
             for node in self.node_dict.values():
                 node._configured_cache.clear()  # hack, make more elegant
 
+        assert isinstance(self.proc_graph, nx.DiGraph)
         if config is not None:
             config = dict(config)
             self.__slurm_options__ = coerce_slurm_options(
-                config.pop('__slurm_options__', self.__slurm_options__))
+                config.pop('__slurm_options__', self.__slurm_options__)
+            )
             self.config = config
             # print('CONFIGURE config = {}'.format(ub.urepr(config, nl=1)))
 
@@ -302,33 +332,41 @@ class Pipeline:
                 node = self.proc_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
 
-    def print_process_graph(self, shrink_labels=1, show_types=0):
+    def print_process_graph(self, shrink_labels: int = 1, show_types: int = 0):
         """
         Draw the networkx process graph, which only shows if there exists
         a connection between processes, and does not show details of which
         output connects to which input.  See :func:`Pipeline.print_io_graph`
         for that level of detail.
         """
-        import rich
         import networkx as nx
+        import rich
+
         self._ensure_clean()
         _labelize_graph(self.proc_graph, shrink_labels, show_types)
         print('')
         print('Process Graph')
-        nx.write_network_text(self.proc_graph, path=rich.print, end='', vertical_chains=True)
+        nx.write_network_text(
+            self.proc_graph, path=rich.print, end='', vertical_chains=True
+        )
 
-    def print_io_graph(self, shrink_labels=1, show_types=0):
+    def print_io_graph(self, shrink_labels: int = 1, show_types: int = 0):
         """
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
         """
-        import rich
         import networkx as nx
+        import rich
+
         self._ensure_clean()
-        _labelize_graph(self.io_graph, shrink_labels, show_types, color_procs=True)
+        _labelize_graph(
+            self.io_graph, shrink_labels, show_types, color_procs=True
+        )
         print('')
         print('IO Graph')
-        nx.write_network_text(self.io_graph, path=rich.print, end='', vertical_chains=True)
+        nx.write_network_text(
+            self.io_graph, path=rich.print, end='', vertical_chains=True
+        )
 
     def print_commands(self, **kwargs):
         """
@@ -345,25 +383,33 @@ class Pipeline:
         queue = self.make_queue()['queue']
         queue.print_commands(**kwargs)
 
-    def print_graphs(self, shrink_labels=1, show_types=0):
+    def print_graphs(self, shrink_labels: int = 1, show_types: int = 0):
         """
         Prints the Process and IO graph for the DAG.
         """
-        self.print_process_graph(shrink_labels=shrink_labels,
-                                 show_types=show_types)
+        self.print_process_graph(
+            shrink_labels=shrink_labels, show_types=show_types
+        )
         self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types)
 
-    def submit_jobs(self, queue=None, skip_existing=False, enable_links=True,
-                    write_invocations=True, write_configs=True):
+    def submit_jobs(
+        self,
+        queue=None,
+        skip_existing: bool = False,
+        enable_links: bool = True,
+        write_invocations: bool = True,
+        write_configs: bool = True,
+    ):
         """
         Submits the jobs to an existing command queue or creates a new one.
 
         Also takes care of adding special bookkeeping jobs that add helper
         files and symlinks to node output paths.
         """
-        import cmd_queue
         # import shlex
         import json
+
+        import cmd_queue
         import networkx as nx
 
         if queue is None:
@@ -381,24 +427,25 @@ class Pipeline:
             queue = cmd_queue.Queue.create(**queue_kw)
 
         node_order = list(nx.topological_sort(self.proc_graph))
+
+        assert isinstance(self.proc_graph, nx.DiGraph)
         for node_name in node_order:
             node_data = self.proc_graph.nodes[node_name]
             try:
                 node = node_data['node']
             except KeyError:
                 import rich
+
                 rich.print('[red]ERROR')
                 print('node_name = {}'.format(ub.urepr(node_name, nl=1)))
                 print('node_data = {}'.format(ub.urepr(node_data, nl=1)))
                 raise
             node.will_exist = None
 
-        summary = {
-            'queue': queue,
-            'node_status': {}
-        }
+        summary = {'queue': queue, 'node_status': {}}
         node_status = summary['node_status']
 
+        assert isinstance(self.proc_graph, nx.DiGraph)
         for node_name in node_order:
             node = self.proc_graph.nodes[node_name]['node']
             # print('-----')
@@ -409,18 +456,19 @@ class Pipeline:
                 node.will_exist = node.does_exist
                 continue
 
+            assert isinstance(self.proc_graph, nx.DiGraph)
             pred_node_names = list(self.proc_graph.predecessors(node_name))
             pred_nodes = [
-                self.proc_graph.nodes[n]['node']
-                for n in pred_node_names
+                self.proc_graph.nodes[n]['node'] for n in pred_node_names
             ]
 
             ancestors_will_exist = all(n.will_exist for n in pred_nodes)
             if skip_existing and node.enabled != 'redo' and node.does_exist:
                 node.enabled = False
 
-            node.will_exist = ((node.enabled and ancestors_will_exist) or
-                               node.does_exist)
+            node.will_exist = (
+                node.enabled and ancestors_will_exist
+            ) or node.does_exist
             if 0:
                 print(f'node.final_out_paths={node.final_out_paths}')
                 print(f'Checking {node_name}, will_exist={node.will_exist}')
@@ -435,28 +483,43 @@ class Pipeline:
 
                 # Another configuration may have submitted this job already
                 if node_procid not in queue.named_jobs:
-                    pred_node_procids = [n.process_id for n in pred_nodes
-                                         if n.enabled]
+                    pred_node_procids = [
+                        n.process_id for n in pred_nodes if n.enabled
+                    ]
                     # Submit a primary queue process
                     node_command = node.final_command()
 
                     extra_submitkw = {}
                     if 'slurm' in queue.__class__.__name__.lower():
                         # Global slurm options apply to every job.
-                        extra_submitkw.update(coerce_slurm_options(getattr(self, '__slurm_options__', {})))
+                        extra_submitkw.update(
+                            coerce_slurm_options(
+                                getattr(self, '__slurm_options__', {})
+                            )
+                        )
                         # Allow per-node overrides specified on the class or via
                         # configuration.
-                        extra_submitkw.update(coerce_slurm_options(getattr(node, 'slurm_options', None)))
+                        extra_submitkw.update(
+                            coerce_slurm_options(
+                                getattr(node, 'slurm_options', None)
+                            )
+                        )
                         # Set the slurm output file to be in the node directory
                         # to make debugging somewhat easier.  Need to see if
                         # there is a cleaner way to do this.
-                        extra_submitkw.setdefault('output_fpath', node.final_node_dpath / f'slurm-output-{node_procid}.log')
+                        extra_submitkw.setdefault(
+                            'output_fpath',
+                            node.final_node_dpath
+                            / f'slurm-output-{node_procid}.log',
+                        )
 
                     # TODO: we need to be able to pass per-job slurm options
-                    node_job = queue.submit(command=node_command,
-                                            depends=pred_node_procids,
-                                            name=node_procid,
-                                            **extra_submitkw)
+                    node_job = queue.submit(
+                        command=node_command,
+                        depends=pred_node_procids,
+                        name=node_procid,
+                        **extra_submitkw,
+                    )
                     node_status[node_name] = 'new_submission'
                 else:
                     # Some other config submitted this job, we can skip the
@@ -477,12 +540,28 @@ class Pipeline:
                     # TODO: should we filter the nodes where they are only linked
                     # via inputs?
                     for pred in node.predecessor_process_nodes():
-                        link_path1 = pred.final_node_dpath / '.succ' / node.name / node.process_id
+                        link_path1 = (
+                            pred.final_node_dpath
+                            / '.succ'
+                            / node.name
+                            / node.process_id
+                        )
                         target_path1 = node.final_node_dpath
-                        link_path2 = node.final_node_dpath / '.pred' / pred.name / pred.process_id
+                        link_path2 = (
+                            node.final_node_dpath
+                            / '.pred'
+                            / pred.name
+                            / pred.process_id
+                        )
                         target_path2 = pred.final_node_dpath
-                        target_path1 = os.path.relpath(target_path1.absolute(), link_path1.absolute().parent)
-                        target_path2 = os.path.relpath(target_path2.absolute(), link_path2.absolute().parent)
+                        target_path1 = os.path.relpath(
+                            target_path1.absolute(),
+                            link_path1.absolute().parent,
+                        )
+                        target_path2 = os.path.relpath(
+                            target_path2.absolute(),
+                            link_path2.absolute().parent,
+                        )
 
                         parts = [
                             f'mkdir -p {link_path1.parent}',
@@ -506,21 +585,27 @@ class Pipeline:
                     if depend_nodes:
                         invoke_lines.append('# See Also: ')
                         for depend_node in list(node.ancestor_process_nodes()):
-                            invoke_lines.append('# ' + depend_node.final_node_dpath)
+                            invoke_lines.append(
+                                '# ' + depend_node.final_node_dpath
+                            )
                     else:
                         invoke_lines.append('# Root node')
                     invoke_command = node._raw_command()
                     invoke_lines.append(invoke_command)
                     invoke_text = '\n'.join(invoke_lines)
 
-                    escaped_invoke_text = bash_printf_literal_string(invoke_text)
+                    escaped_invoke_text = bash_printf_literal_string(
+                        invoke_text
+                    )
                     # escaped_invoke_text = shlex.quote(invoke_text)
 
-                    command = '\n'.join([
-                        f'mkdir -p {invoke_fpath.parent} && \\',
-                        f'printf {escaped_invoke_text} \\',
-                        f"> {invoke_fpath}",
-                    ])
+                    command = '\n'.join(
+                        [
+                            f'mkdir -p {invoke_fpath.parent} && \\',
+                            f'printf {escaped_invoke_text} \\',
+                            f'> {invoke_fpath}',
+                        ]
+                    )
                     before_node_commands.append(command)
 
                 if write_configs:
@@ -531,15 +616,19 @@ class Pipeline:
                     json_text = json.dumps(depends_config)
                     escaped_json_text = bash_printf_literal_string(json_text)
                     if _has_jq():
-                        command = '\n'.join([
-                            f'mkdir -p {job_config_fpath.parent} && \\',
-                            f"printf {escaped_json_text} | jq . > {job_config_fpath}",
-                        ])
+                        command = '\n'.join(
+                            [
+                                f'mkdir -p {job_config_fpath.parent} && \\',
+                                f'printf {escaped_json_text} | jq . > {job_config_fpath}',
+                            ]
+                        )
                     else:
-                        command = '\n'.join([
-                            f'mkdir -p {job_config_fpath.parent} && \\',
-                            f"printf {escaped_json_text} > {job_config_fpath}",
-                        ])
+                        command = '\n'.join(
+                            [
+                                f'mkdir -p {job_config_fpath.parent} && \\',
+                                f'printf {escaped_json_text} > {job_config_fpath}',
+                            ]
+                        )
                     before_node_commands.append(command)
 
                 if before_node_commands:
@@ -553,7 +642,7 @@ class Pipeline:
                             depends=pred_node_procids,
                             bookkeeper=1,
                             name=_procid,
-                            tags=['boilerplate']
+                            tags=['boilerplate'],
                         )
                         if node_job is not None:
                             node_job.depends.append(_job)
@@ -564,7 +653,7 @@ class Pipeline:
     make_queue = submit_jobs
 
 
-def bash_printf_literal_string(text, escape_newlines=True):
+def bash_printf_literal_string(text: str, escape_newlines: bool = True) -> str:
     r"""
     Not only do we need to make a bash literal string we
     need to make sure that it is interpreted as literal by
@@ -593,7 +682,7 @@ def bash_printf_literal_string(text, escape_newlines=True):
     return f"'{inside_text}'"
 
 
-def glob_templated_path(template):
+def glob_templated_path(template) -> list[Any]:
     """
     Given an unformated templated path, replace the format parts with "*" and
     return a glob.
@@ -607,6 +696,7 @@ def glob_templated_path(template):
     """
     import parse
     from kwutil import util_pattern
+
     parser = parse.Parser(str(template))
     patterns = {n: '*' for n in parser.named_fields}
     pat = os.fspath(template).format(**patterns)
@@ -650,14 +740,15 @@ class Node(ub.NiceRepr):
         if self not in other.pred:
             other.pred.append(self)
 
-        self_is_proc = (self.__node_type__ == 'process')
+        self_is_proc = self.__node_type__ == 'process'
         if self_is_proc:
+            assert hasattr(self, 'outputs')
             outputs = self.outputs
         else:
             assert self.__node_type__ == 'io'
             outputs = {self.name: self}
 
-        other_is_proc = (other.__node_type__ == 'process')
+        other_is_proc = other.__node_type__ == 'process'
         if other_is_proc:
             inputs = other.inputs
         else:
@@ -668,6 +759,7 @@ class Node(ub.NiceRepr):
             else:
                 inputs = {other.name: other}
 
+        assert isinstance(outputs, typing.Mapping)
         outmap = ub.udict({src_map.get(k, k): k for k in outputs.keys()})
         inmap = ub.udict({dst_map.get(k, k): k for k in inputs.keys()})
 
@@ -675,18 +767,21 @@ class Node(ub.NiceRepr):
         if len(common) == 0:
             print('inmap = {}'.format(ub.urepr(inmap, nl=1)))
             print('outmap = {}'.format(ub.urepr(outmap, nl=1)))
-            raise Exception(f'Unknown io relationship {self.name=}, {other.name=}')
+            raise Exception(
+                f'Unknown io relationship {self.name=}, {other.name=}'
+            )
 
         if self_is_proc or other_is_proc:
             # print(f'Connect Process to Process {self.name=} to {other.name=}')
-            self_output_keys = (outmap & common).values()
-            other_input_keys = (inmap & common).values()
+            self_output_keys = (outmap & common).values()  # type: ignore
+            other_input_keys = (inmap & common).values()  # type: ignore
 
             for out_key, in_key in zip(self_output_keys, other_input_keys):
                 out_node = outputs[out_key]
                 in_node = inputs[in_key]
                 # out_node._connect_single(in_node, src_map, dst_map)
-                out_node._connect_single(in_node, {}, {})
+                assert hasattr(out_node, '_connect_single')
+                out_node._connect_single(in_node, {}, {})  # type: ignore
 
     def connect(self, *others, param_mapping=None, src_map=None, dst_map=None):
         """
@@ -717,7 +812,7 @@ class Node(ub.NiceRepr):
 class IONode(Node):
     __node_type__ = 'io'
 
-    def __init__(self, name, parent):
+    def __init__(self, name: str, parent):
         super().__init__(name)
         self.parent = parent
         self._final_value = None
@@ -750,8 +845,7 @@ class IONode(Node):
         return self.parent.key + '.' + self.name
 
 
-class InputNode(IONode):
-    ...
+class InputNode(IONode): ...
 
 
 class OutputNode(IONode):
@@ -839,6 +933,7 @@ class memoize_configured_method(object):
         The wrapped function call
         """
         from ubelt.util_memoize import _make_signature_key
+
         func_cache = self._instance._configured_cache
         # func_cache = self._instance.__dict__
         cache = func_cache.setdefault(self._cache_name, {})
@@ -1035,16 +1130,17 @@ class ProcessNode(Node):
         >>> ub.cmd(command, verbose=3, shell=1)
 
     """
+
     __node_type__ = 'process'
 
-    name : Optional[str] = None
+    name: Optional[str] = None
 
     # A path that will specified directly after the DAG root dpath.
-    group : Optional[str] = None
+    group: Optional[str] = None
 
     # resources : Collection = None  # Unused?
 
-    executable : Optional[str] = None
+    executable: Optional[str] = None
 
     # TODO: maybe we want the idea of "unstable" params the user can mark if
     # there is a paramter that had its meaning change, but that wasn't captured
@@ -1053,49 +1149,51 @@ class ProcessNode(Node):
     # something interesting with them. There might be other flavors of this,
     # "dynamic params", "volitle params", "hardcoded params"
 
-    algo_params : Collection = None  # algorithm parameters - impacts output
+    algo_params: Collection = None  # algorithm parameters - impacts output
 
-    perf_params : Collection = None  # performance parameters - no output impact
+    perf_params: Collection = None  # performance parameters - no output impact
 
     # input paths
     # Should be specified as a set of names wrt the config or as dict mapping
     # from names to absolute paths.
-    in_paths : Collection = None
+    in_paths: Collection = None
 
     # output paths
     # Should be specified as templates
-    out_paths : Collection = None
+    out_paths: Collection = None
 
-    primary_out_key : str = None
+    primary_out_key: str | None = None
 
     # Optional job-level slurm options. Can be overridden via configuration.
-    slurm_options: Dict[str, Any] = None
+    slurm_options: Dict[str, Any] | None = None
 
     # Optional scriptconfig schema for deriving path/param groups. This is the
     # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
     params = None
 
-    def __init__(self,
-                 *,  # TODO: allow positional arguments after we find a good order
-                 name=None,
-                 executable=None,
-                 algo_params=None,
-                 perf_params=None,
-                 # resources=None,
-                 in_paths=None,
-                 out_paths=None,
-                 group=None,
-                 root_dpath=None,
-                 config=None,
-                 slurm_options=None,
-                 node_dpath=None,  # overwrites configured node dapth
-                 group_dpath=None,  # overwrites configured node dapth
-                 primary_out_key=None,
-                 _overwrite_node_dpath=None,  # overwrites the configured node dpath
-                 _overwrite_group_dpath=None,  # overwrites the configured group dpath
-                 _no_outarg=False,
-                 _no_inarg=False,
-                 **aliases):
+    def __init__(
+        self,
+        *,  # TODO: allow positional arguments after we find a good order
+        name=None,
+        executable=None,
+        algo_params=None,
+        perf_params=None,
+        # resources=None,
+        in_paths=None,
+        out_paths=None,
+        group=None,
+        root_dpath=None,
+        config=None,
+        slurm_options=None,
+        node_dpath=None,  # overwrites configured node dapth
+        group_dpath=None,  # overwrites configured node dapth
+        primary_out_key=None,
+        _overwrite_node_dpath=None,  # overwrites the configured node dpath
+        _overwrite_group_dpath=None,  # overwrites the configured group dpath
+        _no_outarg=False,
+        _no_inarg=False,
+        **aliases,
+    ):
         if aliases:
             if 'perf_config' in aliases:
                 raise ValueError('You probably meant perf_params')
@@ -1116,11 +1214,16 @@ class ProcessNode(Node):
 
         # if name is None and executable is None:
         #     name = f'unnamed_process_node_{id(self)}'
-        if name is None :
+        if name is None:
             # Not sure exactly what's going on here, (i.e. why our smart nodes
             # are getting created without a name)
-            if executable is not None or self.__class__.__name__ == 'ProcessNode':
-                name = 'unnamed_process_node_' + str(id(self))  # ub.hash_data(executable)[0:8]
+            if (
+                executable is not None
+                or self.__class__.__name__ == 'ProcessNode'
+            ):
+                name = 'unnamed_process_node_' + str(
+                    id(self)
+                )  # ub.hash_data(executable)[0:8]
 
         args = locals()
         fallbacks = {
@@ -1168,23 +1271,28 @@ class ProcessNode(Node):
             else:
                 self.in_paths = set(self.in_paths) | set(derived_in_paths)
             for key, value in derived_out_paths.items():
+                assert isinstance(self.out_paths, dict)
                 self.out_paths.setdefault(key, value)
             if isinstance(self.algo_params, dict):
                 for key, value in derived_algo_params.items():
                     self.algo_params.setdefault(key, value)
             else:
-                self.algo_params = set(self.algo_params or set()) | set(derived_algo_params)
+                self.algo_params = set(self.algo_params or set()) | set(
+                    derived_algo_params
+                )
             if isinstance(self.perf_params, dict):
                 for key, value in derived_perf_params.items():
                     self.perf_params.setdefault(key, value)
             else:
-                self.perf_params = set(self.perf_params or set()) | set(derived_perf_params)
+                self.perf_params = set(self.perf_params or set()) | set(
+                    derived_perf_params
+                )
             if self.primary_out_key is None:
                 self.primary_out_key = derived_primary_out_key
 
         if self.primary_out_key is None:
-            if len(self.out_paths) == 1:
-                self.primary_out_key = ub.peek(self.out_paths)
+            if len(self.out_paths) == 1:  # type: ignore
+                self.primary_out_key = ub.peek(self.out_paths)  # type: ignore
 
         if self.group is None:
             self.group = '.'
@@ -1216,13 +1324,17 @@ class ProcessNode(Node):
         self.configure(self.config)
 
         if self.primary_out_key is not None:
+            assert self.out_paths is not None
             if self.primary_out_key not in self.out_paths:
-                raise KeyError(ub.paragraph(
-                    f'''
+                raise KeyError(
+                    ub.paragraph(
+                        f"""
                     The specified primary_out_key={self.primary_out_key} is not
                     a member of out_paths={self.out_paths} for pipeline node:
                     {self}.
-                    '''))
+                    """
+                    )
+                )
 
     @classmethod
     def _from_scriptconfig(cls, config_cls, **kwargs):
@@ -1371,7 +1483,11 @@ class ProcessNode(Node):
         if isinstance(params_spec, dict):
             items = params_spec.items()
         elif hasattr(params_spec, '__default__'):
-            config_cls = params_spec if isinstance(params_spec, type) else params_spec.__class__
+            config_cls = (
+                params_spec
+                if isinstance(params_spec, type)
+                else params_spec.__class__
+            )
             defaults = config_cls.__default__
             if not isinstance(params_spec, type):
                 instance_values = {}
@@ -1382,23 +1498,31 @@ class ProcessNode(Node):
                         instance_values = {}
                 if not instance_values:
                     instance_values = {
-                        key: value for key, value in getattr(params_spec, '__dict__', {}).items()
+                        key: value
+                        for key, value in getattr(
+                            params_spec, '__dict__', {}
+                        ).items()
                         if not key.startswith('_')
                     }
             items = defaults.items()
         else:
-            raise TypeError(f'Unsupported params_spec type: {type(params_spec)}')
+            raise TypeError(
+                f'Unsupported params_spec type: {type(params_spec)}'
+            )
 
         for key, value in items:
             if instance_values is not None and key in instance_values:
                 default_value = instance_values[key]
             else:
-                default_value = value.value if hasattr(value, 'value') else value
+                default_value = (
+                    value.value if hasattr(value, 'value') else value
+                )
             tags = set(getattr(value, 'tags', []) or [])
             have_tags = tag_to_group.keys() & tags
             if len(have_tags) > 1:
                 raise ValueError(
-                    f'Parameter "{key}" has conflicting tags: {sorted(have_tags)}')
+                    f'Parameter "{key}" has conflicting tags: {sorted(have_tags)}'
+                )
             have_groups = {tag_to_group[t] for t in have_tags}
             if 'primary' in tags and 'out_paths' in have_groups:
                 primary_out_key = key
@@ -1408,13 +1532,14 @@ class ProcessNode(Node):
                 if group_key == 'in_paths':
                     if default_value is not None:
                         warnings.warn(
-                            f'Ignoring default for in_path "{key}" defined in params.')
-                    path_kwargs[group_key].add(key)
+                            f'Ignoring default for in_path "{key}" defined in params.'
+                        )
+                    path_kwargs[group_key].add(key)  # type: ignore
                 elif group_key == 'out_paths':
                     if isinstance(default_value, str) and default_value:
-                        path_kwargs[group_key][key] = default_value
+                        path_kwargs[group_key][key] = default_value  # type: ignore
                 else:
-                    path_kwargs[group_key][key] = default_value
+                    path_kwargs[group_key][key] = default_value  # type: ignore
 
         return (
             path_kwargs['in_paths'],
@@ -1442,13 +1567,15 @@ class ProcessNode(Node):
         self._configured_cache.clear()  # Reset memoization caches
         if config is None:
             config = {}
-        print(f'config = {ub.urepr(config, nl=1)}')
+        # print(f'config = {ub.urepr(config, nl=1)}')
         config = _fixup_config_serializability(config)
         self.enabled = config.pop('__enabled__', enabled)
         # Special case for process specific slurm options
         _raw_slurm_opts = config.pop('__slurm_options__', None)
         _configured_slurm_options = coerce_slurm_options(_raw_slurm_opts)
-        self.slurm_options = ub.udict(self._base_slurm_options) | _configured_slurm_options
+        self.slurm_options = (
+            ub.udict(self._base_slurm_options) | _configured_slurm_options
+        )
         self.__slurm_options__ = dict(self.slurm_options)
         self.config = ub.udict(config)
 
@@ -1460,7 +1587,7 @@ class ProcessNode(Node):
                 self.inputs[key].final_value = non_specified[key]
 
         # self.algo_params = set(self.config) - non_algo_keys
-        in_path_keys = self.config & set(self.in_paths)
+        in_path_keys = self.config & set(self.in_paths)  # type: ignore
         for key in in_path_keys:
             self.inputs[key].final_value = self.config[key]
 
@@ -1476,10 +1603,13 @@ class ProcessNode(Node):
         condensed = {}
         for node in self.predecessor_process_nodes():
             condensed.update(node.condensed)
-        condensed.update({
-            self.name + '_algo_id': self.algo_id,
-            self.name + '_id': self.process_id,
-        })
+        assert isinstance(self.name, str)
+        condensed.update(
+            {
+                self.name + '_algo_id': self.algo_id,
+                self.name + '_id': self.process_id,
+            }
+        )
         return condensed
 
     @memoize_configured_method
@@ -1535,12 +1665,15 @@ class ProcessNode(Node):
         """
         depends_config = {}
         for depend_node in list(self.ancestor_process_nodes()) + [self]:
-            depends_config.update(_add_prefix(depend_node.name + '.', depend_node.config))
+            depends_config.update(
+                _add_prefix(depend_node.name + '.', depend_node.config)
+            )
         return depends_config
 
     @memoize_configured_property
     def final_perf_config(self):
-        final_perf_config = self.config & set(self.perf_params)
+        assert self.perf_params is not None
+        final_perf_config = self.config & set(self.perf_params)  # type: ignore
         if isinstance(self.perf_params, dict):
             for k, v in self.perf_params.items():
                 if k not in final_perf_config:
@@ -1557,7 +1690,8 @@ class ProcessNode(Node):
         non_algo_sets = [self.out_paths, self.perf_params]
         non_algo_keys = (
             set.union(*[set(s) for s in non_algo_sets if s is not None])
-            if non_algo_sets else set()
+            if non_algo_sets
+            else set()
         )
         self.non_algo_keys = non_algo_keys
 
@@ -1587,9 +1721,13 @@ class ProcessNode(Node):
         if self._no_inarg:
             unconnected_in_paths = ub.udict({})
         else:
-            unconnected_in_paths = ub.udict(self.final_in_paths) & unconnected_inputs
+            unconnected_in_paths = (
+                ub.udict(self.final_in_paths) & unconnected_inputs  # type: ignore
+            )  
 
-        final_algo_config = (self.config - self.non_algo_keys) | unconnected_in_paths
+        final_algo_config = (
+            self.config - self.non_algo_keys  # type: ignore
+        ) | unconnected_in_paths  
 
         if isinstance(self.algo_params, dict):
             for k, v in self.algo_params.items():
@@ -1621,7 +1759,7 @@ class ProcessNode(Node):
             :func:`ProcessNode.final_out_paths`
         """
         if not isinstance(self.out_paths, dict):
-            out_paths = self.config & self.out_paths
+            out_paths = self.config & self.out_paths  # type: ignore
         else:
             out_paths = self.out_paths
         template_node_dpath = self.template_node_dpath
@@ -1675,6 +1813,8 @@ class ProcessNode(Node):
         """
         if self._overwrite_group_dpath is not None:
             return ub.Path(self._overwrite_group_dpath)
+        assert isinstance(self.root_dpath, ub.Path)
+        assert isinstance(self.name, str)
         if self.group is None:
             return self.root_dpath / self.name
         else:
@@ -1687,6 +1827,7 @@ class ProcessNode(Node):
         """
         if self._overwrite_node_dpath is not None:
             return ub.Path(self._overwrite_node_dpath)
+        assert isinstance(self.name, str)
         key = self.name + '_id'
         return self.template_group_dpath / ('{' + key + '}')
 
@@ -1706,8 +1847,9 @@ class ProcessNode(Node):
         """
         Process nodes that this one depends on.
         """
-        nodes = [pred.parent for k, v in self.inputs.items()
-                 for pred in v.pred] + self._pred_nodes_without_io_connection
+        nodes = [
+            pred.parent for k, v in self.inputs.items() for pred in v.pred
+        ] + self._pred_nodes_without_io_connection
         return nodes
 
     @memoize_configured_method
@@ -1715,8 +1857,9 @@ class ProcessNode(Node):
         """
         Process nodes that depend on this one.
         """
-        nodes = [succ.parent for k, v in self.outputs.items()
-                 for succ in v.succ]
+        nodes = [
+            succ.parent for k, v in self.outputs.items() for succ in v.succ
+        ]
         return nodes
 
     @memoize_configured_method
@@ -1755,7 +1898,8 @@ class ProcessNode(Node):
             if node_id not in seen:
                 seen[node_id] = node
                 nodes = [
-                    pred.parent for k, v in node.inputs.items()
+                    pred.parent
+                    for k, v in node.inputs.items()
                     for pred in v.pred
                 ]
                 # nodes = node.predecessor_process_nodes()
@@ -1790,8 +1934,11 @@ class ProcessNode(Node):
         This does NOT have a dependency on the larger the DAG.
         """
         from kwdagger.utils.reverse_hashid import condense_config
+
+        assert isinstance(self.name, str)
         algo_id = condense_config(
-            self.final_algo_config, self.name + '_algo_id', register=False)
+            self.final_algo_config, self.name + '_algo_id', register=False
+        )
         return algo_id
 
     @memoize_configured_property
@@ -1804,9 +1951,10 @@ class ProcessNode(Node):
         This DOES have a dependency on the larger DAG.
         """
         from kwdagger.utils.reverse_hashid import condense_config
+
         depends = self.depends
-        proc_id = condense_config(
-            depends, self.name + '_id', register=False)
+        assert isinstance(self.name, str)
+        proc_id = condense_config(depends, self.name + '_id', register=False)
         return proc_id
 
     @staticmethod
@@ -1814,11 +1962,14 @@ class ProcessNode(Node):
         # parts = [f'    --{k}="{v}" \\' for k, v in config.items()]
         parts = []
         import shlex
+
         for k, v in config.items():
             if isinstance(v, list):
                 # Handle variable-args params
                 quoted_varargs = [shlex.quote(str(x)) for x in v]
-                preped_varargs = ['        ' + x + ' \\' for x in quoted_varargs]
+                preped_varargs = [
+                    '        ' + x + ' \\' for x in quoted_varargs
+                ]
                 parts.append(f'    --{k} \\')
                 parts.extend(preped_varargs)
             else:
@@ -1826,6 +1977,7 @@ class ProcessNode(Node):
                     # This relies on the underlying program being able to
                     # interpret YAML specified on the commandline.
                     from kwutil.util_yaml import Yaml
+
                     vstr = Yaml.dumps(v)
                     vstr = shlex.quote(vstr)
                     if '\n' in vstr and vstr[0] == "'":
@@ -1834,13 +1986,14 @@ class ProcessNode(Node):
                     parts.append(f'    --{k}={vstr} \\')
                 else:
                     import shlex
+
                     vstr = shlex.quote(str(v))
                     parts.append(f'    --{k}={vstr} \\')
 
         return '\n'.join(parts).lstrip().rstrip('\\')
 
     @cached_property
-    def inputs(self):
+    def inputs(self) -> dict[str, InputNode]:
         """
         Input nodes representing specific input locations.
 
@@ -1851,11 +2004,12 @@ class ProcessNode(Node):
         Returns:
             Dict[str, InputNode]
         """
+        assert self.in_paths is not None
         inputs = {k: InputNode(name=k, parent=self) for k in self.in_paths}
         return inputs
 
     @cached_property
-    def outputs(self):
+    def outputs(self) -> dict[str, OutputNode]:
         """
         Output nodes representing specific output locations. These can be
         connected to the input nodes of other processes.
@@ -1863,6 +2017,7 @@ class ProcessNode(Node):
         Returns:
             Dict[str, OutputNode]
         """
+        assert self.out_paths is not None
         outputs = {k: OutputNode(name=k, parent=self) for k in self.out_paths}
         return outputs
 
@@ -1874,6 +2029,7 @@ class ProcessNode(Node):
         Basic version of command, can be overwritten
         """
         argstr = self._make_argstr(self.final_config)
+        assert self.executable is not None
         if argstr:
             command = self.executable + ' \\\n    ' + argstr
         else:
@@ -1920,26 +2076,35 @@ class ProcessNode(Node):
         if not self.final_out_paths:
             return None
         import shlex
+
         if self.primary_out_key is not None:
             try:
-                quoted_paths = [shlex.quote(str(p))
-                                for p in [self.final_out_paths[self.primary_out_key]]]
+                quoted_paths = [
+                    shlex.quote(str(p))
+                    for p in [self.final_out_paths[self.primary_out_key]]
+                ]
             except KeyError as ex:
                 from kwutil.util_exception import add_exception_note
-                raise add_exception_note(ex, ub.paragraph(
-                    f'''
+
+                raise add_exception_note(
+                    ex,
+                    ub.paragraph(
+                        f"""
                     In {self}.
-                    '''))
+                    """
+                    ),
+                )
         else:
-            quoted_paths = [shlex.quote(str(p))
-                            for p in self.final_out_paths.values()]
+            quoted_paths = [
+                shlex.quote(str(p)) for p in self.final_out_paths.values()
+            ]
         # Make the command look nicer
         tmp_paths = [f'-e {p}' for p in quoted_paths]
         tmp_paths = [p + ' -a' for p in tmp_paths[:-1]] + tmp_paths[-1:]
         *tmp_first, tmp_last = tmp_paths
         tmp_paths = [p + ' \\' for p in tmp_first] + [tmp_last]
         test_expr = '\n     '.join(tmp_paths)
-        test_cmd = 'test ' +  test_expr
+        test_cmd = 'test ' + test_expr
 
         # test_expr = ' -a '.join(
         #     [f'-e "{p}"' for p in self.final_out_paths.values()])
@@ -1956,7 +2121,10 @@ class ProcessNode(Node):
             # Can only cache if we know what output paths are
             return False
         # return all(self.out_paths.map_values(lambda p: p.exists()).values())
-        return all(ub.Path(p).expand().exists() if p is not None else True for p in self.final_out_paths.values())
+        return all(
+            ub.Path(p).expand().exists() if p is not None else True
+            for p in self.final_out_paths.values()
+        )
 
     @memoize_configured_property
     def outputs_exist(self) -> bool:
@@ -1985,7 +2153,9 @@ class ProcessNode(Node):
         # Cleanup the command
         base_command = command.rstrip().rstrip('\\').rstrip()
         lines = base_command.split('\n')
-        base_command = '\n'.join([line for line in lines if line.strip() != '\\'])
+        base_command = '\n'.join(
+            [line for line in lines if line.strip() != '\\']
+        )
 
         if self.cache or (not self.enabled and self.enabled != 'redo'):
             test_cmd = self.test_is_computed_command()
@@ -2008,15 +2178,16 @@ class ProcessNode(Node):
         json_jobs = ub.Executor(mode='thread', max_workers=workers)
 
         rows = []
+        assert self.out_paths is not None
+        assert isinstance(self.out_paths, dict)
         for dpath in ub.ProgIter(existing_dpaths, desc='parsing templates'):
-
             out_fpaths = {}
             for out_key, out_fname in self.out_paths.items():
                 out_fpath = dpath / out_fname
                 out_fpaths[out_key] = out_fpath
 
             is_finished = all(p.exists() for p in out_fpaths.values())
-            config_fpath = (dpath / 'job_config.json')
+            config_fpath = dpath / 'job_config.json'
             has_config = config_fpath.exists()
             if has_config:
                 job = json_jobs.submit(_load_json, config_fpath)
@@ -2024,18 +2195,22 @@ class ProcessNode(Node):
                 job = None
                 request_config = {}
 
-            rows.append({
-                'dpath': dpath,
-                'is_finished': is_finished,
-                'has_config': has_config,
-                'job': job,
-            })
+            rows.append(
+                {
+                    'dpath': dpath,
+                    'is_finished': is_finished,
+                    'has_config': has_config,
+                    'job': job,
+                }
+            )
 
         for row in ub.ProgIter(rows, desc='finalize templates'):
             job = row.pop('job')
             if job is not None:
                 request_config = job.result()
-                request_config = util_dotdict.DotDict(request_config).add_prefix('request')
+                request_config = util_dotdict.DotDict(
+                    request_config
+                ).add_prefix('request')
                 row.update(request_config)
 
         num_configured = sum([r['has_config'] for r in rows])
@@ -2047,13 +2222,13 @@ class ProcessNode(Node):
         return rows
 
 
-def _labelize_graph(graph, shrink_labels, show_types, color_procs=0):
+def _labelize_graph(graph, shrink_labels, show_types, color_procs: int = 0):
     """
     Add a label to a networkx graph with rich colors specific to this use-case.
     """
     colors = ['bright_magenta', 'yellow', 'cyan']
     unused_colors = colors.copy()
-    clsname_to_color = {
+    clsname_to_color: dict[str, str | None] = {
         'ProcessNode': 'yellow',
         'InputNode': 'bright_cyan',
         'OutputNode': 'bright_yellow',
@@ -2072,7 +2247,6 @@ def _labelize_graph(graph, shrink_labels, show_types, color_procs=0):
         ambiguous_names = list(ub.find_duplicates(all_names))
 
     for _, data in graph.nodes(data=True):
-
         if shrink_labels:
             if data['node'].name in ambiguous_names:
                 data['label'] = data['node'].key
@@ -2105,11 +2279,12 @@ def _labelize_graph(graph, shrink_labels, show_types, color_procs=0):
 
 def _load_json(fpath):
     import json
+
     with open(fpath, 'r') as file:
         return json.load(file)
 
 
-def _add_prefix(prefix, dict_):
+def _add_prefix(prefix: str, dict_):
     return {prefix + k: v for k, v in dict_.items()}
 
 
@@ -2145,8 +2320,9 @@ def demodata_pipeline():
     fpath1 = script_dpath / 'demo_script1.py'
     fpath2 = script_dpath / 'demo_script2.py'
     fpath3 = script_dpath / 'demo_script3.py'
-    fpath1.write_text(ub.codeblock(
-        '''
+    fpath1.write_text(
+        ub.codeblock(
+            """
         import ubelt as ub
         src = ub.Path(ub.argval('--src'))
         dst = ub.Path(ub.argval('--dst'))
@@ -2154,9 +2330,12 @@ def demodata_pipeline():
         algo_param1 = ub.argval('--algo_param1', default='')
         perf_param1 = ub.argval('--perf_param1', default='')
         dst.write_text(src.read_text() + algo_param1)
-        '''))
-    fpath2.write_text(ub.codeblock(
-        '''
+        """
+        )
+    )
+    fpath2.write_text(
+        ub.codeblock(
+            """
         import ubelt as ub
         src1 = ub.Path(ub.argval('--src1'))
         src2 = ub.Path(ub.argval('--src2'))
@@ -2168,9 +2347,12 @@ def demodata_pipeline():
         perf_param2 = ub.argval('--perf_param2', default='')
         dst1.write_text(src1.read_text() + algo_param2)
         dst2.write_text(src2.read_text() + algo_param2)
-        '''))
-    fpath3.write_text(ub.codeblock(
-        '''
+        """
+        )
+    )
+    fpath3.write_text(
+        ub.codeblock(
+            """
         import ubelt as ub
         src1 = ub.Path(ub.argval('--src1'))
         src2 = ub.Path(ub.argval('--src2'))
@@ -2179,7 +2361,9 @@ def demodata_pipeline():
         algo_param3 = ub.argval('--algo_param3', default='')
         perf_param3 = ub.argval('--perf_param3', default='')
         dst.write_text(src1.read_text() + algo_param3 + src2.read_text())
-        '''))
+        """
+        )
+    )
     executable1 = f'python {fpath1}'
     executable2 = f'python {fpath2}'
     executable3 = f'python {fpath3}'
@@ -2198,10 +2382,8 @@ def demodata_pipeline():
         perf_params={
             'perf_param1': '',
         },
-        out_paths={
-            'dst': 'out.txt'
-        },
-        executable=executable1
+        out_paths={'dst': 'out.txt'},
+        executable=executable1,
     )
     node_A2 = ProcessNode(
         name='node_A2',
@@ -2214,45 +2396,32 @@ def demodata_pipeline():
         perf_params={
             'perf_param1': '',
         },
-        out_paths={
-            'dst': 'out.txt'
-        },
-        executable=executable1
+        out_paths={'dst': 'out.txt'},
+        executable=executable1,
     )
     node_B1 = ProcessNode(
         name='node_B1',
-        in_paths={
-            'src1',
-            'src2'
-        },
+        in_paths={'src1', 'src2'},
         algo_params={
             'algo_param2': '',
         },
         perf_params={
             'perf_param2': '',
         },
-        out_paths={
-            'dst1': 'out1.txt',
-            'dst2': 'out2.txt'
-        },
-        executable=executable2
+        out_paths={'dst1': 'out1.txt', 'dst2': 'out2.txt'},
+        executable=executable2,
     )
     node_C1 = ProcessNode(
         name='node_C1',
-        in_paths={
-            'src1',
-            'src2'
-        },
+        in_paths={'src1', 'src2'},
         algo_params={
             'algo_param3': '',
         },
         perf_params={
             'perf_param3': '',
         },
-        out_paths={
-            'dst': 'out.txt'
-        },
-        executable=executable3
+        out_paths={'dst': 'out.txt'},
+        executable=executable3,
     )
 
     # Given the process nodes we need to connect their inputs / outputs for
@@ -2275,12 +2444,16 @@ def demodata_pipeline():
     input1_fpath.write_text('spam')
     input2_fpath.write_text('eggs')
 
-    dag.configure({
-        'node_A1.src': str(input1_fpath),
-        'node_A2.src': str(input2_fpath),
-        'node_A2.dst': dpath / 'DST_OVERRIDE',
-        'node_C1.perf_param3': 'GOFAST',
-    }, root_dpath=runs_dpath, cache=False)
+    dag.configure(
+        {
+            'node_A1.src': str(input1_fpath),
+            'node_A2.src': str(input2_fpath),
+            'node_A2.dst': dpath / 'DST_OVERRIDE',
+            'node_C1.perf_param3': 'GOFAST',
+        },
+        root_dpath=runs_dpath,
+        cache=False,
+    )
 
     return dag
 
@@ -2304,13 +2477,18 @@ def demo_pipeline_run():
 
     # The jobs can now be submitted to a command queue which can be
     # executed or inspected at your leasure.
-    status = dag.submit_jobs(queue=ub.udict({
-        'backend': 'serial',
-    }))
+    status = dag.submit_jobs(
+        queue=ub.udict(
+            {
+                'backend': 'serial',
+            }
+        )
+    )
     queue = status['queue']
     # queue.print_commands(exclude_tags='boilerplate', with_locks=False)
-    queue.print_commands(with_status=False, with_gaurds=False, with_locks=1,
-                         exclude_tags=None)
+    queue.print_commands(
+        with_status=False, with_gaurds=False, with_locks=1, exclude_tags=None
+    )
     queue.run()
 
 
@@ -2331,7 +2509,9 @@ def coerce_pipeline(pipeline):
         if isinstance(pipeline, Pipeline):
             return pipeline
         else:
-            raise TypeError('Unknown coerce technique for {type(pipeline)} with value {pipeline}')
+            raise TypeError(
+                'Unknown coerce technique for {type(pipeline)} with value {pipeline}'
+            )
     return dag
 
 
@@ -2400,8 +2580,9 @@ def _resolve_pipeline(pipeline):
 
 
 def _coerce_modpath(modpath_or_name):
-    import types
     import os
+    import types
+
     if isinstance(modpath_or_name, types.ModuleType):
         raise TypeError('Expected a static module but got a dynamic one')
     modpath = ub.modname_to_modpath(modpath_or_name)

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import json
-import scriptconfig as scfg
-import ubelt as ub
+
 import kwutil
 import rich
+import scriptconfig as scfg
+import ubelt as ub
 from rich.markup import escape
 
 
@@ -68,7 +69,9 @@ class SentimentEvaluateCLI(scfg.DataConfig):
         predictions = pred_data['result']['predictions']
 
         if len(predictions) != len(reviews):
-            raise AssertionError('Predictions and truths must have the same length')
+            raise AssertionError(
+                'Predictions and truths must have the same length'
+            )
 
         num_correct = 0
         confusion = {
@@ -84,11 +87,13 @@ class SentimentEvaluateCLI(scfg.DataConfig):
             pred_label = pred['predicted_label']
             correct = int(true_label == pred_label)
             num_correct += correct
-            detailed.append({
-                'text': record['text'],
-                'true_label': true_label,
-                'predicted_label': pred_label,
-            })
+            detailed.append(
+                {
+                    'text': record['text'],
+                    'true_label': true_label,
+                    'predicted_label': pred_label,
+                }
+            )
 
             if true_label == 'positive' and pred_label == 'positive':
                 confusion['tp'] += 1
@@ -100,7 +105,9 @@ class SentimentEvaluateCLI(scfg.DataConfig):
                 confusion['fn'] += 1
 
         accuracy = _safe_div(num_correct, len(reviews))
-        precision = _safe_div(confusion['tp'], (confusion['tp'] + confusion['fp']))
+        precision = _safe_div(
+            confusion['tp'], (confusion['tp'] + confusion['fp'])
+        )
         recall = _safe_div(confusion['tp'], (confusion['tp'] + confusion['fn']))
 
         metrics = {

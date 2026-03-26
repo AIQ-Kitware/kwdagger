@@ -1,10 +1,21 @@
 """
 pip install pygtrie
 """
+
+from __future__ import annotations
+
+from typing import Iterable, Sequence
+
 import numpy as np  # NOQA
 
 
-def shortest_unique_prefixes(items, sep=None, allow_simple=True, min_length=0, allow_end=False):
+def shortest_unique_prefixes(
+    items: Sequence[str] | Iterable[str],
+    sep: str | None = None,
+    allow_simple: bool = True,
+    min_length: int = 0,
+    allow_end: bool = False,
+) -> list[str]:
     r"""
     The shortest unique prefix algorithm.
 
@@ -75,6 +86,8 @@ def shortest_unique_prefixes(items, sep=None, allow_simple=True, min_length=0, a
             time per loop: best=4.063 s, mean=4.063 ± 0.0 s
     """
     import pygtrie
+
+    items = list(items)
     if len(set(items)) != len(items):
         raise ValueError('inputs must be unique')
 
@@ -123,7 +136,9 @@ def shortest_unique_prefixes(items, sep=None, allow_simple=True, min_length=0, a
                 if prefix_length >= min_length:
                     break
         if not allow_end:
-            assert freq == 1, 'item={} has no unique prefix. freq={}'.format(item, freq)
+            assert freq == 1, 'item={} has no unique prefix. freq={}'.format(
+                item, freq
+            )
         # print('items = {!r}'.format(items))
         unique.append(prefix)
     return unique
@@ -151,6 +166,7 @@ def _trie_iternodes(self):
                 ...
     """
     from collections import deque
+
     stack = deque([[self._root]])
     while stack:
         for node in stack.pop():
@@ -184,6 +200,7 @@ def _trie_iteritems(self):
             print(f'k={k}')
     """
     from collections import deque
+
     sentinel = object()
     stack = deque([[(sentinel, self._root)]])
     while stack:
@@ -198,7 +215,11 @@ def _trie_iteritems(self):
                 stack.append(list(node.children.iteritems()))
 
 
-def shortest_unique_suffixes(items, sep=None, min_length=0):
+def shortest_unique_suffixes(
+    items: Sequence[str] | Iterable[str],
+    sep: str | None = None,
+    min_length: int = 0,
+) -> list[str]:
     r"""
     Example:
         >>> # xdoctest: +REQUIRES(--pygtrie)

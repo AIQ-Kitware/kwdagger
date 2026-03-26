@@ -94,14 +94,30 @@ stages:
   - 'echo "Installing helpers: setuptools"'
   - python -m uv pip install setuptools>=0.8 setuptools_scm wheel build -U
   - 'echo "Installing helpers: tomli and pkginfo"'
-  - python -m uv pip install tomli pkginfo
+  - python -m uv pip install tomli pkginfo packaging
   - |-
     export WHEEL_FPATH=$(python -c "if 1:
         import pathlib
+        from packaging import tags
+        from packaging.utils import parse_wheel_filename
         dist_dpath = pathlib.Path('dist')
-        candidates = list(dist_dpath.glob('kwdagger*.whl'))
-        candidates += list(dist_dpath.glob('kwdagger*.tar.gz'))
-        fpath = sorted(candidates)[-1]
+        wheels = sorted(dist_dpath.glob('kwdagger*.whl'))
+        if wheels:
+            sys_tags = set(tags.sys_tags())
+            matching = []
+            for w in wheels:
+                try:
+                    _, _, _, wheel_tags = parse_wheel_filename(w.name)
+                except Exception:
+                    continue
+                if any(t in sys_tags for t in wheel_tags):
+                    matching.append(w)
+            fpath = sorted(matching or wheels)[-1]
+        else:
+            sdists = sorted(dist_dpath.glob('kwdagger*.tar.gz'))
+            if not sdists:
+                raise SystemExit('No wheel artifacts found in wheelhouse')
+            fpath = sdists[-1]
         print(str(fpath).replace(chr(92), chr(47)))
     ")
   - |-
@@ -164,14 +180,30 @@ stages:
   - 'echo "Installing helpers: setuptools"'
   - python -m uv pip install setuptools>=0.8 setuptools_scm wheel build -U
   - 'echo "Installing helpers: tomli and pkginfo"'
-  - python -m uv pip install tomli pkginfo
+  - python -m uv pip install tomli pkginfo packaging
   - |-
     export WHEEL_FPATH=$(python -c "if 1:
         import pathlib
+        from packaging import tags
+        from packaging.utils import parse_wheel_filename
         dist_dpath = pathlib.Path('dist')
-        candidates = list(dist_dpath.glob('kwdagger*.whl'))
-        candidates += list(dist_dpath.glob('kwdagger*.tar.gz'))
-        fpath = sorted(candidates)[-1]
+        wheels = sorted(dist_dpath.glob('kwdagger*.whl'))
+        if wheels:
+            sys_tags = set(tags.sys_tags())
+            matching = []
+            for w in wheels:
+                try:
+                    _, _, _, wheel_tags = parse_wheel_filename(w.name)
+                except Exception:
+                    continue
+                if any(t in sys_tags for t in wheel_tags):
+                    matching.append(w)
+            fpath = sorted(matching or wheels)[-1]
+        else:
+            sdists = sorted(dist_dpath.glob('kwdagger*.tar.gz'))
+            if not sdists:
+                raise SystemExit('No wheel artifacts found in wheelhouse')
+            fpath = sdists[-1]
         print(str(fpath).replace(chr(92), chr(47)))
     ")
   - |-
@@ -234,14 +266,30 @@ stages:
   - 'echo "Installing helpers: setuptools"'
   - python -m uv pip install setuptools>=0.8 setuptools_scm wheel build -U
   - 'echo "Installing helpers: tomli and pkginfo"'
-  - python -m uv pip install tomli pkginfo
+  - python -m uv pip install tomli pkginfo packaging
   - |-
     export WHEEL_FPATH=$(python -c "if 1:
         import pathlib
+        from packaging import tags
+        from packaging.utils import parse_wheel_filename
         dist_dpath = pathlib.Path('dist')
-        candidates = list(dist_dpath.glob('kwdagger*.whl'))
-        candidates += list(dist_dpath.glob('kwdagger*.tar.gz'))
-        fpath = sorted(candidates)[-1]
+        wheels = sorted(dist_dpath.glob('kwdagger*.whl'))
+        if wheels:
+            sys_tags = set(tags.sys_tags())
+            matching = []
+            for w in wheels:
+                try:
+                    _, _, _, wheel_tags = parse_wheel_filename(w.name)
+                except Exception:
+                    continue
+                if any(t in sys_tags for t in wheel_tags):
+                    matching.append(w)
+            fpath = sorted(matching or wheels)[-1]
+        else:
+            sdists = sorted(dist_dpath.glob('kwdagger*.tar.gz'))
+            if not sdists:
+                raise SystemExit('No wheel artifacts found in wheelhouse')
+            fpath = sdists[-1]
         print(str(fpath).replace(chr(92), chr(47)))
     ")
   - |-
@@ -304,14 +352,30 @@ stages:
   - 'echo "Installing helpers: setuptools"'
   - python -m uv pip install setuptools>=0.8 setuptools_scm wheel build -U
   - 'echo "Installing helpers: tomli and pkginfo"'
-  - python -m uv pip install tomli pkginfo
+  - python -m uv pip install tomli pkginfo packaging
   - |-
     export WHEEL_FPATH=$(python -c "if 1:
         import pathlib
+        from packaging import tags
+        from packaging.utils import parse_wheel_filename
         dist_dpath = pathlib.Path('dist')
-        candidates = list(dist_dpath.glob('kwdagger*.whl'))
-        candidates += list(dist_dpath.glob('kwdagger*.tar.gz'))
-        fpath = sorted(candidates)[-1]
+        wheels = sorted(dist_dpath.glob('kwdagger*.whl'))
+        if wheels:
+            sys_tags = set(tags.sys_tags())
+            matching = []
+            for w in wheels:
+                try:
+                    _, _, _, wheel_tags = parse_wheel_filename(w.name)
+                except Exception:
+                    continue
+                if any(t in sys_tags for t in wheel_tags):
+                    matching.append(w)
+            fpath = sorted(matching or wheels)[-1]
+        else:
+            sdists = sorted(dist_dpath.glob('kwdagger*.tar.gz'))
+            if not sdists:
+                raise SystemExit('No wheel artifacts found in wheelhouse')
+            fpath = sdists[-1]
         print(str(fpath).replace(chr(92), chr(47)))
     ")
   - |-
@@ -484,6 +548,9 @@ lint:
   - python -m pip install pip uv -U
   - python -m uv pip install -r requirements/linting.txt
   - ./run_linter.sh
+  - python -m pip install ty
+  - pip install -r requirements/runtime.txt
+  - ty check ./kwdagger
   allow_failure: true
 gpgsign/wheels:
   <<: *common_template

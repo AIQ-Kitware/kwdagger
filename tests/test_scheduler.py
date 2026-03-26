@@ -5,11 +5,12 @@ Checks that the scheduler builds appropriate commands.
 
 def demodata_pipeline(dpath):
     import ubelt as ub
+
     script_fpath = dpath / 'script.py'
     pipeline_fpath = dpath / '_simple_demo_pipeline_v003.py'
 
     script_text = ub.codeblock(
-        '''
+        """
         #!/usr/bin/env python3
         import scriptconfig as scfg
         import ubelt as ub
@@ -43,19 +44,22 @@ def demodata_pipeline(dpath):
 
         if __name__ == '__main__':
             __cli__.main()
-        ''')
+        """
+    )
     # Test the code compiles and write it to disk
     compile(script_text, mode='exec', filename='<test-compile>')
     script_fpath.write_text(script_text)
 
     pipeline_text = ub.codeblock(
-        '''
+        """
         from kwdagger.pipeline import ProcessNode
         from kwdagger.pipeline import Pipeline
 
         class Step1(ProcessNode):
             name = 'step1'
-            executable = 'python ''' + str(script_fpath) + ''''
+            executable = 'python """
+        + str(script_fpath)
+        + """'
             in_paths = {
                 'src',
             }
@@ -82,7 +86,8 @@ def demodata_pipeline(dpath):
             dag = Pipeline(nodes)
             dag.build_nx_graphs()
             return dag
-        ''')
+        """
+    )
 
     # Test that the code compiles
     compile(pipeline_text, mode='exec', filename='<test-compile>')
@@ -100,9 +105,13 @@ def test_simple_slurm_dry_run():
         sys.path.append(ubelt.expandpath('~/code/kwdagger/tests'))
         from test_scheduler import *  # NOQA
     """
-    from kwdagger import schedule
     import ubelt as ub
-    dpath = ub.Path.appdir('kwdagger/unit_tests/scheduler/test_slurm_dryrun').ensuredir()
+
+    from kwdagger import schedule
+
+    dpath = ub.Path.appdir(
+        'kwdagger/unit_tests/scheduler/test_slurm_dryrun'
+    ).ensuredir()
 
     pipeline_fpath = demodata_pipeline(dpath)
 
@@ -110,12 +119,13 @@ def test_simple_slurm_dry_run():
     input_fpath.write_text('{"type": "orig_input"}')
 
     root_dpath = (dpath / 'runs').delete().ensuredir()
-    config = schedule.ScheduleEvaluationConfig(**{
-        'run': 0,
-        'root_dpath': root_dpath,
-        'backend': 'slurm',
-        'params': ub.codeblock(
-            f'''
+    config = schedule.ScheduleEvaluationConfig(
+        **{
+            'run': 0,
+            'root_dpath': root_dpath,
+            'backend': 'slurm',
+            'params': ub.codeblock(
+                f"""
             pipeline: {pipeline_fpath}::build_pipeline()
             matrix:
                 step1.src:
@@ -133,9 +143,10 @@ def test_simple_slurm_dry_run():
                     - 9.2
                     - 3.14159
                     - 2.71828
-            '''
-        )
-    })
+            """
+            ),
+        }
+    )
 
     print('Dry run first')
     config['run'] = 0
@@ -143,8 +154,10 @@ def test_simple_slurm_dry_run():
 
 
 def test_slurm_options_from_param_grid(tmp_path):
-    from kwdagger import schedule
     import ubelt as ub
+
+    from kwdagger import schedule
+
     dpath = ub.Path(tmp_path) / 'slurm_grid'
     dpath.delete().ensuredir()
 
@@ -154,7 +167,7 @@ def test_slurm_options_from_param_grid(tmp_path):
 
     root_dpath = (dpath / 'runs').delete().ensuredir()
     param_yaml = ub.codeblock(
-        f'''
+        f"""
         slurm_options:
             partition: general
             qos: debug
@@ -170,13 +183,16 @@ def test_slurm_options_from_param_grid(tmp_path):
                 - 0.1
             step1.__slurm_options__:
                 - time: 00:01:00
-        ''')
-    config = schedule.ScheduleEvaluationConfig(**{
-        'run': 0,
-        'root_dpath': root_dpath,
-        'backend': 'slurm',
-        'params': param_yaml,
-    })
+        """
+    )
+    config = schedule.ScheduleEvaluationConfig(
+        **{
+            'run': 0,
+            'root_dpath': root_dpath,
+            'backend': 'slurm',
+            'params': param_yaml,
+        }
+    )
 
     dag, queue = schedule.build_schedule(config)
 
@@ -203,10 +219,13 @@ def test_simple_but_real_custom_pipeline():
         sys.path.append(ubelt.expandpath('~/code/kwdagger/tests'))
         from test_scheduler import *  # NOQA
     """
-    from kwdagger import schedule
-    from kwdagger import aggregate
     import ubelt as ub
-    dpath = ub.Path.appdir('kwdagger/unit_tests/scheduler/test_real_pipeline').ensuredir()
+
+    from kwdagger import aggregate, schedule
+
+    dpath = ub.Path.appdir(
+        'kwdagger/unit_tests/scheduler/test_real_pipeline'
+    ).ensuredir()
 
     pipeline_fpath = demodata_pipeline(dpath)
 
@@ -214,12 +233,13 @@ def test_simple_but_real_custom_pipeline():
     input_fpath.write_text('{"type": "orig_input"}')
 
     root_dpath = (dpath / 'runs').delete().ensuredir()
-    config = schedule.ScheduleEvaluationConfig(**{
-        'run': 0,
-        'root_dpath': root_dpath,
-        'backend': 'serial',
-        'params': ub.codeblock(
-            f'''
+    config = schedule.ScheduleEvaluationConfig(
+        **{
+            'run': 0,
+            'root_dpath': root_dpath,
+            'backend': 'serial',
+            'params': ub.codeblock(
+                f"""
             pipeline: {pipeline_fpath}::build_pipeline()
             matrix:
                 step1.src:
@@ -237,9 +257,10 @@ def test_simple_but_real_custom_pipeline():
                     - 9.2
                     - 3.14159
                     - 2.71828
-            '''
-        )
-    })
+            """
+            ),
+        }
+    )
 
     print('Dry run first')
     config['run'] = 0
@@ -251,6 +272,7 @@ def test_simple_but_real_custom_pipeline():
 
     # Test that all job config files are readable
     import json
+
     for job_config_fpath in dag.root_dpath.glob('flat/step1/*/job_config.json'):
         config = json.loads(job_config_fpath.read_text())
 
@@ -277,4 +299,5 @@ if __name__ == '__main__':
         python ~/code/kwdagger/tests/test_scheduler.py
     """
     import xdoctest
+
     xdoctest.doctest_module(__file__)

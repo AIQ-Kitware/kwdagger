@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
+from __future__ import annotations
+
 import scriptconfig as scfg
+
 # from module.cli.script import ScriptCLI
 
 
@@ -8,15 +11,17 @@ class KWDaggerModal(scfg.ModalCLI):
     """
     Your description here
     """
-    from kwdagger.schedule import ScheduleEvaluationConfig as schedule
+
     from kwdagger.aggregate import AggregateEvluationConfig as aggregate
+    from kwdagger.schedule import ScheduleEvaluationConfig as schedule
     # Either add other scriptconfig clis as class variables here
     # from module.cli.script import ScriptCLI as script
+
 
 # Or register them here.
 # TemplateModal.register(ScriptCLI)
 
-__cli__ = KWDaggerModal
+__cli__: type[KWDaggerModal] = KWDaggerModal
 main = __cli__.main
 
 

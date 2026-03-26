@@ -1,16 +1,21 @@
 """
 Ported from netharn.device, previously called gpu_infos
 """
-import ubelt as ub
+
+from __future__ import annotations
+
 import os
 import warnings
+from typing import Any
+
+import ubelt as ub
 
 
 class NvidiaSMIError(Exception):
     pass
 
 
-def nvidia_smi(ignore_environ=False):
+def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
     """
     Run nvidia-smi and parse output
 
@@ -71,8 +76,14 @@ def nvidia_smi(ignore_environ=False):
     # This is slightly more robust than the old mode, but it also makes
     # more than one call to nvidia-smi and cannot return information about
     # graphics processes.
-    fields = ['index', 'memory.total', 'memory.used', 'memory.free',
-              'name', 'gpu_uuid']
+    fields = [
+        'index',
+        'memory.total',
+        'memory.used',
+        'memory.free',
+        'name',
+        'gpu_uuid',
+    ]
     mode = 'query-gpu'
     try:
         gpu_rows = _query_nvidia_smi(mode, fields)
@@ -91,7 +102,7 @@ def nvidia_smi(ignore_environ=False):
     # Coerce into the old-style format for backwards compatibility
     gpus = {}
     for row in gpu_rows:
-        gpu = row.copy()
+        gpu: dict[str, Any] = dict(row)
         num = int(gpu['index'])
         gpu['num'] = num
         gpu['mem_used'] = float(gpu['memory.used'].strip().replace('MiB', ''))
@@ -114,15 +125,23 @@ def nvidia_smi(ignore_environ=False):
     if WITH_GPU_PROCS:
         # Hacks in gpu-procs if enabled
         import re
+
         info = ub.cmd('nvidia-smi pmon -c 1')
         for line in info['out'].split('\n'):
             line = line.strip()
-            if line and not line.startswith("#"):
+            if line and not line.startswith('#'):
                 parts = re.split(r'\s+', line, maxsplit=7)
                 if parts[1] != '-':
                     header = [
-                        'gpu_num', 'pid', 'type', 'sm', 'mem', 'enc',
-                        'dec', 'name']
+                        'gpu_num',
+                        'pid',
+                        'type',
+                        'sm',
+                        'mem',
+                        'enc',
+                        'dec',
+                        'name',
+                    ]
                     proc = ub.dzip(header, parts)
                     proc['gpu_num'] = int(proc['gpu_num'])
                     if proc['type'] == 'G':
@@ -167,7 +186,7 @@ def nvidia_smi(ignore_environ=False):
     return gpus
 
 
-def _query_nvidia_smi(mode, fields):
+def _query_nvidia_smi(mode: str, fields: list[str]) -> list[dict[str, str]]:
     """
     Runs nvidia smi in query mode
 
@@ -184,8 +203,9 @@ def _query_nvidia_smi(mode, fields):
     if info['ret'] != 0:
         print(info['out'])
         print(info['err'])
-        raise NvidiaSMIError('unable to call nvidia-smi: ret={}'.format(
-            info['ret']))
+        raise NvidiaSMIError(
+            'unable to call nvidia-smi: ret={}'.format(info['ret'])
+        )
     rows = []
     for line in info['out'].split('\n'):
         line = line.strip()

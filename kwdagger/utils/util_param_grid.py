@@ -4,11 +4,18 @@ Handles github actions like parameter matrices
 The main function of interest here is :func:`expand_param_grid` and
 its underlying workhorse: :func:`extended_github_action_matrix`.
 """
-import ubelt as ub
+
+from __future__ import annotations
+
+from typing import Any
+
 import kwutil
+import ubelt as ub
 
 
-def coerce_list_of_action_matrices(arg):
+def coerce_list_of_action_matrices(
+    arg: str | dict | list,
+) -> list[dict[str, Any]]:
     """
     Preprocess the parameter grid input into a standard form
 
@@ -37,18 +44,18 @@ def coerce_list_of_action_matrices(arg):
     action_matrices = []
     if isinstance(data, dict):
         if 'matrices' in data:
-            data = data["matrices"]
+            data = data['matrices']
     if isinstance(data, list):
         for item in data:
             action_matrices.append(item)
     elif isinstance(data, dict):
-        if not len(ub.udict(data) & {'matrix', 'include'}):
+        if not len(ub.udict(data) & {'matrix', 'include'}):  # type: ignore
             data = {'matrix': data}
         action_matrices.append(data)
     return action_matrices
 
 
-def prevalidate_param_grid(arg):
+def prevalidate_param_grid(arg) -> None:
     """
     Determine if something may go wrong
     """
@@ -91,7 +98,7 @@ def prevalidate_param_grid(arg):
                         log_issue(k, p, 'might not be a valid path')
 
 
-def expand_param_grid(arg, max_configs=None):
+def expand_param_grid(arg, max_configs: int | None = None):
     """
     Our own method for specifying many combinations. Uses the github actions
     method under the hood with our own
@@ -312,8 +319,7 @@ def github_action_matrix(arg):
     include = list(map(ub.udict, include))
     exclude = list(map(ub.udict, exclude))
 
-    matrix_ = {k: (v if ub.iterable(v) else [v])
-               for k, v in matrix.items()}
+    matrix_ = {k: (v if ub.iterable(v) else [v]) for k, v in matrix.items()}
 
     orig_keys = set(matrix.keys())
     include_idx_to_nvariants = {idx: 0 for idx in range(len(include))}
@@ -563,6 +569,7 @@ def extended_github_action_matrix(arg):
         >>> assert values[1]['foo'] == 'subgrid-value2'
     """
     import os
+
     if isinstance(arg, str):
         data = kwutil.Yaml.loads(arg)
     else:
@@ -611,7 +618,9 @@ def extended_github_action_matrix(arg):
                 include_val = item['__include__']
 
                 # Allow a single path or a list/tuple of paths
-                if isinstance(include_val, (str, os.PathLike)) or not ub.iterable(include_val):
+                if isinstance(
+                    include_val, (str, os.PathLike)
+                ) or not ub.iterable(include_val):
                     include_paths = [include_val]
                 else:
                     include_paths = list(include_val)
@@ -622,7 +631,9 @@ def extended_github_action_matrix(arg):
                     # If the loaded object is a sequence (e.g. list of
                     # matrices), splice it into the grid; otherwise keep it
                     # as a single value.
-                    if ub.iterable(loaded) and not isinstance(loaded, (str, bytes)):
+                    if ub.iterable(loaded) and not isinstance(
+                        loaded, (str, bytes)
+                    ):
                         final.extend(loaded)
                     else:
                         final.append(loaded)
@@ -656,22 +667,27 @@ def extended_github_action_matrix(arg):
             submats[:] = list(map(ub.udict, submats))
             submats_ = []
             for submatrix in submats:
-                submatrix_ = {k: coerce_matrix_value(v)
-                              for k, v in submatrix.items()}
-                submats_.extend(list(map(ub.udict, ub.named_product(submatrix_))))
+                submatrix_ = {
+                    k: coerce_matrix_value(v) for k, v in submatrix.items()
+                }
+                submats_.extend(
+                    list(map(ub.udict, ub.named_product(submatrix_)))
+                )
             multi_submatrices_.append(submats_)
     else:
         submatrices_ = []
         for submatrix in submatrices:
-            submatrix_ = {k: coerce_matrix_value(v)
-                          for k, v in submatrix.items()}
-            submatrices_.extend(list(map(ub.udict, ub.named_product(submatrix_))))
+            submatrix_ = {
+                k: coerce_matrix_value(v) for k, v in submatrix.items()
+            }
+            submatrices_.extend(
+                list(map(ub.udict, ub.named_product(submatrix_)))
+            )
 
     if len(data) != 0:
         raise Exception(f'Unexpected top level keys: {list(data.keys())}')
 
-    matrix_ = {k: coerce_matrix_value(v)
-               for k, v in matrix.items()}
+    matrix_ = {k: coerce_matrix_value(v) for k, v in matrix.items()}
 
     orig_keys = set(matrix.keys())
     include_idx_to_nvariants = {idx: 0 for idx in range(len(include))}

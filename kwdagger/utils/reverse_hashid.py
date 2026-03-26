@@ -1,9 +1,14 @@
 """
 Utilities for saving the data that gave rise to particular hash values.
 """
-import ubelt as ub
-import shelve
+
+from __future__ import annotations
+
 import os
+import shelve
+from typing import Any, cast
+
+import ubelt as ub
 
 
 class ReverseHashTable:
@@ -26,22 +31,25 @@ class ReverseHashTable:
         >>> print('full_shelf = {}'.format(ub.urepr(full_shelf, nl=2)))
     """
 
-    def __init__(self, type='global'):
+    def __init__(self, type: str = 'global'):
         from kwutil.util_locks import Superlock
+
         self.rlut_dpath = ub.Path.appdir('kwdagger/hash_rlut', type).ensuredir()
         self.shelf_fpath = self.rlut_dpath / 'hash_rlut.shelf'
         self.text_fpath = self.rlut_dpath / 'hash_rlut.txt'
         self.file_dpath = (self.rlut_dpath / 'hash_rlut').ensuredir()
         self.lock_fpath = self.rlut_dpath / 'flock.lock'
-        self.lock = Superlock(thread_key='hash_rlut', lock_fpath=self.lock_fpath)
+        self.lock = Superlock(
+            thread_key='hash_rlut', lock_fpath=self.lock_fpath
+        )
 
-    def load(self):
+    def load(self) -> dict[str, Any]:
         with self.lock:
             shelf = shelve.open(os.fspath(self.shelf_fpath))
             full_shelf = dict(shelf)
         return full_shelf
 
-    def register(self, key, data):
+    def register(self, key: str, data: Any) -> dict[str, Any]:
         """
         Args:
             key (str): the hash
@@ -82,17 +90,19 @@ class ReverseHashTable:
             if info['status'] != 'exists':
                 # Convinience
                 if FULL_TEXT:
-                    full_text = ub.urepr(full_shelf, nl=3)
+                    full_text = cast(str, ub.urepr(full_shelf, nl=3))
                     self.text_fpath.write_text(full_text)
 
                 if DPATH_TEXT:
                     fpath = self.file_dpath / key
-                    datas_text = ub.urepr(datas, nl=3)
+                    datas_text = cast(str, ub.urepr(datas, nl=3))
                     fpath.write_text(datas_text)
         return info
 
     @classmethod
-    def query(cls, key=None, verbose=1):
+    def query(
+        cls, key: str | None = None, verbose: int = 1
+    ) -> list[dict[str, Any]]:
         """
         If the type of the hash is unknown, we can search in a few different
         locations for it.
@@ -100,7 +110,9 @@ class ReverseHashTable:
         rlut_root = ub.Path.appdir('kwdagger/hash_rlut')
         dpaths = [path for path in rlut_root.iterdir() if path.is_dir()]
         candidates = []
-        for dpath in ub.ProgIter(dpaths, desc='rlut is searching', verbose=verbose):
+        for dpath in ub.ProgIter(
+            dpaths, desc='rlut is searching', verbose=verbose
+        ):
             type = dpath.name
             rlut_type = cls(type)
             full_shelf = rlut_type.load()
@@ -109,7 +121,9 @@ class ReverseHashTable:
                 for k, v in full_shelf.items():
                     candidates.append({'found': v, 'type': type, 'key': k})
             elif key in full_shelf:
-                candidates.append({'found': full_shelf[key], 'type': type, 'key': key})
+                candidates.append(
+                    {'found': full_shelf[key], 'type': type, 'key': key}
+                )
 
         if verbose:
             print(f'Found {len(candidates)} entries for key={key}')
@@ -117,7 +131,9 @@ class ReverseHashTable:
         return candidates
 
 
-def condense_config(params, type, human_opts=None, register=True):
+def condense_config(
+    params, type: str, human_opts=None, register: bool = True
+) -> str:
     """
     Given a dictionary of parameters and a type, makes a hash of the params
     prefixes it with a type and ensures it is registered in the global system
@@ -128,19 +144,24 @@ def condense_config(params, type, human_opts=None, register=True):
         human_opts = {}
     params = ub.udict(params)
     if human_opts:
-        raise AssertionError('We are no longer using human opts, if we want an extra tag, it will be specified outside of the params.')
+        raise AssertionError(
+            'We are no longer using human opts, if we want an extra tag, it will be specified outside of the params.'
+        )
     human_opts = params & human_opts
     other_opts = params - human_opts
     if len(human_opts):
-        human_part = ub.urepr(human_opts, compact=1) + '_'
+        human_part = cast(str, ub.urepr(human_opts, compact=1)) + '_'
     else:
         human_part = ''
     # This hash convention was modified wrt to the old geowatch version
-    cfgstr_suffix = human_part + ub.hash_data(other_opts, base=36)[0:12]
+    cfgstr_suffix = human_part + ub.hash_data(other_opts, base=36)[0:12]  # type: ignore
     cfgstr = f'{type}_{cfgstr_suffix}'
     if register:
-        raise AssertionError('Do not use the reverse hash table. We are removing it.')
+        raise AssertionError(
+            'Do not use the reverse hash table. We are removing it.'
+        )
         from kwdagger.utils.reverse_hashid import ReverseHashTable
+
         rhash = ReverseHashTable(type=type)
         rhash.register(cfgstr, params)
     return cfgstr

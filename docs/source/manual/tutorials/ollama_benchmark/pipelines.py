@@ -5,16 +5,16 @@ This mirrors the tutorial structure: a ProcessNode that runs a scriptconfig CLI,
 and exposes summary metrics via load_result() for aggregation.
 """
 
-import kwdagger
 import ubelt as ub
 
+import kwdagger
 
 # Reuse the EXAMPLE_DPATH pattern from the tutorial so we can run this
 # both inside the installed example and from a dev checkout.
 try:
     EXAMPLE_DPATH = ub.Path(__file__).parent
 except NameError:
-    EXAMPLE_DPATH = ub.Path(".").resolve()
+    EXAMPLE_DPATH = ub.Path('.').resolve()
 
 
 class OllamaBenchmark(kwdagger.ProcessNode):
@@ -24,27 +24,27 @@ class OllamaBenchmark(kwdagger.ProcessNode):
     The CLI executable is cli/ollama_benchmark.py in this same package.
     """
 
-    name = "ollama_benchmark"
-    executable = f"python {EXAMPLE_DPATH}/ollama_benchmark.py"
+    name = 'ollama_benchmark'
+    executable = f'python {EXAMPLE_DPATH}/ollama_benchmark.py'
 
     # The inputs / outputs here must match the scriptconfig field names
     # in OllamaBenchmarkCLI.
     in_paths = {
-        "prompt_fpath",
+        'prompt_fpath',
     }
     out_paths = {
-        "dst_fpath": "ollama_benchmark.json",
-        "dst_dpath": ".",
+        'dst_fpath': 'ollama_benchmark.json',
+        'dst_dpath': '.',
     }
-    primary_out_key = "dst_fpath"
+    primary_out_key = 'dst_fpath'
 
     # algo_params are knobs you might want to sweep logically (model, prompt_id, etc).
     algo_params = {
-        "model": "llama3:8b",
-        "cold_trials": 1,
-        "warm_trials": 3,
-        "ollama_url": "http://localhost:11434",
-        "cold_reset_cmd": None,
+        'model': 'llama3:8b',
+        'cold_trials': 1,
+        'warm_trials': 3,
+        'ollama_url': 'http://localhost:11434',
+        'cold_reset_cmd': None,
     }
 
     def load_result(self, node_dpath):
@@ -57,6 +57,7 @@ class OllamaBenchmark(kwdagger.ProcessNode):
         - flatten with util_dotdict
         """
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 
@@ -64,11 +65,11 @@ class OllamaBenchmark(kwdagger.ProcessNode):
         result = json.loads(output_fpath.read_text())
 
         # Last ProcessContext record (there's usually only one)
-        proc_item = result["info"][-1]
+        proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
 
         # Attach our benchmark metrics
-        nest_resolved["metrics"] = result["result"]["metrics"]
+        nest_resolved['metrics'] = result['result']['metrics']
 
         flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
         flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
@@ -80,22 +81,22 @@ class OllamaBenchmark(kwdagger.ProcessNode):
         """
         metric_infos = [
             {
-                "metric": "ttft_mean",
-                "objective": "minimize",
-                "primary": True,
-                "display": True,
+                'metric': 'ttft_mean',
+                'objective': 'minimize',
+                'primary': True,
+                'display': True,
             },
             {
-                "metric": "latency_total_mean",
-                "objective": "minimize",
-                "primary": False,
-                "display": True,
+                'metric': 'latency_total_mean',
+                'objective': 'minimize',
+                'primary': False,
+                'display': True,
             },
             {
-                "metric": "tokens_per_sec_mean",
-                "objective": "maximize",
-                "primary": False,
-                "display": True,
+                'metric': 'tokens_per_sec_mean',
+                'objective': 'maximize',
+                'primary': False,
+                'display': True,
             },
         ]
         return metric_infos
@@ -107,8 +108,8 @@ class OllamaBenchmark(kwdagger.ProcessNode):
         """
         vantage_points = [
             {
-                "metric1": "metrics.ollama_benchmark.ttft_mean",
-                "metric2": "metrics.ollama_benchmark.tokens_per_sec_mean",
+                'metric1': 'metrics.ollama_benchmark.ttft_mean',
+                'metric2': 'metrics.ollama_benchmark.tokens_per_sec_mean',
             },
         ]
         return vantage_points
@@ -121,7 +122,7 @@ def ollama_benchmark_pipeline():
     This is what you'll point kwdagger's scheduler at.
     """
     nodes = {
-        "ollama_benchmark": OllamaBenchmark(),
+        'ollama_benchmark': OllamaBenchmark(),
     }
     dag = kwdagger.Pipeline(nodes)
     dag.build_nx_graphs()

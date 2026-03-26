@@ -1,25 +1,30 @@
 """Turn saliency rasters into bounding box detections."""
 
 from __future__ import annotations
+
 import kwcoco
+import numpy as np
 import scriptconfig as scfg
 import ubelt as ub
-import numpy as np
 from skimage import measure
 
 
 class ExtractBoxesConfig(scfg.DataConfig):
     """CLI options for extracting boxes from saliency maps."""
 
-    coco_fpath = scfg.Value(None, help="Input kwcoco file with saliency aux data")
-    dst_coco_fpath = scfg.Value("pred_boxes.kwcoco.json", help="Where to write box predictions")
-    heatmap_channel = scfg.Value("saliency", help="Channel name to search for")
-    threshold = scfg.Value(0.5, help="Threshold for binarizing saliency")
-    min_area = scfg.Value(4, help="Filter out tiny components")
+    coco_fpath = scfg.Value(
+        None, help='Input kwcoco file with saliency aux data'
+    )
+    dst_coco_fpath = scfg.Value(
+        'pred_boxes.kwcoco.json', help='Where to write box predictions'
+    )
+    heatmap_channel = scfg.Value('saliency', help='Channel name to search for')
+    threshold = scfg.Value(0.5, help='Threshold for binarizing saliency')
+    min_area = scfg.Value(4, help='Filter out tiny components')
 
     @classmethod
     def main(cls, argv=1, **kwargs):
-        config = cls.cli(argv=argv, data=kwargs, strict=True, verbose="auto")
+        config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
         run_extract_boxes(**config)
 
 
@@ -69,6 +74,7 @@ def extract_boxes_from_heatmap(
         >>> kwplot.show_if_requested()
     """
     import kwimage
+
     mask = heatmap >= threshold
 
     labeled = measure.label(mask)
@@ -79,17 +85,23 @@ def extract_boxes_from_heatmap(
         if region.area < min_area:
             continue
         min_row, min_col, max_row, max_col = region.bbox
-        box = kwimage.Box.coerce([min_col, min_row, max_col, max_row], format='ltrb')
+        box = kwimage.Box.coerce(
+            [min_col, min_row, max_col, max_row], format='ltrb'
+        )
         bbox = list(map(float, box.to_xywh().data))
-        score = float(region.mean_intensity) if region.mean_intensity is not None else 1.0
-        detections.append({"bbox": bbox, "score": score})
+        score = (
+            float(region.mean_intensity)
+            if region.mean_intensity is not None
+            else 1.0
+        )
+        detections.append({'bbox': bbox, 'score': score})
     return detections
 
 
 def run_extract_boxes(
     coco_fpath,
-    dst_coco_fpath="pred_boxes.kwcoco.json",
-    heatmap_channel="saliency",
+    dst_coco_fpath='pred_boxes.kwcoco.json',
+    heatmap_channel='saliency',
     threshold=0.5,
     min_area=4,
 ):
@@ -97,7 +109,7 @@ def run_extract_boxes(
     pred_coco = src_coco.copy()
     pred_coco.clear_annotations()
 
-    catid = pred_coco.ensure_category(name="object")
+    catid = pred_coco.ensure_category(name='object')
 
     for image_id in pred_coco.imgs.keys():
         coco_img = pred_coco.coco_image(image_id)
@@ -120,8 +132,8 @@ def run_extract_boxes(
         for det in detections:
             pred_coco.add_annotation(
                 image_id=image_id,
-                bbox=det["bbox"],
-                score=det["score"],
+                bbox=det['bbox'],
+                score=det['score'],
                 category_id=catid,
             )
 
@@ -130,8 +142,8 @@ def run_extract_boxes(
     ub.Path(dst_coco_fpath).parent.ensuredir()
     pred_coco.dump(dst_coco_fpath, newlines=True)
     print(f'Write to {dst_coco_fpath}')
-    return {"boxes_coco": dst_coco_fpath}
+    return {'boxes_coco': dst_coco_fpath}
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     ExtractBoxesConfig.main()

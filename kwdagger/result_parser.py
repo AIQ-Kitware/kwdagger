@@ -4,49 +4,17 @@ metrics for BAS and SC.
 
 Used by ./aggregate_loader.py
 """
+
+from __future__ import annotations
+
 import json
 import re
+from typing import Any, Mapping
+
 from kwutil import util_time
 
 
-# Do we need to memoize this?
-def parse_json_header(fpath):
-    """
-    Ideally the information we need is in the first few bytes of the json file
-    """
-    from kwdagger.utils import ijson_ext
-    import zipfile
-    if zipfile.is_zipfile(fpath):
-        # We have a compressed json file, but we can still read the header
-        # fairly quickly.
-        zfile = zipfile.ZipFile(fpath)
-        names = zfile.namelist()
-        assert len(names) == 1
-        member = names[0]
-        # Stream the header directly from the zipfile.
-        file = zfile.open(member, 'r')
-    else:
-        # Normal json file
-        file = open(fpath, 'r')
-
-    with file:
-        # import ijson
-        # We only expect there to be one info section
-        # try:
-        #     # Try our extension if the main library fails (due to NaN)
-        #     info_section_iter = ijson.items(file, prefix='info')
-        #     info_section = next(info_section_iter)
-        # except ijson.IncompleteJSONError:
-        # Try our extension if the main library fails (due to NaN)
-        # file.seek(0)
-
-        # Nans are too frequent, only use our extension
-        info_section_iter = ijson_ext.items(file, prefix='info')
-        info_section = next(info_section_iter)
-    return info_section
-
-
-def _handle_process_item(item):
+def _handle_process_item(item: dict[str, Any]) -> dict[str, Any]:
     """
     Json data written by the process context has changed over time slightly.
     Consolidate different usages until a consistent API and usage patterns are
@@ -78,6 +46,7 @@ def _handle_process_item(item):
 
     if needs_modify:
         import copy
+
         item = copy.deepcopy(item)
         item['properties']['config'] = config
         item['properties']['args'] = args
@@ -89,18 +58,25 @@ class Found(Exception):
     pass
 
 
-def _add_prefix(prefix, dict_):
+def _add_prefix(prefix: str, dict_: Mapping[str, Any]) -> dict[str, Any]:
     return {prefix + k: v for k, v in dict_.items()}
 
 
-def parse_resource_item(item, arg_prefix='', add_prefix=True):
+def parse_resource_item(
+    item: Mapping[str, Any], arg_prefix: str = '', add_prefix: bool = True
+) -> dict[str, Any]:
     import kwutil
+
     resources = {}
     ureg = kwutil.util_units.unit_registry()
     pred_prop = item['properties']
 
-    start_time = util_time.coerce_datetime(pred_prop.get('start_timestamp', None))
-    end_time = util_time.coerce_datetime(pred_prop.get('end_timestamp', pred_prop.get('stop_timestamp', None)))
+    start_time = util_time.coerce_datetime(
+        pred_prop.get('start_timestamp', None)
+    )
+    end_time = util_time.coerce_datetime(
+        pred_prop.get('end_timestamp', pred_prop.get('stop_timestamp', None))
+    )
     iters_per_second = pred_prop.get('iters_per_second', None)
     if start_time is None or end_time is None:
         total_hours = None
@@ -155,7 +131,7 @@ def parse_resource_item(item, arg_prefix='', add_prefix=True):
 
 
 # @ub.memoize
-def _load_json(fpath):
+def _load_json(fpath) -> Any:
     # memo hack for development
     with open(fpath, 'r') as file:
         data = json.load(file)

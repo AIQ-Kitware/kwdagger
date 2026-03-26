@@ -64,9 +64,13 @@ TODO:
           model, otherwise it is confusing.
 
 """
+
+from __future__ import annotations
+
 import math
+from typing import Any, Dict, cast
+
 import ubelt as ub
-from typing import Dict, Any
 from scriptconfig import DataConfig, Value
 
 
@@ -77,80 +81,115 @@ class AggregateLoader(DataConfig):
     :class:`Aggregator` objects (i.e. loading the tables).
     """
 
-    target = Value(None, help=ub.paragraph(
-        '''
+    target = Value(
+        None,
+        help=ub.paragraph(
+            """
         The input to the aggregator, which can take several forms:
         (1) the root directory of an mlops evaluation,
         (2) one or more pre-aggregated files,
-        '''), nargs='+', position=1)
+        """
+        ),
+        nargs='+',
+        position=1,
+    )
 
-    pipeline = Value('joint_bas_sc', help=ub.paragraph(
-        '''
+    pipeline = Value(
+        'joint_bas_sc',
+        help=ub.paragraph(
+            """
         The pipeline to run. This can be a name of an internally registered
         pipeline, or it can point to a function that defines a pipeline
         in a Python file. E.g. ``user_module.pipelines.custom_pipeline_func()``
         or ``$HOME/my_code/my_pipeline.py::make_my_pipeline("arg")``.
-        '''))
+        """
+        ),
+    )
 
     io_workers = Value('avail', help='number of processes to load results')
 
     eval_nodes = Value(None, help='eval nodes to look at')
 
-    primary_metric_cols = Value('auto', help='Either auto, or a YAML list of metrics in order of importance used to sort the output')
+    primary_metric_cols = Value(
+        'auto',
+        help='Either auto, or a YAML list of metrics in order of importance used to sort the output',
+    )
 
-    display_metric_cols = Value('auto', help='Either auto, or a YAML list of metrics in order for display')
+    display_metric_cols = Value(
+        'auto',
+        help='Either auto, or a YAML list of metrics in order for display',
+    )
 
-    cache_resolved_results = Value(True, isflag=True, help=ub.paragraph(
-        '''
+    cache_resolved_results = Value(
+        True,
+        isflag=True,
+        help=ub.paragraph(
+            """
         if True, avoid recomputing parameter resolution if possible.
         Set to False if the specific resolved parameter / result parsers have
         changed. Note, that when set to False, the cache file will still
         be written, so subsequent loads with the value True will use the new
         results.
-        '''))
+        """
+        ),
+    )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         from kwutil.util_yaml import Yaml
-        self.eval_nodes = Yaml.coerce(self.eval_nodes)
-        self.primary_metric_cols = Yaml.coerce(self.primary_metric_cols)
-        self.display_metric_cols = Yaml.coerce(self.display_metric_cols)
+
+        self.eval_nodes = cast(Any, Yaml.coerce(cast(Any, self.eval_nodes)))
+        self.primary_metric_cols = cast(
+            Any, Yaml.coerce(cast(Any, self.primary_metric_cols))
+        )
+        self.display_metric_cols = cast(
+            Any, Yaml.coerce(cast(Any, self.display_metric_cols))
+        )
         ####
         # Pre-corece patterned inputs for nicer reporting?
         inputs = self.target
         if inputs is not None:
             from ruamel.yaml.composer import ComposerError
+
             resolved = []
 
             def resolve_item(item):
                 try:
-                    loaded = Yaml.loads(item)
+                    loaded = Yaml.loads(cast(Any, item))
                 except (ComposerError, TypeError):
                     loaded = item
-                if ub.iterable(loaded):
+                if isinstance(loaded, (list, tuple)):
                     yield from loaded
                 else:
                     yield loaded
-            if ub.iterable(inputs):
+
+            if isinstance(inputs, (list, tuple)):
                 for item in inputs:
                     resolved.extend(list(resolve_item(item)))
             else:
                 resolved.extend(list(resolve_item(inputs)))
             self.target = resolved
 
-    def coerce_aggregators(config):
-        from kwutil import util_path
-        from kwdagger.aggregate_loader import build_tables
+    def coerce_aggregators(config) -> dict[str, Any]:
         import pandas as pd
-        input_targets = util_path.coerce_patterned_paths(config.target)
+        from kwutil import util_path
+
+        from kwdagger.aggregate_loader import build_tables
+
+        input_targets = util_path.coerce_patterned_paths(
+            cast(Any, config.target)
+        )
         eval_type_to_tables = ub.ddict(list)
 
         print('Coerce aggregators for pipeline:')
         from kwdagger import pipeline
+
         dag = pipeline.coerce_pipeline(config.pipeline)
         dag.print_graphs()
 
         print(f'Found {len(input_targets)} input targets')
-        for target in ub.ProgIter(input_targets, desc='loading targets', verbose=3):
+        for target in ub.ProgIter(
+            input_targets, desc='loading targets', verbose=3
+        ):
             if target.is_dir():
                 # Assume Pipeline Output dir
                 root_dpath = target
@@ -160,8 +199,12 @@ class AggregateLoader(DataConfig):
                 io_workers = config.io_workers
                 cache_resolved_results = config.cache_resolved_results
                 eval_type_to_results = build_tables(
-                    root_dpath, dag, io_workers, eval_nodes,
-                    cache_resolved_results=cache_resolved_results)
+                    root_dpath,
+                    dag,
+                    io_workers,
+                    eval_nodes,
+                    cache_resolved_results=cache_resolved_results,
+                )
                 for node_type, results in eval_type_to_results.items():
                     table = pd.concat(list(results.values()), axis=1)
                     eval_type_to_tables[node_type].append(table)
@@ -174,14 +217,20 @@ class AggregateLoader(DataConfig):
 
         eval_type_to_aggregator = {}
         for eval_type, tables in eval_type_to_tables.items():
-            table = tables[0] if len(tables) == 1 else pd.concat(tables).reset_index(drop=True)
+            table = (
+                tables[0]
+                if len(tables) == 1
+                else pd.concat(tables).reset_index(drop=True)
+            )
             # NOTE: if there are multiple targets dirs, then dag will be
             # configured with only the last target in the root directory.
             # This may be a problem, or at the least a source of confusion.
-            agg = Aggregator(table,
-                             primary_metric_cols=config.primary_metric_cols,
-                             display_metric_cols=config.display_metric_cols,
-                             dag=dag)
+            agg = Aggregator(
+                table,
+                primary_metric_cols=config.primary_metric_cols,
+                display_metric_cols=config.display_metric_cols,
+                dag=dag,
+            )
             agg.build()
             eval_type_to_aggregator[eval_type] = agg
         return eval_type_to_aggregator
@@ -191,37 +240,63 @@ class AggregateEvluationConfig(AggregateLoader):
     """
     Aggregates results from multiple DAG evaluations.
     """
+
     __command__ = 'aggregate'
 
-    output_dpath = Value('./aggregate', help=ub.paragraph(
-        '''
+    output_dpath = Value(
+        './aggregate',
+        help=ub.paragraph(
+            """
         The path where the aggregator can write results (e.g. tables / plots).
-        '''))
+        """
+        ),
+    )
 
-    export_tables = Value(False, isflag=True, help='if True, aggregated tables will be written to the output directory')
+    export_tables = Value(
+        False,
+        isflag=True,
+        help='if True, aggregated tables will be written to the output directory',
+    )
 
-    plot_params = Value(False, isflag=True, help=ub.paragraph(
-        '''
+    plot_params = Value(
+        False,
+        isflag=True,
+        help=ub.paragraph(
+            """
         if True, param plots will be drawn. This can also be a YAML dictionary
         with items that give finder grained control over plotting.
         An example set if items might look like:
         ``{"enabled": 0, "stats_ranking": 0, "min_variations": 1,
         "params_of_interest": ["params.bas_poly.thresh",
         "resolved_params.bas_pxl.channels"]}``
-        '''))
+        """
+        ),
+    )
 
-    stdout_report = Value(True, type=str, isflag=True, help=ub.paragraph(
-        '''
+    stdout_report = Value(
+        True,
+        type=str,
+        isflag=True,
+        help=ub.paragraph(
+            """
         if True, print a report to stdout. This can also be a YAML dictionary.
         An example set if items might look like:
         ``{"top_k": 100, "per_group": 1, "macro_analysis": 0, "analyze": 1,
          "print_models": true, "reference_region": "final", "concise": 1,
          "show_csv": 0}``
-        '''))
+        """
+        ),
+    )
 
-    resource_report = Value(False, isflag=True, help='if True report resource utilization')
+    resource_report = Value(
+        False, isflag=True, help='if True report resource utilization'
+    )
 
-    symlink_results = Value(False, isflag=True, help='if True make symlinks based on region and param hashids')
+    symlink_results = Value(
+        False,
+        isflag=True,
+        help='if True make symlinks based on region and param hashids',
+    )
 
     # TODO: It would be better to distinguish datasets that could be macro (or
     # maybe micro)-combined using a term other than "regions", which made sense
@@ -230,19 +305,26 @@ class AggregateEvluationConfig(AggregateLoader):
 
     inspect = Value(None, help='param hashid to look at')
 
-    query = Value(None, type=str, help=ub.paragraph(
-        '''
+    query = Value(
+        None,
+        type=str,
+        help=ub.paragraph(
+            """
         a pandas query to restrict the rows of the table we consider.
         E.g. "df['param_hashid'] == 'blpiinmvwgng'".
         The same query is run for each aggregator.
         Note, the `--embed` and `--snapshot` commands can help interactively
         determine the correct query, but some knowledge of code structure
         is currently needed. Look at the `if config.query` block.
-        '''
-    ))
+        """
+        ),
+    )
 
-    custom_query = Value(None, type=str, help=ub.paragraph(
-        '''
+    custom_query = Value(
+        None,
+        type=str,
+        help=ub.paragraph(
+            """
         This is raw Python code executed after a query which can be used to
         create complex filters not directly supported by other arguments.
         The code must define a name "new_eval_type_to_aggregator", which should
@@ -250,24 +332,34 @@ class AggregateEvluationConfig(AggregateLoader):
         Ideally we can determine common cases and codify them without this
         arbitrary code execution. Use only if necessary.
         This is highly experimental and may be removed.
-        '''
-    ))
+        """
+        ),
+    )
 
-    embed = Value(False, isflag=True, help='if True, embed into IPython. Prefer snapshot over embed.')
+    embed = Value(
+        False,
+        isflag=True,
+        help='if True, embed into IPython. Prefer snapshot over embed.',
+    )
 
-    snapshot = Value(False, isflag=True, help='if True, make a snapshot suitable for IPython or a notebook. (requires xdev)')
+    snapshot = Value(
+        False,
+        isflag=True,
+        help='if True, make a snapshot suitable for IPython or a notebook. (requires xdev)',
+    )
 
     def __post_init__(self):
         super().__post_init__()
         from kwutil.util_yaml import Yaml
-        self.plot_params = Yaml.coerce(self.plot_params)
+
+        self.plot_params = cast(Any, Yaml.coerce(cast(Any, self.plot_params)))
         # if self.query is not None:
         #     self.query = ub.paragraph(self.query)
         if isinstance(self.plot_params, int):
-            self.plot_params = {
-                'enabled': bool(self.plot_params)
-            }
-        self.stdout_report = Yaml.coerce(self.stdout_report)
+            self.plot_params = {'enabled': bool(self.plot_params)}
+        self.stdout_report = cast(
+            Any, Yaml.coerce(cast(Any, self.stdout_report))
+        )
 
     def coerce_aggregators(config):
         eval_type_to_aggregator = super().coerce_aggregators()
@@ -277,7 +369,7 @@ class AggregateEvluationConfig(AggregateLoader):
         return eval_type_to_aggregator
 
     @classmethod
-    def main(cls, argv=True, **kwargs):
+    def main(cls, argv: bool | list[str] = True, **kwargs: Any):
         """
         Aggregate entry point.
 
@@ -328,14 +420,17 @@ class AggregateEvluationConfig(AggregateLoader):
         run_aggregate(config)
 
 
-def run_aggregate(config):
+def run_aggregate(config) -> dict[str, Aggregator]:
     import rich
     from kwutil.util_yaml import Yaml
+
     eval_type_to_aggregator = config.coerce_aggregators()
     orig_eval_type_to_aggregator = eval_type_to_aggregator  # NOQA
 
     if config.eval_nodes is not None:
-        eval_type_to_aggregator = ub.udict(eval_type_to_aggregator) & config.eval_nodes
+        eval_type_to_aggregator = (
+            ub.udict(eval_type_to_aggregator) & config.eval_nodes
+        )
 
     output_dpath = ub.Path(config['output_dpath'])
     for agg in eval_type_to_aggregator.values():
@@ -347,12 +442,12 @@ def run_aggregate(config):
     if config.query:
         print('Running query')
         from kwdagger.query_plan import QueryPlan
+
         query_plan = QueryPlan.parse(config.query, strict=True)
         if 0:
             print(query_plan.describe())
         new_eval_type_to_aggregator = {}
         for key, agg in eval_type_to_aggregator.items():
-
             # Use new query logic
             new_index = query_plan.apply(agg.table, node=key).index
             new_agg = agg.filterto(index=new_index)
@@ -361,7 +456,9 @@ def run_aggregate(config):
             # new_agg = agg.filterto(query=config.query)
 
             new_eval_type_to_aggregator[key] = new_agg
-            rich.print(f'Query {key} filtered to {len(new_agg)}/{len(agg)} rows')
+            rich.print(
+                f'Query {key} filtered to {len(new_agg)}/{len(agg)} rows'
+            )
         eval_type_to_aggregator = new_eval_type_to_aggregator
 
     if config.custom_query:
@@ -392,8 +489,9 @@ def run_aggregate(config):
         if embedding_modpath is None:
             print('missing embed module')
         if embedding_modpath is not None:
-
-            print(f'eval_type_to_aggregator = {ub.urepr(eval_type_to_aggregator, nl=1)}')
+            print(
+                f'eval_type_to_aggregator = {ub.urepr(eval_type_to_aggregator, nl=1)}'
+            )
             for node_type, agg in eval_type_to_aggregator.items():
                 print(f'agg={agg}')
 
@@ -402,6 +500,7 @@ def run_aggregate(config):
                 embed_module.snapshot()
                 # Exit after taking the snapshot
                 import sys
+
                 sys.exit(1)
             elif config.embed:
                 embed_module.embed()
@@ -414,6 +513,7 @@ def run_aggregate(config):
     timestamp = ub.timestamp()
     if config.export_tables:
         import platform
+
         hostname = platform.node()
         for eval_type, agg in eval_type_to_aggregator.items():
             num_results = len(agg)
@@ -432,12 +532,14 @@ def run_aggregate(config):
         print(f'report_config = {ub.urepr(report_config, nl=1)}')
         for eval_type, agg in eval_type_to_aggregator.items():
             if len(agg):
-
                 if rois is not None:
                     agg.build_macro_tables(rois)
 
-                reportkw = ub.compatible(report_config, agg.report_best)
+                reportkw = ub.compatible(
+                    cast(dict[str, Any], report_config), agg.report_best
+                )
                 agg.report_best(**reportkw)
+                report_config = cast(dict[str, Any], report_config)
                 if report_config.get('analyze', False):
                     agg.analyze()
                 if report_config.get('macro_analysis', False):
@@ -456,7 +558,7 @@ def run_aggregate(config):
     if config.plot_params['enabled']:
         for eval_type, agg in eval_type_to_aggregator.items():
             if len(agg):
-                plot_config = ub.udict(config.plot_params) - {'enabled'}
+                plot_config = ub.udict(config.plot_params) - {'enabled'}  # type: ignore
                 agg.plot_all(rois, plot_config)
                 # TODO: have text reports in a separate group
                 agg.dump_varied_parameter_report()
@@ -465,7 +567,11 @@ def run_aggregate(config):
         agg = eval_type_to_aggregator['bas_pxl_eval']
         for eval_type, agg in eval_type_to_aggregator.items():
             if len(agg):
-                subagg = agg.filterto(param_hashids=config.inspect if ub.iterable(config.inspect) else [config.inspect])
+                subagg = agg.filterto(
+                    param_hashids=config.inspect
+                    if ub.iterable(config.inspect)
+                    else [config.inspect]
+                )
                 if len(subagg):
                     subagg.make_summary_analysis(config)
                     # from kwdagger import confusor_analysis
@@ -489,17 +595,20 @@ class AggregatorAnalysisMixin:
     """
     Analysis methods for :class:`Aggregator`.
     """
-    def macro_analysis(agg):
-        import pandas as pd
-        from kwdagger.utils import result_analysis
-        from kwdagger.utils import util_pandas
 
-        macro_keys = list(agg.macro_key_to_regions.keys())
+    def macro_analysis(agg: Aggregator):
+        import pandas as pd
+
+        from kwdagger.utils import result_analysis, util_pandas
+
+        macro_keys = list(agg.macro_key_to_regions.keys())  # ty: ignore[unresolved-attribute]
         if len(macro_keys) == 0:
             raise Exception('Build a macro result first')
 
         # regions_of_interest = agg.macro_key_to_regions[agg.primary_macro_region]
-        tables = util_pandas.DotDictDataFrame(agg.region_to_tables[agg.primary_macro_region])
+        tables = util_pandas.DotDictDataFrame(
+            agg.region_to_tables[agg.primary_macro_region]  # ty: ignore[not-subscriptable]
+        )
 
         resolved_params = tables['resolved_params']
         metrics = tables['metrics']
@@ -508,43 +617,60 @@ class AggregatorAnalysisMixin:
         table = pd.concat([index, resolved_params, metrics], axis=1)
         table = table.fillna('None')
 
-        main_metric = agg.primary_metric_cols[0]
-        table = table.applymap(lambda x: str(x) if isinstance(x, list) else x)
+        main_metric = agg.primary_metric_cols[0]  # ty: ignore[unresolved-attribute]
+        table = util_pandas.compat_applymap(
+            table, lambda x: str(x) if isinstance(x, list) else x
+        )
 
         results = []
         for idx, row in enumerate(table.to_dict('records')):
             row = ub.udict(row)
-            row_metrics = row & set(metrics.keys())
-            row_params = row & set(resolved_params.keys())
+            row_metrics = ub.udict(
+                {k: row[k] for k in metrics.keys() if k in row}
+            )
+            row_params = ub.udict(
+                {k: row[k] for k in resolved_params.keys() if k in row}
+            )
             result = result_analysis.Result(str(idx), row_params, row_metrics)
             results.append(result)
 
         analysis = result_analysis.ResultAnalysis(
-            results, metrics=[main_metric],
-            metric_objectives={main_metric: 'max'}
+            results,
+            metrics=[main_metric],
+            metric_objectives={main_metric: 'max'},
         )
         # self = analysis
         analysis.analysis()
         analysis.report()
         return analysis, table
 
-    def varied_param_counts(agg, min_variations=2, dropna=False):
+    def varied_param_counts(
+        agg: Aggregator, min_variations: int = 2, dropna: bool = False
+    ):
         from kwdagger.utils import util_pandas
+
         params = util_pandas.DataFrame(agg.resolved_params)
-        params = params.applymap(lambda x: str(x) if isinstance(x, list) else x)
-        varied_counts = params.varied_value_counts(dropna=dropna, min_variations=min_variations)
+        params = util_pandas.compat_applymap(
+            params, lambda x: str(x) if isinstance(x, list) else x
+        )
+        varied_counts = params.varied_value_counts(
+            dropna=dropna, min_variations=min_variations
+        )
         varied_counts = ub.udict(varied_counts).sorted_values(key=len)
         return varied_counts
 
-    def dump_varied_parameter_report(agg):
+    def dump_varied_parameter_report(agg: Aggregator):
         """
         Write the varied parameter report to disk
         """
         import kwutil
         import rich
+
         report = agg.varied_parameter_report()
         list(kwutil.Json.find_unserializable(report))
-        fixed_report = kwutil.Json.ensure_serializable(report, verbose=3, normalize_containers=True)
+        fixed_report = kwutil.Json.ensure_serializable(
+            report, verbose=3, normalize_containers=True
+        )
         # kwutil.Json.dumps(fixed_report)
         try:
             yaml_text = kwutil.Yaml.dumps(fixed_report)
@@ -552,13 +678,14 @@ class AggregatorAnalysisMixin:
             # not sure why ruamel.yaml will cause an error here
             yaml_text = kwutil.Yaml.dumps(fixed_report, backend='pyyaml')
 
-        agg.output_dpath.ensuredir()
-        report_fpath = agg.output_dpath / 'varied_param_report.yaml'
+        agg.output_dpath.ensuredir()  # ty: ignore[unresolved-attribute]
+        report_fpath = agg.output_dpath / 'varied_param_report.yaml'  # ty: ignore[unsupported-operator]
         rich.print(f'Write varied parameter report to: {report_fpath}')
         report_fpath.write_text(yaml_text)
 
-    def varied_parameter_report(agg, concise=True,
-                                concise_value_char_threshold=80):
+    def varied_parameter_report(
+        agg: Aggregator, concise: bool = True, concise_value_char_threshold: int = 80
+    ):
         """
         Dump a machine and human readable varied parameter report.
 
@@ -567,6 +694,7 @@ class AggregatorAnalysisMixin:
                 if True, sacrifice row homogeneity for shorter encodings
         """
         from kwdagger.utils import util_pandas
+
         concise_value_char_threshold = 80
         report = {}
 
@@ -575,7 +703,9 @@ class AggregatorAnalysisMixin:
 
         # from kwdagger.utils import result_analysis
         resolved_params = util_pandas.DataFrame(agg.resolved_params)
-        varied_counts = resolved_params.varied_value_counts(on_error='placeholder')
+        varied_counts = resolved_params.varied_value_counts(
+            on_error='placeholder'
+        )
         # varied_counts = agg.table.varied_value_counts(on_error='placeholder')
         param_summary = {}
         for key, value_counts in varied_counts.items():
@@ -583,12 +713,12 @@ class AggregatorAnalysisMixin:
             for value, count in value_counts.items():
                 type_counts[type(value).__name__] += count
             type_counts = ub.odict(type_counts)
-            summary = {
+            summary: dict[str, Any] = {
                 'num_variations': len(value_counts),
             }
             if concise and len(type_counts) == 1:
                 # Just indicate what the type of all values was
-                summary['type'] = ub.peek(type_counts.keys())
+                summary['type'] = cast(Any, ub.peek(type_counts.keys()))
             else:
                 summary['type_counts'] = type_counts
 
@@ -600,7 +730,9 @@ class AggregatorAnalysisMixin:
                 summary['value_counts'] = value_counts
             param_summary[key] = summary
 
-        param_summary = ub.udict(param_summary).sorted_values(lambda x: x['num_variations'])
+        param_summary = ub.udict(param_summary).sorted_values(
+            lambda x: x['num_variations']
+        )
 
         top_level_descendants = ub.ddict(set)
         for key in list(varied_counts.keys()):
@@ -612,29 +744,33 @@ class AggregatorAnalysisMixin:
         for top, parts in top_level_descendants.items():
             partlens = list(map(len, parts))
             length_hist = ub.dict_hist(partlens)
-            column_summary.append({
-                'top': top,
-                'num_subcolumns': len(parts),
-                'subcolumn_depth_hist': length_hist,
-            })
+            column_summary.append(
+                {
+                    'top': top,
+                    'num_subcolumns': len(parts),
+                    'subcolumn_depth_hist': length_hist,
+                }
+            )
 
         report['param_summary'] = param_summary
         report['column_summary'] = column_summary
         return report
 
-    def analyze(agg, metrics_of_interest=None):
+    def analyze(agg: Aggregator, metrics_of_interest=None):
         """
         Does a stats analysis on each varied parameter. Note this makes
         independence assumptions that may not hold in general.
         """
-        from kwdagger.utils import util_pandas
-        from kwdagger.utils import result_analysis
+        from kwdagger.utils import result_analysis, util_pandas
+
         resolved_params = util_pandas.DataFrame(agg.resolved_params)
         if metrics_of_interest is None:
-            metrics_of_interest = agg.primary_metric_cols
+            metrics_of_interest = agg.primary_metric_cols  # ty: ignore[unresolved-attribute]
 
         metrics = agg.metrics[metrics_of_interest]
-        resolved_params = resolved_params.applymap(lambda x: str(x) if isinstance(x, list) else x)
+        resolved_params = util_pandas.compat_applymap(
+            resolved_params, lambda x: str(x) if isinstance(x, list) else x
+        )
 
         varied_counts = resolved_params.varied_value_counts(dropna=True)
 
@@ -656,9 +792,18 @@ class AggregatorAnalysisMixin:
         # analysis.results
         analysis.analysis()
 
-    def report_best(agg, top_k=100, shorten=True, per_group=None, verbose=1,
-                    reference_region=None, print_models=False, concise=False,
-                    show_csv=False, grouptop=None) -> TopResultsReport:
+    def report_best(
+        agg: Aggregator,
+        top_k: int = 100,
+        shorten: bool = True,
+        per_group=None,
+        verbose: int = 1,
+        reference_region=None,
+        print_models: bool = False,
+        concise: bool = False,
+        show_csv: bool = False,
+        grouptop=None,
+    ) -> TopResultsReport:
         """
         Report the top k pointwise results for each region / macro-region.
 
@@ -714,19 +859,19 @@ class AggregatorAnalysisMixin:
             >>> agg.report_best(print_models=True, top_k=3, grouptop='special:model')
             >>> agg.report_best(print_models=True, top_k=3, grouptop='special:model', reference_region='region1')
         """
-        import rich
-        import pandas as pd
         import numpy as np
+        import pandas as pd
+        import rich
+
         from kwdagger.utils import util_pandas
 
         if isinstance(per_group, float) and math.isinf(per_group):
             per_group = None
         if isinstance(top_k, float) and math.isinf(top_k):
-            top_k = None
+            top_k = cast(Any, None)
 
         primary_metric_objectives = [
-            agg._metric_info[c]['objective'] for c in
-            agg.primary_metric_cols
+            agg._metric_info[c]['objective'] for c in agg.primary_metric_cols  # ty: ignore[unresolved-attribute]
         ]
 
         if reference_region:
@@ -734,15 +879,19 @@ class AggregatorAnalysisMixin:
             # reference region. The idea is to make things comparable to the
             # macro scores.
             if reference_region == 'final':
-                reference_region = region_id = list(agg.region_to_tables.keys())[-1]
+                reference_region = region_id = list(
+                    agg.region_to_tables.keys()  # ty: ignore[unresolved-attribute]
+                )[-1]
             else:
                 region_id = reference_region
 
             # Lookup the table corresponding to the reference region
-            group = agg.region_to_tables[region_id]
+            group = agg.region_to_tables[region_id]  # ty: ignore[not-subscriptable]
             if len(group) == 0:
-                region_to_len = ub.udict(agg.region_to_tables).map_values(len)
-                print('region_to_len = {}'.format(ub.urepr(region_to_len, nl=1)))
+                region_to_len = ub.udict(agg.region_to_tables).map_values(len)  # ty: ignore[no-matching-overload]
+                print(
+                    'region_to_len = {}'.format(ub.urepr(region_to_len, nl=1))
+                )
                 raise Exception(f'reference {region_id=} group is empty')
 
             # TODO: consolidate this logic with the similar per-region logic
@@ -751,39 +900,51 @@ class AggregatorAnalysisMixin:
 
             # Rank reference region param_hashids of the primary metrics
             if grouptop is not None:
-                grouptop = _coerce_grouptop(grouptop, aliases={
-                    'special:model': agg.model_cols
-                })
+                grouptop = _coerce_grouptop(
+                    grouptop, aliases={'special:model': agg.model_cols}
+                )
                 # Find the top k results per group.
                 sublocs = []
                 for subkey, subgroup in group.groupby(grouptop['params']):
                     locs = util_pandas.DataFrame.argextrema(
-                        subgroup, agg.primary_metric_cols,
-                        objective=primary_metric_objectives, k=grouptop['top_k'])
+                        subgroup,
+                        agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
+                        objective=primary_metric_objectives,
+                        k=grouptop['top_k'],
+                    )
                     sublocs.extend(locs)
                 group_to_rank = group.loc[sublocs]
                 if verbose > 3:
-                    print(f'Filtering by group to {len(sublocs)} / {len(group)} param hashids in reference region')
+                    print(
+                        f'Filtering by group to {len(sublocs)} / {len(group)} param hashids in reference region'
+                    )
             else:
                 group_to_rank = group
 
             try:
                 top_locs = util_pandas.DataFrame.argextrema(
-                    group_to_rank, agg.primary_metric_cols,
-                    objective=primary_metric_objectives, k=top_k)
+                    group_to_rank,
+                    agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
+                    objective=primary_metric_objectives,
+                    k=top_k,
+                )
             except Exception:
-                print("FIXME: Something when wrong when sorting the reference region")
+                print(
+                    'FIXME: Something when wrong when sorting the reference region'
+                )
                 raise
             top_param_hashids = group.loc[top_locs]['param_hashid']
 
             if verbose > 3:
-                print(f'Filtering to top {len(top_locs)} / {len(group)} param hashids in reference region')
+                print(
+                    f'Filtering to top {len(top_locs)} / {len(group)} param hashids in reference region'
+                )
 
             # Filter the agg object to consider only the top parameters
             _agg = agg.filterto(param_hashids=top_param_hashids)
 
-            if region_id in agg.macro_key_to_regions:
-                rois = agg.macro_key_to_regions[region_id]
+            if region_id in agg.macro_key_to_regions:  # ty: ignore[unsupported-operator]
+                rois = agg.macro_key_to_regions[region_id]  # ty: ignore[not-subscriptable]
                 _agg.build_macro_tables(rois)
             reference_hashids = top_param_hashids
             reference_hashid_to_rank = {
@@ -792,10 +953,12 @@ class AggregatorAnalysisMixin:
 
             if verbose > 3:
                 # Print out information on how much was filtered per region
-                for region_id in agg.region_to_tables.keys():
-                    old_table = agg.region_to_tables[region_id]
+                for region_id in agg.region_to_tables.keys():  # ty: ignore[unresolved-attribute]
+                    old_table = agg.region_to_tables[region_id]  # ty: ignore[not-subscriptable]
                     new_table = _agg.region_to_tables[region_id]
-                    print(f'Filter reduces {region_id} to {len(new_table)} / {len(old_table)}')
+                    print(
+                        f'Filter reduces {region_id} to {len(new_table)} / {len(old_table)}'
+                    )
 
         else:
             # If no reference region is given, subsequent code will sort each
@@ -804,14 +967,15 @@ class AggregatorAnalysisMixin:
             reference_hashid_to_rank = None
             _agg = agg
 
-        metric_display_cols = list(ub.oset(
-            _agg.primary_metric_cols + _agg.display_metric_cols))
+        metric_display_cols = list(
+            ub.oset(_agg.primary_metric_cols + _agg.display_metric_cols)  # ty: ignore[unresolved-attribute]
+        )
 
         # For each region determine what information will be returned / shown
         region_id_to_summary = {}
         big_param_lut = {}
         region_id_to_ntotal = {}
-        for region_id, group in _agg.region_to_tables.items():
+        for region_id, group in _agg.region_to_tables.items():  # ty: ignore[unresolved-attribute]
             if len(group) == 0:
                 continue
             index_cols = group.columns.intersection(_agg.index.columns)
@@ -820,28 +984,35 @@ class AggregatorAnalysisMixin:
                 # Rank the rows for this region individually
 
                 if grouptop is not None:
-                    grouptop = _coerce_grouptop(grouptop, aliases={
-                        'special:model': _agg.model_cols
-                    })
+                    grouptop = _coerce_grouptop(
+                        grouptop, aliases={'special:model': _agg.model_cols}
+                    )
                     # Find the top k results per group.
                     sublocs = []
                     for subkey, subgroup in group.groupby(grouptop['params']):
                         locs = util_pandas.DataFrame.argextrema(
-                            subgroup, _agg.primary_metric_cols,
-                            objective=primary_metric_objectives, k=grouptop['top_k'])
+                            subgroup,
+                            _agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
+                            objective=primary_metric_objectives,
+                            k=grouptop['top_k'],
+                        )
                         sublocs.extend(locs)
                     group_to_rank = group.loc[sublocs]
                 else:
                     group_to_rank = group
 
                 ranked_locs = util_pandas.DataFrame.argextrema(
-                    group_to_rank, _agg.primary_metric_cols,
-                    objective=primary_metric_objectives, k=top_k)
+                    group_to_rank,
+                    _agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
+                    objective=primary_metric_objectives,
+                    k=top_k,
+                )
             else:
                 # Rank the rows for this region by the reference rank
                 # len(reference_hashid_to_rank)
                 def make_rank_getter(d):  # no closure for embed debug
                     return lambda x: d.get(x, float('inf'))
+
                 rank_getter = make_rank_getter(reference_hashid_to_rank)
                 ranking = group['param_hashid'].apply(rank_getter)
                 ranking = ranking[np.isfinite(ranking)]
@@ -850,15 +1021,21 @@ class AggregatorAnalysisMixin:
             # Note: this report will only display requested params, but there
             # might be more detailed variations of interest.
             ranked_group = group.loc[ranked_locs]
-            param_lut = _agg.hashid_to_effective_params.subdict(ranked_group['param_hashid'])
+            param_lut = _agg.hashid_to_effective_params.subdict(  # ty: ignore[unresolved-attribute]
+                ranked_group['param_hashid']
+            )
             big_param_lut.update(param_lut)
 
-            have_metric_display_cols = list(ub.oset(metric_display_cols) & list(ranked_group.columns))
+            have_metric_display_cols = list(
+                ub.oset(metric_display_cols) & list(ranked_group.columns)
+            )
             summary_cols = list(index_cols) + have_metric_display_cols
             summary_table = ranked_group[summary_cols]
 
             if shorten:
-                summary_table = util_pandas.DataFrame(summary_table).shorten_columns()
+                summary_table = util_pandas.DataFrame(
+                    summary_table
+                ).shorten_columns()
 
             region_id_to_summary[region_id] = summary_table
             region_id_to_ntotal[region_id] = len(group)
@@ -886,59 +1063,100 @@ class AggregatorAnalysisMixin:
                 if len(top_param_lut) == 1:
                     PARAMTER_DISPLAY_MODE = 'full-requested'
 
-            varied = varied_value_counts(top_param_lut.values(), dropna=True,
-                                         min_variations=2, default=None)
+            varied = varied_value_counts(
+                top_param_lut.values(),
+                dropna=True,
+                min_variations=2,
+                default=None,
+            )
 
             if PARAMTER_DISPLAY_MODE == 'full-requested':
                 # Show full requested parameters for each hash
-                rich.print('Parameter LUT: {}'.format(ub.urepr(top_param_lut, nl=2)))
+                rich.print(
+                    'Parameter LUT: {}'.format(ub.urepr(top_param_lut, nl=2))
+                )
             elif PARAMTER_DISPLAY_MODE == 'varied-requested':
                 # Show all unvaried requested parameters and then the varied
                 # requested parameters for each hash
                 varied_param_names = set(varied.keys())
-                top_varied_param_lut = {k: ub.udict(v) & varied_param_names
-                                        for k, v in top_param_lut.items()}
+                top_varied_param_lut = {
+                    k: ub.udict(v) & varied_param_names  # type: ignore
+                    for k, v in top_param_lut.items()
+                }
 
                 top_nonvaried_param_lut = {
-                    k: ub.udict(v) - varied_param_names
-                    for k, v in top_param_lut.items()}
+                    k: ub.udict(v) - varied_param_names  # type: ignore
+                    for k, v in top_param_lut.items()
+                }
 
-                non_varied_params = ub.udict().union(*top_nonvaried_param_lut.values())
+                non_varied_params = ub.udict().union(
+                    *top_nonvaried_param_lut.values()
+                )
                 from rich.markup import escape
-                rich.print('Varied Basis: = {}'.format(escape(ub.urepr(varied, nl=2))))
-                rich.print('Constant Params: {}'.format(escape(ub.urepr(non_varied_params, nl=2))))
-                rich.print('Varied Parameter LUT: {}'.format(escape(ub.urepr(top_varied_param_lut, nl=2))))
+
+                rich.print(
+                    'Varied Basis: = {}'.format(
+                        escape(str(ub.urepr(varied, nl=2)))
+                    )
+                )
+                rich.print(
+                    'Constant Params: {}'.format(
+                        escape(str(ub.urepr(non_varied_params, nl=2)))
+                    )
+                )
+                rich.print(
+                    'Varied Parameter LUT: {}'.format(
+                        escape(str(ub.urepr(top_varied_param_lut, nl=2)))
+                    )
+                )
             else:
                 raise KeyError(PARAMTER_DISPLAY_MODE)
 
             if show_csv:
                 ub.schedule_deprecation(
-                    'kwdagger', 'show_csv', 'param',
+                    'kwdagger',
+                    'show_csv',
+                    'param',
                     migration='This option should not be relied on.',
-                    deprecate='0.18.3', error='1.0.0', remove='1.1.0')
+                    deprecate='0.18.3',
+                    error='1.0.0',
+                    remove='1.1.0',
+                )
                 varied_keys = list(varied.keys())
                 param_table = pd.DataFrame.from_dict(top_param_lut).T
                 param_table.index.name = 'param_hashid'
                 param_table = util_pandas.DataFrame(param_table)
-                param_table = param_table.reorder(varied_keys, axis=1, missing='drop')
-                print(ub.paragraph(
-                    '''
+                param_table = param_table.reorder(
+                    varied_keys, axis=1, missing='drop'
+                )
+                print(
+                    ub.paragraph(
+                        """
                     Note, to paste into sheets, there will be an icon after you
                     paste (that looks like a clipboard) you can click and it
                     give you an option: Split text to columns
-                    '''))
+                    """
+                    )
+                )
                 print(param_table.to_csv(header=True, index=True))
 
             # Check for a common special case that we can make more concise output for
-            only_one_top_item = all(len(t) == 1 for t in region_id_to_summary.values())
-            only_one_source_item = all(n == 1 for n in region_id_to_ntotal.values())
+            only_one_top_item = all(
+                len(t) == 1 for t in region_id_to_summary.values()
+            )
+            only_one_source_item = all(
+                n == 1 for n in region_id_to_ntotal.values()
+            )
 
             if only_one_top_item and len(region_id_to_summary):
                 # In this case there is only a single top result per-region, so
                 # we can show them all in the same table rather than having on
                 # table per-region.
                 justone = pd.concat(list(region_id_to_summary.values()), axis=0)
-                submacro = ub.udict(_agg.macro_key_to_regions) & justone['region_id'].values
+                submacro = (
+                    ub.udict(_agg.macro_key_to_regions)  # ty: ignore[no-matching-overload]
+                    & justone['region_id'].values
+                )
 
                 rich.print(f'Top results for {agg.node_type}')
 
@@ -946,7 +1164,10 @@ class AggregatorAnalysisMixin:
                     # Not sure why I differentiated this case, but keeping
                     # code consistent
                     if submacro:
-                        print('Macro Regions LUT: ' +  ub.urepr(submacro, nl=1))
+                        print(
+                            'Macro Regions LUT: '
+                            + cast(str, ub.urepr(submacro, nl=1))
+                        )
                 _justone = util_pandas.DataFrame(justone)
                 if concise:
                     if concise == 'split':
@@ -967,8 +1188,11 @@ class AggregatorAnalysisMixin:
 
                 if not only_one_source_item:
                     # again, not sure why this is different
-                    rich.print('agg.macro_key_to_regions = {}'.format(
-                        ub.urepr(_agg.macro_key_to_regions, nl=1)))
+                    rich.print(
+                        'agg.macro_key_to_regions = {}'.format(
+                            ub.urepr(_agg.macro_key_to_regions, nl=1)
+                        )
+                    )
             else:
                 # In the more common case, we have multiple results per region,
                 # so we display a table for each region separately.
@@ -977,13 +1201,19 @@ class AggregatorAnalysisMixin:
                     rich.print('---')
                     ref_text = ''
                     if reference_region:
-                        ref_text = f' wrt to reference region {reference_region}'
+                        ref_text = (
+                            f' wrt to reference region {reference_region}'
+                        )
 
-                    if region_id in _agg.macro_key_to_regions:
-                        macro_regions = _agg.macro_key_to_regions[region_id]
-                        rich.print(f'Top {len(summary_table)} / {ntotal} for {agg.node_type}, {region_id} = {macro_regions}{ref_text}')
+                    if region_id in _agg.macro_key_to_regions:  # ty: ignore[unsupported-operator]
+                        macro_regions = _agg.macro_key_to_regions[region_id]  # ty: ignore[not-subscriptable]
+                        rich.print(
+                            f'Top {len(summary_table)} / {ntotal} for {agg.node_type}, {region_id} = {macro_regions}{ref_text}'
+                        )
                     else:
-                        rich.print(f'Top {len(summary_table)} / {ntotal} for {agg.node_type}, {region_id}{ref_text}')
+                        rich.print(
+                            f'Top {len(summary_table)} / {ntotal} for {agg.node_type}, {region_id}{ref_text}'
+                        )
 
                     _summary_table = util_pandas.DataFrame(summary_table)
                     _summary_table_csv = _summary_table
@@ -993,14 +1223,22 @@ class AggregatorAnalysisMixin:
                             # If concise is split, we want to to print the
                             # paths, but use vertical space.
                             try:
-                                _split_path_table = _summary_table[['fpath', 'param_hashid']]
+                                _split_path_table = _summary_table[
+                                    ['fpath', 'param_hashid']
+                                ]
                                 vertical_tables.append(_split_path_table)
                             except KeyError:
                                 ...
 
-                        _summary_table = _summary_table.safe_drop(['node'], axis=1)
-                        _summary_table = _summary_table.safe_drop(['fpath'], axis=1)
-                        _summary_table_csv = _summary_table_csv.safe_drop(['fpath'], axis=1)
+                        _summary_table = _summary_table.safe_drop(
+                            ['node'], axis=1
+                        )
+                        _summary_table = _summary_table.safe_drop(
+                            ['fpath'], axis=1
+                        )
+                        _summary_table_csv = _summary_table_csv.safe_drop(
+                            ['fpath'], axis=1
+                        )
 
                     vertical_tables.append(_summary_table)
 
@@ -1016,9 +1254,14 @@ class AggregatorAnalysisMixin:
                         if 'fpath' in lut.columns:
                             for param_hashid in _summary_table['param_hashid']:
                                 try:
-                                    fpath = ub.Path(lut.loc[param_hashid]['fpath'])
+                                    fpath = ub.Path(
+                                        lut.loc[param_hashid]['fpath']
+                                    )
                                     if fpath.exists():
-                                        text = text.replace(param_hashid, f'[link={fpath.parent}]{param_hashid}[/link]')
+                                        text = text.replace(
+                                            param_hashid,
+                                            f'[link={fpath.parent}]{param_hashid}[/link]',
+                                        )
                                 except TypeError:
                                     # can happen if lut has multiple results for the same hashid
                                     ...
@@ -1026,19 +1269,27 @@ class AggregatorAnalysisMixin:
                     rich.print(text)
 
                     if show_csv:
-                        print(ub.paragraph(
-                            '''
+                        print(
+                            ub.paragraph(
+                                """
                             Note, to paste into sheets, there will be an icon
                             after you paste (that looks like a clipboard) you
                             can click and it give you an option: Split text to
                             columns
-                        '''))
-                        print(_summary_table_csv.iloc[::-1].to_csv(header=True, index=False))
+                        """
+                            )
+                        )
+                        print(
+                            _summary_table_csv.iloc[::-1].to_csv(
+                                header=True, index=False
+                            )
+                        )
                         ...
                     rich.print('')
 
         if print_models:
             import itertools as it
+
             from kwutil.util_yaml import Yaml
 
             # FIXME: handle macro regions?
@@ -1053,17 +1304,24 @@ class AggregatorAnalysisMixin:
                 if not region_id.startswith('macro_'):
                     tocombine_indexes.append(list(summary.index))
 
-            top_locs = list(ub.oset([x for x in ub.flatten(
-                it.zip_longest(*tocombine_indexes)) if x is not None]))
+            top_locs = list(
+                ub.oset(
+                    [
+                        x
+                        for x in ub.flatten(it.zip_longest(*tocombine_indexes))
+                        if x is not None
+                    ]
+                )
+            )
 
             table = _agg.table.copy()
             table.loc[top_locs, 'rank'] = np.arange(len(top_locs))
             table = table.sort_values('rank')
 
-            if len(agg.model_cols) == 0:
+            if len(agg.model_cols) == 0:  # type: ignore
                 print('No model columns are availble')
             else:
-                model_col = agg.model_cols[0]
+                model_col = agg.model_cols[0]  # type: ignore
 
                 # HACK: we want to group models that came from the same training
                 # run so we report a more diverse set of models. We typically group
@@ -1071,12 +1329,15 @@ class AggregatorAnalysisMixin:
                 # do this grouping if the parent folder has a special name
 
                 model_paths = [
-                    ub.Path(p)
-                    if not pd.isnull(p) else None
-                    for p in table[model_col].tolist()]
+                    ub.Path(p) if not pd.isnull(p) else None
+                    for p in table[model_col].tolist()
+                ]
                 hacked_groups = [
-                    p if p is not None and p.parent.name.startswith('Drop') else p
-                    for p in model_paths]
+                    p
+                    if p is not None and p.parent.name.startswith('Drop')
+                    else p
+                    for p in model_paths
+                ]
                 table['_hackgroup'] = hacked_groups
 
                 chosen_locs = []
@@ -1093,31 +1354,38 @@ class AggregatorAnalysisMixin:
                 chosen_table = table.loc[chosen_locs]
 
                 print('Model shortlist (lower rank is a better scoring model):')
-                for chosen_row in ub.unique(chosen_table.to_dict('records'), key=lambda row: row[model_col]):
+                for chosen_row in ub.unique(
+                    chosen_table.to_dict('records'),
+                    key=lambda row: row[model_col],
+                ):
                     model_fpath = chosen_row[model_col]
                     param_hashid = chosen_row['param_hashid']
                     rank = chosen_row['rank']
-                    rich.print(f'[blue]# Best Rank: [cyan] {rank} [blue]{param_hashid}')
+                    rich.print(
+                        f'[blue]# Best Rank: [cyan] {rank} [blue]{param_hashid}'
+                    )
                     print(Yaml.dumps([model_fpath]).strip())
 
         report = TopResultsReport(region_id_to_summary, top_param_lut)
         return report
 
-    def resource_summary_table(agg):
+    def resource_summary_table(agg: Aggregator):
         """
         Sumarize resource usage of the pipeline
         """
         import pandas as pd
         from kwutil import util_time
-        table = agg.table.copy()
-        resources = agg.resources
 
-        duration_cols = [
-            k for k in resources.keys()
-            if k.endswith('.duration')
-        ]
+        table = agg.table.copy()  # type: ignore
+        resources = agg.resources  # type: ignore
+
+        duration_cols = [k for k in resources.keys() if k.endswith('.duration')]
         for k in duration_cols:
-            new_vals = table.loc[:, k].apply(lambda x: util_time.coerce_timedelta(x) if not pd.isnull(x) else x)
+            new_vals = table.loc[:, k].apply(
+                lambda x: util_time.coerce_timedelta(x)
+                if not pd.isnull(x)
+                else x
+            )
             table[k] = new_vals
 
         resource_summary = []
@@ -1135,7 +1403,7 @@ class AggregatorAnalysisMixin:
                     idx = 0
                 chosen.append(idx)
 
-            asec = util_time.timedelta(seconds=1)
+            asec = util_time.timedelta(seconds=1)  # type: ignore
 
             unique_rows = table.loc[chosen]
             row = {
@@ -1183,11 +1451,12 @@ class AggregatorAnalysisMixin:
         resource_summary_df = pd.DataFrame(resource_summary)
         return resource_summary_df
 
-    def resource_summary_table_friendly(agg):
+    def resource_summary_table_friendly(agg: Aggregator):
         resource_summary_df = agg.resource_summary_table()
         # TODO: nicer report
         import kwutil
         import pandas as pd
+
         def format_kwh(v):
             return str(round(v, 2)) + ' kWh'
 
@@ -1195,10 +1464,19 @@ class AggregatorAnalysisMixin:
             return str(round(v, 2)) + ' CO2Kg'
 
         def format_duration(v):
-            v = kwutil.timedelta.coerce(v, nan_policy='return-nan', none_policy='return-nan')
+            v = kwutil.timedelta.coerce(
+                v, nan_policy='return-nan', none_policy='return-nan'
+            )
             if pd.isnull(v):
                 return v
-            return v.format(unit={'value': 'auto', 'min_unit': 'hour', 'exclude_units': ['week', 'month', 'min']}, precision=2)
+            return v.format(
+                unit={
+                    'value': 'auto',
+                    'min_unit': 'hour',
+                    'exclude_units': ['week', 'month', 'min'],
+                },
+                precision=2,
+            )
             # return v.format(unit='hour', precision=2)
 
         # Make more human friendly
@@ -1224,11 +1502,14 @@ class AggregatorAnalysisMixin:
             'kwh': 'energy',
             'co2_kg': 'emissions',
         }
-        friendly['resource'] = friendly['resource'].apply(lambda x: mapper.get(x, x))
+        friendly['resource'] = friendly['resource'].apply(
+            lambda x: mapper.get(x, x)
+        )
         return friendly
 
-    def report_resources(agg):
+    def report_resources(agg: Aggregator):
         import rich
+
         resource_summary_df = agg.resource_summary_table()
 
         if 1:
@@ -1239,38 +1520,47 @@ class AggregatorAnalysisMixin:
 
         rich.print(resource_summary_df.to_string())
 
-    def make_summary_analysis(subagg, config):
+    def make_summary_analysis(subagg: Aggregator, config):
         output_dpath = ub.Path(config['output_dpath']) / 'aggregate'
         agg_group_dpath = output_dpath / ('agg_summary_params2_v3')
         agg_group_dpath = agg_group_dpath.ensuredir()
 
         import rich
-        rich.print(f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]')
+
+        rich.print(
+            f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]'
+        )
 
         # Given these set of A/B values, visualize each region
-        for region_id, group in ub.ProgIter(list(subagg.index.groupby('region_id')), desc='Inspect Region'):
-            group_agg = subagg.filterto(index=group.index)
+        for region_id, group in ub.ProgIter(
+            list(subagg.index.groupby('region_id')), desc='Inspect Region'
+        ):  # type: ignore
+            group_agg = subagg.filterto(index=group.index)  # type: ignore
             for id, row in group_agg.index.iterrows():
                 ...
                 inspect_node(subagg, id, row, group_agg, agg_group_dpath)
 
-        rich.print(f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]')
+        rich.print(
+            f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]'
+        )
 
-    def make_result_node_symlinks(agg):
+    def make_result_node_symlinks(agg: Aggregator):
         """
         Builds symlinks to results node paths based on region and param
         hashids.
         """
         assert agg.output_dpath is not None
         assert agg.node_type is not None
-        base_dpath = (agg.output_dpath / 'param_links' / agg.node_type)
+        base_dpath = agg.output_dpath / 'param_links' / agg.node_type
         byregion_dpath = (base_dpath / 'by_region').ensuredir()
         byparamid_dpath = (base_dpath / 'by_param_hashid').ensuredir()
         print('base_dpath = {}'.format(ub.urepr(base_dpath, nl=1)))
         print('byregion_dpath = {}'.format(ub.urepr(byregion_dpath, nl=1)))
         print('byparamid_dpath = {}'.format(ub.urepr(byparamid_dpath, nl=1)))
         grouped = agg.table.groupby(['param_hashid', 'region_id'])
-        for group_vals, group in ub.ProgIter(list(grouped), desc='symlink nodes'):
+        for group_vals, group in ub.ProgIter(
+            list(grouped), desc='symlink nodes'
+        ):
             # handle the fact that there can be multiple runs of the same param hashid.
             # TODO: sort the groups in a consistent way if possible
             for group_idx, row in enumerate(group.to_dict('records'), start=1):
@@ -1279,22 +1569,36 @@ class AggregatorAnalysisMixin:
                 version_id = f'version_{group_idx}'
                 eval_fpath = ub.Path(row['fpath'])
                 node_dpath = eval_fpath.parent
-                node_byregion_dpath = (byregion_dpath / region_id / param_hashid / version_id)
-                node_byparamid_dpath = (byparamid_dpath / param_hashid / region_id / version_id)
+                node_byregion_dpath = (
+                    byregion_dpath / region_id / param_hashid / version_id
+                )
+                node_byparamid_dpath = (
+                    byparamid_dpath / param_hashid / region_id / version_id
+                )
                 node_byregion_dpath.parent.ensuredir()
                 node_byparamid_dpath.parent.ensuredir()
-                ub.symlink(real_path=node_dpath, link_path=node_byparamid_dpath, overwrite=1)
-                ub.symlink(real_path=node_dpath, link_path=node_byregion_dpath, overwrite=1)
+                ub.symlink(
+                    real_path=node_dpath,
+                    link_path=node_byparamid_dpath,
+                    overwrite=True,
+                )
+                ub.symlink(
+                    real_path=node_dpath,
+                    link_path=node_byregion_dpath,
+                    overwrite=True,
+                )
 
         import rich
+
         rich.print(f'Made Param Links: [link={base_dpath}]{base_dpath}[/link]')
 
-    def build_plotter(agg, rois=None, plot_config=None):
+    def build_plotter(agg: Aggregator, rois=None, plot_config=None):
         if rois is None:
             ...
         if plot_config is None:
             plot_config = {}
         from kwdagger import aggregate_plots
+
         if isinstance(rois, str):
             # fixme: ensure rois are coerced before this point.
             rois = agg._coerce_rois(rois)
@@ -1302,29 +1606,39 @@ class AggregatorAnalysisMixin:
         plotter = aggregate_plots.build_plotter(agg, rois, plot_config)
         return plotter
 
-    def plot_all(agg, rois=None, plot_config=None):
+    def plot_all(agg: Aggregator, rois=None, plot_config=None):
         plotter = agg.build_plotter(rois, plot_config)
         plotter.plot_requested()
 
-    def _wip_build_per_region_variance_tables(agg):
+    def _wip_build_per_region_variance_tables(agg: Aggregator):
         from kwdagger.utils import util_pandas
+
         table = util_pandas.DataFrame(agg.table)
 
         def stats_aggregate(subgroup, metric_keys):
             from kwdagger.utils import util_dotdict
+
             metric_description = subgroup[metric_keys].describe()
             stats_row = {}
             for key, stats in metric_description.T.iterrows():
                 stats = ub.udict(stats.to_dict())
                 count = stats.pop('count')
-                stats = stats - {'50%', '75%', '25%'}
+                stats = ub.udict(
+                    {
+                        k: v
+                        for k, v in stats.items()
+                        if k not in {'50%', '75%', '25%'}
+                    }
+                )
                 keystats = util_dotdict.DotDict(stats).add_prefix(key)
                 stats_row.update(keystats)
                 stats_row['count'] = count
             return stats_row
 
         group_rows = []
-        metric_keys = ub.oset(list(agg.primary_metric_cols + agg.display_metric_cols))
+        metric_keys = ub.oset(
+            list(agg.primary_metric_cols + agg.display_metric_cols)  # ty: ignore[unresolved-attribute]
+        )
 
         for _, subgroup in table.groupby(['region_id']):
             region_id = subgroup.iloc[0]['region_id']
@@ -1334,7 +1648,9 @@ class AggregatorAnalysisMixin:
             group_rows.append(stats_row)
 
         group_stats = util_pandas.DataFrame(group_rows)
-        group_stats_show, col_mapping = group_stats.shorten_columns(min_length=2, return_mapping=True)
+        group_stats_show, col_mapping = group_stats.shorten_columns(
+            min_length=2, return_mapping=True
+        )
         # rich.print(group_stats_show)
 
         metrics_with_std = []
@@ -1355,21 +1671,26 @@ class AggregatorAnalysisMixin:
                 if group_count is None:
                     # Only add count once
                     group_count = count
-                    metrics_with_std.append({
-                        'cell': count,
-                        'metric': 'count',
-                        'region_id': region_id,
-                    })
+                    metrics_with_std.append(
+                        {
+                            'cell': count,
+                            'metric': 'count',
+                            'region_id': region_id,
+                        }
+                    )
                 else:
                     assert group_count == count
-                metrics_with_std.append({
-                    'cell': cell,
-                    'metric': metric,
-                    'region_id': region_id,
-                })
+                metrics_with_std.append(
+                    {
+                        'cell': cell,
+                        'metric': metric,
+                        'region_id': region_id,
+                    }
+                )
         longform = util_pandas.DataFrame(metrics_with_std)
         all_metric_table = longform.pivot(
-            index=['region_id'], columns=['metric'], values='cell')
+            index=['region_id'], columns=['metric'], values='cell'
+        )
         all_metric_table = all_metric_table.shorten_columns(min_length=0)
         return all_metric_table
 
@@ -1382,33 +1703,48 @@ class _AggregatorDeprecatedMixin:
     @property
     def params(self):
         ub.schedule_deprecation(
-            modname='kwdagger', name='params', type='property',
+            modname='kwdagger',
+            name='params',
+            type='property',
             migration='use requested_params instead',
-            deprecate='0.15.0', error='1.0.0', remove='1.1.0',
+            deprecate='0.15.0',
+            error='1.0.0',
+            remove='1.1.0',
         )
-        return self.subtables['params']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['params']
 
     @property
     def hashid_to_params(self):
         ub.schedule_deprecation(
-            modname='kwdagger', name='hashid_to_params', type='property',
+            modname='kwdagger',
+            name='hashid_to_params',
+            type='property',
             migration='use hashid_to_effective_params instead',
-            deprecate='0.18.4', error='1.0.0', remove='1.1.0',
+            deprecate='0.18.4',
+            error='1.0.0',
+            remove='1.1.0',
         )
-        return self.hashid_to_effective_params
+        return cast(Any, self).hashid_to_effective_params
 
     @property
     def type(self):
         ub.schedule_deprecation(
-            modname='kwdagger', name='type', type='property',
+            modname='kwdagger',
+            name='type',
+            type='property',
             migration='use node_type instead',
-            deprecate='0.18.4', error='1.0.0', remove='1.1.0',
+            deprecate='0.18.4',
+            error='1.0.0',
+            remove='1.1.0',
             stacklevel=2,
         )
-        return self.node_type
+        return cast(Any, self).node_type
 
 
-class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixin):
+class Aggregator(
+    ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixin
+):
     """
     Stores multiple data frames that separate metrics, parameters, and other
     information using consistent pandas indexing. Can be filtered to a
@@ -1434,11 +1770,16 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         >>> print('--- The entire joined table ---')
         >>> print(agg.table)
     """
-    def __init__(agg, table, output_dpath=None,
-                 node_type=None,
-                 primary_metric_cols='auto',
-                 display_metric_cols='auto',
-                 dag=None):
+
+    def __init__(
+        agg,
+        table,
+        output_dpath=None,
+        node_type=None,
+        primary_metric_cols='auto',
+        display_metric_cols='auto',
+        dag=None,
+    ):
         """
         Args:
             table (pandas.DataFrame):
@@ -1471,6 +1812,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         agg.output_dpath = output_dpath
 
         from kwdagger.utils import util_pandas
+
         if not isinstance(table, util_pandas.DataFrame):
             table = util_pandas.DataFrame(table)
 
@@ -1522,11 +1864,13 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             >>> agg.resource_summary_table()
             >>> agg.report_best()
         """
-        from kwarray import distributions as dmod
-        import pandas as pd
-        import numpy as np
-        import kwarray
         import uuid
+
+        import kwarray
+        import numpy as np
+        import pandas as pd
+        from kwarray import distributions as dmod
+
         rng = kwarray.ensure_rng(rng)
 
         # An aggregator needs to correspond to a specific "evaluation node" in
@@ -1539,18 +1883,24 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             f'{node}.param1': dmod.Categorical(['a', 'b', 'c']),
             f'{node}.param2': dmod.Categorical(['e', 'f', 'g']),
             f'{node}.param3': dmod.Distribution.random(rng=rng),
-            f'{node}.test_dataset': dmod.Categorical([
-                '/path/to/test_dataset1.kwcoco.zip',
-                '/incompatable/paths/to/another/test_dataset2.kwcoco.zip',
-                'relative_path/to/test_dataset2.kwcoco.zip',
-                'test_dataset3.kwcoco.zip',
-            ], rng=rng),
-            f'{node}.package_fpath': dmod.Categorical([
-                '/path/to/model1.pt',
-                '/incompatable/paths/to/another/model2.pt',
-                'relative_path/to/model3.pt',
-                'model4.pt',
-            ], rng=rng)
+            f'{node}.test_dataset': dmod.Categorical(
+                [
+                    '/path/to/test_dataset1.kwcoco.zip',
+                    '/incompatable/paths/to/another/test_dataset2.kwcoco.zip',
+                    'relative_path/to/test_dataset2.kwcoco.zip',
+                    'test_dataset3.kwcoco.zip',
+                ],
+                rng=rng,
+            ),
+            f'{node}.package_fpath': dmod.Categorical(
+                [
+                    '/path/to/model1.pt',
+                    '/incompatable/paths/to/another/model2.pt',
+                    'relative_path/to/model3.pt',
+                    'model4.pt',
+                ],
+                rng=rng,
+            ),
         }
         distributions['metrics'] = {
             f'{node}.metric1': dmod.Distribution.random(rng=rng),
@@ -1564,18 +1914,28 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         }
 
         if include_unhashable:
-            listvals = np.array([
-                [1, 2, 3],
-                [],
-                ["a", [2]],
-            ], dtype=object)
-            dictvals = np.array([
-                {'type': 'special_algo', 'params': {'a': 'b', 'c': 'd'}},
-                {'type': 'special_algo', 'params': {'a': 'e', 'c': 'f'}},
-                {'type': 'null'},
-            ], dtype=object)
-            distributions['params'][f'{node}.unhashable_list'] = dmod.Categorical(listvals, rng=rng)
-            distributions['params'][f'{node}.unhashable_dict'] = dmod.Categorical(dictvals, rng=rng)
+            listvals = np.array(
+                [
+                    [1, 2, 3],
+                    [],
+                    ['a', [2]],
+                ],
+                dtype=object,
+            )
+            dictvals = np.array(
+                [
+                    {'type': 'special_algo', 'params': {'a': 'b', 'c': 'd'}},
+                    {'type': 'special_algo', 'params': {'a': 'e', 'c': 'f'}},
+                    {'type': 'null'},
+                ],
+                dtype=object,
+            )
+            distributions['params'][f'{node}.unhashable_list'] = (
+                dmod.Categorical(listvals, rng=rng)
+            )
+            distributions['params'][f'{node}.unhashable_dict'] = (
+                dmod.Categorical(dictvals, rng=rng)
+            )
 
         columns = {}
 
@@ -1590,13 +1950,18 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         # Can we make numpy use 128 bit types?
         # maxint = 340_282_366_920_938_463_463_374_607_431_768_211_455
         _pyrng = kwarray.ensure_rng(rng, api='python')
+
         def _seeded_uuid():
             # uuid.uuid4()
-            _int = int.from_bytes(_pyrng.randbytes(16), byteorder='big')
+            _int = int.from_bytes(
+                cast(Any, _pyrng).randbytes(16), byteorder='big'
+            )
             # _int = int.from_bytes(rng.randbytes(16))
             return uuid.UUID(int=_int, version=4)
 
-        columns[f'context.{node}.uuid'] = [str(_seeded_uuid()) for _ in range(num)]
+        columns[f'context.{node}.uuid'] = [
+            str(_seeded_uuid()) for _ in range(num)
+        ]
         columns[f'machine.{node}.host'] = ['pc1'] * num
 
         # Sample from the distributions to construct the demo rows
@@ -1608,7 +1973,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         # Sometimes parameters are "auto", which means that they need to be
         # resolved to get the real value they used.
         for param_key in distributions['params'].keys():
-            columns['resolved_params.' + param_key] = columns['params.' + param_key]
+            columns['resolved_params.' + param_key] = columns[
+                'params.' + param_key
+            ]
 
         # For parameters, they need an extra set of columns to indicate if they
         # were specified - or somehow inferred.
@@ -1622,8 +1989,11 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         primary_metric_cols = [f'metrics.{node}.metric1']
         display_metric_cols = [f'metrics.{node}.metric3']
 
-        agg = cls(table, primary_metric_cols=primary_metric_cols,
-                  display_metric_cols=display_metric_cols)
+        agg = cls(
+            table,
+            primary_metric_cols=primary_metric_cols,
+            display_metric_cols=display_metric_cols,
+        )
         return agg
 
     def build(agg):
@@ -1634,6 +2004,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             Self: returns self for method chaining
         """
         from kwdagger.utils import util_pandas
+
         agg.__dict__.update(**agg.config)
 
         if len(agg.table) == 0:
@@ -1646,29 +2017,43 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         _table = util_pandas.DotDictDataFrame(agg.table)
 
         known_index_columns = ['node', 'region_id', 'param_hashid', 'fpath']
-        agg.index_columns = list(ub.oset(known_index_columns) & set(agg.table.columns))
+        agg.index_columns = list(
+            ub.oset(known_index_columns) & set(agg.table.columns)
+        )
 
         subtables = {
             'index': agg.table[agg.index_columns].copy(),
         }
         _expected_top_level = [
-            'metrics', 'params', 'specified', 'resolved_params',
-            'resources', 'machine', 'context'
+            'metrics',
+            'params',
+            'specified',
+            'resolved_params',
+            'resources',
+            'machine',
+            'context',
         ]
-        subtables.update({
-            c: _table.prefix_subframe(c, drop_prefix=False)
-            for c in _expected_top_level
-        })
-        unknown_cols = agg.table.columns.difference(set(ub.flatten(([v.columns for v in subtables.values()]))))
+        subtables.update(
+            {
+                c: _table.prefix_subframe(c, drop_prefix=False)
+                for c in _expected_top_level
+            }
+        )
+        unknown_cols = agg.table.columns.difference(
+            set(ub.flatten(([v.columns for v in subtables.values()])))
+        )
         if len(unknown_cols):
-            raise Exception(ub.paragraph(
-                f'''
+            raise Exception(
+                ub.paragraph(
+                    f"""
                 The aggregator (for {agg.node_type}) expects data returned by
                 `load_results` to have the following top level prefixes in its
                 column names: {_expected_top_level}. But the returned
                 dictionary has keys that do not match this convention:
                 {unknown_cols}.
-                '''))
+                """
+                )
+            )
         agg.subtables = subtables
 
         # Construct primary / display model columns and metric column info lut
@@ -1680,8 +2065,16 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         _model_suffixes = ['package_fpath']
         _testdset_suffixes = ['test_dataset', 'crop_src_fpath']
 
-        agg.model_cols = [c for c in agg.requested_params.columns if any(c.endswith(s) for s in _model_suffixes)]
-        agg.test_dset_cols = [c for c in agg.requested_params.columns if any(c.endswith(s) for s in _testdset_suffixes)]
+        agg.model_cols = [
+            c
+            for c in agg.requested_params.columns
+            if any(c.endswith(s) for s in _model_suffixes)
+        ]
+        agg.test_dset_cols = [
+            c
+            for c in agg.requested_params.columns
+            if any(c.endswith(s) for s in _testdset_suffixes)
+        ]
 
         agg.build_effective_params()
 
@@ -1693,7 +2086,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         agg.macro_compatible = agg.find_macro_comparable()
         return agg
 
-    def _build_metrics_column_preferences(agg):
+    def _build_metrics_column_preferences(agg: Any):
         """
         Builds a table indexed by column name for the metrics columns.
 
@@ -1708,6 +2101,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
         """
         import warnings
+
         agg._metric_info = {}
 
         if agg.dag is not None:
@@ -1761,13 +2155,13 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         # print(f'agg._metric_info = {ub.urepr(agg._metric_info, nl=2)}')
 
     def __nice__(self):
-        return f'{self.node_type}, n={len(self)}'
+        return f'{cast(Any, self).node_type}, n={len(self)}'
 
     def __len__(self):
         return len(self.table)
 
     @property
-    def primary_macro_region(agg):
+    def primary_macro_region(agg: Any):
         macro_keys = list(agg.macro_key_to_regions.keys())
         if len(macro_keys) == 0:
             region_keys = list(agg.region_to_tables.keys())
@@ -1777,7 +2171,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             key = macro_keys[-1]
         return key
 
-    def filterto(agg, index=None, models=None, param_hashids=None, query=None):
+    def filterto(
+        agg: Any, index=None, models=None, param_hashids=None, query=None
+    ):
         """
         Build a new aggregator with a subset of rows from this one.
 
@@ -1808,8 +2204,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             >>> assert not agg.table['context.demo_node.uuid'].str.startswith('c').all()
             >>> print(subagg.table['context.demo_node.uuid'])
         """
-        import numpy as np
         import kwarray
+        import numpy as np
+
         final_flags = 1
 
         if index is not None:
@@ -1819,13 +2216,17 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         if param_hashids is not None:
             if not ub.iterable(param_hashids):
                 param_hashids = [param_hashids]
-            flags = kwarray.isect_flags(agg.index['param_hashid'].values, param_hashids)
+            flags = kwarray.isect_flags(
+                agg.index['param_hashid'].values, param_hashids
+            )
             final_flags = np.logical_and(final_flags, flags)
 
         if models is not None:
             if not ub.iterable(models):
                 models = [models]
-            flags = kwarray.isect_flags(agg.effective_params[agg.model_cols[0]].values, models)
+            flags = kwarray.isect_flags(
+                agg.effective_params[agg.model_cols[0]].values, models
+            )
             final_flags = np.logical_and(final_flags, flags)
 
         def our_hacky_query(df, query):
@@ -1860,7 +2261,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                 df = table_so_far
                 new_table = our_hacky_query(df, query)
                 if new_table is not None:
-                    flags = kwarray.isect_flags(agg.index.index, new_table.index)
+                    flags = kwarray.isect_flags(
+                        agg.index.index, new_table.index
+                    )
                     final_flags = np.logical_and(final_flags, flags)
 
         if isinstance(final_flags, int):
@@ -1870,41 +2273,52 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
         return new_agg
 
-    def compress(agg, flags):
+    def compress(agg: Any, flags):
         new_table = agg.table[flags].copy()
-        new_agg = Aggregator(new_table, node_type=agg.node_type,
-                             dag=agg.dag, output_dpath=agg.output_dpath,
-                             **agg.config)
+        new_agg = Aggregator(
+            new_table,
+            node_type=agg.node_type,
+            dag=agg.dag,
+            output_dpath=agg.output_dpath,
+            **agg.config,
+        )
         new_agg.build()
         return new_agg
 
     @property
     def metrics(self):
-        return self.subtables['metrics']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['metrics']
 
     @property
     def resources(self):
-        return self.subtables['resources']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['resources']
 
     @property
     def index(self):
-        return self.subtables['index']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['index']
 
     @property
     def requested_params(self):
-        return self.subtables['params']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['params']
 
     @property
     def specified_params(self):
-        return self.subtables['specified']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['specified']
 
     @property
     def resolved_params(self):
-        return self.subtables['resolved_params']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['resolved_params']
 
     @property
     def default_vantage_points(self):
         try:
+            assert self.node_type is not None
             if self.dag is not None:
                 node = self.dag.nodes[self.node_type]
                 vantage_points = node.default_vantage_points
@@ -1932,18 +2346,23 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             * ``self.effective_params``
 
         """
-        import pandas as pd
         import itertools as it
+
+        import pandas as pd
+
         from kwdagger.utils import util_pandas
+
         requested_params = self.requested_params
         effective_params = requested_params.copy()
 
-        model_cols = self.model_cols
-        test_dset_cols = self.test_dset_cols
+        model_cols = cast(list[Any], self.model_cols or [])
+        test_dset_cols = cast(list[Any], self.test_dset_cols or [])
 
-        mappings : Dict[str, Dict[Any, str]] = {}
+        mappings: Dict[str, Dict[Any, str]] = {}
         path_colnames = model_cols + test_dset_cols
-        existing_path_colnames = requested_params.columns.intersection(path_colnames)
+        existing_path_colnames = requested_params.columns.intersection(
+            path_colnames
+        )
 
         for colname in existing_path_colnames:
             colvals = requested_params[colname]
@@ -1952,14 +2371,18 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             effective_params[colname] = condensed
 
         _specified = util_pandas.DotDictDataFrame(self.specified_params)
-        _specified_params = _specified.prefix_subframe('specified', drop_prefix=True)
+        _specified_params = _specified.prefix_subframe(
+            'specified', drop_prefix=True
+        )
         is_param_included = _specified_params > 0
 
         # For each unique set of effective parameters compute a hashid
         # TODO: better mechanism for user-specified ignore param columns
-        hashid_ignore_columns = list(self.test_dset_cols)
+        hashid_ignore_columns = list(test_dset_cols)
 
-        param_cols = ub.oset(effective_params.columns).difference(hashid_ignore_columns)
+        param_cols = ub.oset(effective_params.columns).difference(
+            hashid_ignore_columns
+        )
         param_cols = list(param_cols - {'region_id', 'node'})
 
         # Check for unhashable columns and coerce them into a hashable representation
@@ -1967,13 +2390,17 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             list(effective_params.groupby(param_cols, dropna=False))
         except Exception:
             # effective_params = effective_params.applymap(lambda x: str(x) if isinstance(x, list) else x)
-            effective_params = effective_params.applymap(lambda x: str(x) if isinstance(x, (list, dict)) else x)
+            effective_params = util_pandas.compat_applymap(
+                effective_params,
+                lambda x: str(x) if isinstance(x, (list, dict)) else x,
+            )
 
         if 0:
             # dev helper to check which params are being varied. This can help
             # find ones that you would not expect to be varied, so they can
             # be manually excluded.
             from kwdagger.utils.result_analysis import varied_value_counts
+
             varied_value_counts(effective_params, min_variations=2)
 
         # Preallocate a series with the appropriate index
@@ -1989,9 +2416,12 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             try:
                 first_item = next(orig_param_groups_iter)
                 # Reconstruct the full iterator by chaining the first item with the rest
-                param_groups_iter = it.chain([first_item], orig_param_groups_iter)
+                param_groups_iter = it.chain(
+                    [first_item], orig_param_groups_iter
+                )
             except (TypeError, StopIteration) as ex:
                 from kwutil import util_exception
+
                 # TODO: could be a utility function: check_hashable or
                 # something.
                 unhashable_columns = []
@@ -2003,11 +2433,15 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                         print(f'ERROR: Found unhashable column: {col}')
                         unhashable_columns.append(col)
 
-                raise util_exception.add_exception_note(ex, ub.paragraph(
-                    f'''
+                raise util_exception.add_exception_note(
+                    ex,
+                    ub.paragraph(
+                        f"""
                     Parameter grouping failed, likely due to an unhashable
                     parameter column: unhashable_columns={unhashable_columns}
-                    '''))
+                    """
+                    ),
+                )
 
         else:
             # fallback case, something is probably wrong if we are here
@@ -2028,10 +2462,14 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                 # TODO: Used the fixed groupby to avoid the need to ensure
                 # param_flags is a list.
                 try:
-                    param_subgroups = is_group_included.groupby(param_cols, dropna=False)
+                    param_subgroups = is_group_included.groupby(
+                        param_cols, dropna=False
+                    )
                 except Exception:
                     print(f'param_cols={param_cols}')
-                    print(f'is_group_included.columns={is_group_included.columns}')
+                    print(
+                        f'is_group_included.columns={is_group_included.columns}'
+                    )
                     raise
             else:
                 # fallback case, something is probably wrong if we are here
@@ -2054,7 +2492,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         self.mappings = mappings
         self.effective_params = effective_params
 
-    def find_macro_comparable(agg, verbose=0):
+    def find_macro_comparable(agg: Any, verbose=0):
         """
         Search for groups that have the same parameters over multiple regions.
 
@@ -2069,6 +2507,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                 param_hashid, and how to normalize them.
         """
         import pandas as pd
+
         table = pd.concat([agg.index, agg.metrics, agg.resolved_params], axis=1)
         # table[['param_hashid']]
 
@@ -2087,7 +2526,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                     region_to_num_compatible[region_id] += num
 
         if verbose:
-            macro_compatible_num = macro_compatible_num.sorted_values()
+            macro_compatible_num = ub.udict(
+                macro_compatible_num
+            ).sorted_values()
 
             macro_compatible_cumsum = {}
 
@@ -2101,21 +2542,30 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                 x = ub.udict(macro_compatible_cumsum).sorted_values()
                 print('x = {}'.format(ub.urepr(x, nl=1)))
 
-            print('macro_compatible_num = {}'.format(ub.urepr(macro_compatible_num, nl=1)))
-            print('region_to_num_compatible = {}'.format(ub.urepr(region_to_num_compatible, nl=1)))
+            print(
+                'macro_compatible_num = {}'.format(
+                    ub.urepr(macro_compatible_num, nl=1)
+                )
+            )
+            print(
+                'region_to_num_compatible = {}'.format(
+                    ub.urepr(region_to_num_compatible, nl=1)
+                )
+            )
         return macro_compatible
 
-    def gather_macro_compatable_groups(agg, regions_of_interest):
+    def gather_macro_compatable_groups(agg: Any, regions_of_interest):
         """
         Given a set of ROIs, find groups in the comparable regions that contain
         all of the requested ROIs.
         """
         import kwarray
+
         comparable_groups = []
         macro_compatible = agg.macro_compatible
         regions_of_interest = set(regions_of_interest)
         for key in macro_compatible.keys():
-            avail = (key & regions_of_interest)
+            avail = key & regions_of_interest
             if avail == regions_of_interest:
                 groups = macro_compatible[key]
                 for group in groups:
@@ -2128,9 +2578,10 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             rois = 'max'
         if isinstance(rois, str):
             if rois == 'max' or rois == 'auto':
-                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)
+                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)  # type: ignore
             else:
                 from kwutil.util_yaml import Yaml
+
                 regions_of_interest = Yaml.coerce(rois)
                 if isinstance(regions_of_interest, str):
                     regions_of_interest = [regions_of_interest]
@@ -2138,7 +2589,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             regions_of_interest = rois
         return regions_of_interest
 
-    def build_macro_tables(agg, rois=None, **kwargs):
+    def build_macro_tables(agg: Any, rois=None, **kwargs):
         """
         Builds one or more macro tables
         """
@@ -2173,8 +2624,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             DataFrame | None:
         """
 
-        import pandas as pd
         import numpy as np
+        import pandas as pd
+
         from kwdagger.utils.util_pandas import DotDictDataFrame
         # Given a specific group of regions,
 
@@ -2183,19 +2635,49 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
         # Define how to aggregate each column
         # FIXME: handle in general.
-        sum_cols = [c for c in agg.metrics.columns if c.endswith((
-            '_tp', '_fp', '_fn', '_ntrue', '_npred'))]
-        average_cols = [c for c in agg.metrics.columns if c.endswith((
-            'mAP', 'APUC', 'mAPUC', 'mAUC', 'AP', 'AUC', 'f1', 'FAR', 'ppv',
-            'tpr', 'ffpa', 'f1', 'f1_siteprep', 'f1_active'))]
-        ignore_cols = [c for c in agg.metrics.columns if c.endswith(('rho', 'tau'))]
+        sum_cols = [
+            c
+            for c in agg.metrics.columns
+            if c.endswith(('_tp', '_fp', '_fn', '_ntrue', '_npred'))
+        ]
+        average_cols = [
+            c
+            for c in agg.metrics.columns
+            if c.endswith(
+                (
+                    'mAP',
+                    'APUC',
+                    'mAPUC',
+                    'mAUC',
+                    'AP',
+                    'AUC',
+                    'f1',
+                    'FAR',
+                    'ppv',
+                    'tpr',
+                    'ffpa',
+                    'f1',
+                    'f1_siteprep',
+                    'f1_active',
+                )
+            )
+        ]
+        ignore_cols = [
+            c for c in agg.metrics.columns if c.endswith(('rho', 'tau'))
+        ]
         sum_cols = agg.metrics.columns.intersection(sum_cols)
 
-        start_time_cols = DotDictDataFrame.search_columns(agg.table, 'start_timestamp')
-        stop_time_cols = DotDictDataFrame.search_columns(agg.table, 'stop_timestamp')
+        start_time_cols = DotDictDataFrame.search_columns(
+            agg.table, 'start_timestamp'
+        )
+        stop_time_cols = DotDictDataFrame.search_columns(
+            agg.table, 'stop_timestamp'
+        )
 
         # FIXME: SMART-specific
-        ignore_cols = [c for c in agg.metrics.columns if c.endswith(('rho', 'tau'))]
+        ignore_cols = [
+            c for c in agg.metrics.columns if c.endswith(('rho', 'tau'))
+        ]
 
         # NEW: this is a more general way to handle definition of aggregators
         # This code can be cleaned up considerably
@@ -2214,7 +2696,9 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                 col_type.append(column_name)
 
         average_cols = agg.metrics.columns.intersection(average_cols)
-        other_metric_cols = agg.metrics.columns.difference(sum_cols).difference(average_cols)
+        other_metric_cols = agg.metrics.columns.difference(sum_cols).difference(
+            average_cols
+        )
         other_metric_cols = other_metric_cols.difference(ignore_cols)
         if len(other_metric_cols):
             print(f'ignoring agg {other_metric_cols}')
@@ -2224,25 +2708,34 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             aggregator = {c: 'mean' for c in average_cols}
         elif average == 'gmean':
             import scipy.stats.mstats
+
             gmean = scipy.stats.mstats.gmean
             average = gmean
             aggregator = {c: gmean for c in average_cols}
         else:
             raise KeyError(average)
         aggregator.update({c: 'sum' for c in sum_cols})
-        aggregator.update({c: 'sum' for c in agg.resources.select_dtypes(np.number).columns})
+        aggregator.update(
+            {c: 'sum' for c in agg.resources.select_dtypes(np.number).columns}
+        )
         aggregator.update({c: 'min' for c in start_time_cols})
         aggregator.update({c: 'max' for c in stop_time_cols})
 
         # Gather groups that can be aggregated
-        comparable_groups = agg.gather_macro_compatable_groups(regions_of_interest)
+        comparable_groups = agg.gather_macro_compatable_groups(
+            regions_of_interest
+        )
         if len(comparable_groups) == 0:
             import rich
-            rich.print(ub.paragraph(
-                f'''
+
+            rich.print(
+                ub.paragraph(
+                    f"""
                 [yellow]WARNING: Failed to build macro results. No comparable groups
                 for rois={rois}
-                '''))
+                """
+                )
+            )
             DEBUG = 1
             if DEBUG:
                 # Give the user a hint as to why...
@@ -2252,14 +2745,20 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             macro_rows = []
             for group in ub.ProgIter(comparable_groups, desc='macro aggregate'):
                 if len(group) > 0:
-                    macro_row = macro_aggregate(agg, group, aggregator, average=average)
+                    macro_row = macro_aggregate(
+                        agg, group, aggregator, average=average
+                    )
                     macro_rows.append(macro_row)
 
             macro_table = pd.DataFrame(macro_rows).reset_index(drop=True)
-            agg.region_to_tables.pop(macro_key, None)
-            agg.macro_key_to_regions.pop(macro_key, None)
-            agg.macro_key_to_regions[macro_key] = regions_of_interest
-            agg.region_to_tables[macro_key] = macro_table
+            region_to_tables = cast(dict[Any, Any], agg.region_to_tables)
+            macro_key_to_regions = cast(
+                dict[Any, Any], agg.macro_key_to_regions
+            )
+            region_to_tables.pop(macro_key, None)
+            macro_key_to_regions.pop(macro_key, None)
+            macro_key_to_regions[macro_key] = regions_of_interest
+            region_to_tables[macro_key] = macro_table
             return macro_table
 
 
@@ -2276,7 +2775,9 @@ def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
     ub.symlink(real_path=node_dpath, link_path=link_dpath)
 
 
-def aggregate_param_cols(df, aggregator=None, hash_cols=None, allow_nonuniform=False):
+def aggregate_param_cols(
+    df, aggregator=None, hash_cols=None, allow_nonuniform=False
+):
     """
     Aggregates parameter columns. Specified hash_cols should be
     dataset-specific columns to be hashed. All other columns should
@@ -2325,9 +2826,10 @@ def aggregate_param_cols(df, aggregator=None, hash_cols=None, allow_nonuniform=F
         specified.params.demo_node.package_fpath                  1
         Name: 0, dtype: object
     """
-    import pandas as pd
     import numpy as np
+    import pandas as pd
     import rich
+
     agg_row = df.iloc[0]
     if len(df) == 1:
         return agg_row
@@ -2340,10 +2842,13 @@ def aggregate_param_cols(df, aggregator=None, hash_cols=None, allow_nonuniform=F
                 try:
                     hashed[col] = hash_regions(values)
                 except TypeError:
-                    rich.print(ub.codeblock(
-                        f'''
+                    rich.print(
+                        ub.codeblock(
+                            f"""
                         [red]ERROR[/red] when hashing column: {col=}
-                        '''))
+                        """
+                        )
+                    )
                     raise
         else:
             df_comparable = df
@@ -2352,7 +2857,9 @@ def aggregate_param_cols(df, aggregator=None, hash_cols=None, allow_nonuniform=F
         if aggregator is not None:
             # Handle columns that can be aggregated
             aggregated = []
-            for agg_op, cols in ub.group_items(aggregator.keys(), aggregator.values()).items():
+            for agg_op, cols in ub.group_items(
+                aggregator.keys(), aggregator.values()
+            ).items():
                 toagg = df_comparable[cols]
                 # Drop non-numeric
                 toagg = toagg.select_dtypes(np.number)
@@ -2537,47 +3044,51 @@ def find_uniform_columns(df_comparable):
     cols = df_comparable.columns
 
     # --- Fast path: numeric-like (includes ints, floats, bools) ---
-    num = df_comparable.select_dtypes(include=["number", "bool"])
+    num = df_comparable.select_dtypes(include=['number', 'bool'])
     mask_num = pd.Series(False, index=num.columns)
     if not num.empty:
-        a = num.to_numpy(copy=False)               # (nrows, ncols)
-        first = a[0:1, :]                          # broadcastable (1, ncols)
-        eq = (a == first)                          # elementwise equality
+        a = num.to_numpy(copy=False)  # (nrows, ncols)
+        first = a[0:1, :]  # broadcastable (1, ncols)
+        eq = a == first  # elementwise equality
         # fix NaN semantics: consider NaN==NaN
         if np.issubdtype(a.dtype, np.floating):
-            eq |= (np.isnan(a) & np.isnan(first))
+            eq |= np.isnan(a) & np.isnan(first)
         # reduce over rows: uniform if all rows equal the first (after NaN fix)
         mask_num.loc[:] = eq.all(axis=0)
 
     # --- Fast path: datetimes ---
-    dtn = df_comparable.select_dtypes(include=["datetime64[ns]", "datetimetz"])
+    dtn = df_comparable.select_dtypes(include=['datetime64[ns]', 'datetimetz'])
     mask_dtn = pd.Series(False, index=dtn.columns)
     if not dtn.empty:
         a = dtn.to_numpy(copy=False)
         first = a[0:1, :]
-        eq = (a == first)
+        eq = a == first
         # NaT behaves like NaN; this handles it the same way:
         # numpy doesn't have isnat on object, but dt64 array comparisons propagate False on NaT==NaT,
         # so repair it with isna check via pandas:
-        eq |= (pd.isna(dtn).to_numpy() & pd.isna(dtn.iloc[0]).to_numpy())
+        eq |= pd.isna(dtn).to_numpy() & pd.isna(dtn.iloc[0]).to_numpy()
         mask_dtn.loc[:] = eq.all(axis=0)
 
     # --- Object & the rest: try fast factorize, then safe fallback ---
-    other = df_comparable.drop(columns=list(mask_num.index) + list(mask_dtn.index), errors="ignore")
+    other = df_comparable.drop(
+        columns=list(mask_num.index) + list(mask_dtn.index), errors='ignore'
+    )
     mask_other = pd.Series(False, index=other.columns)
     for c in other.columns:
         s = other[c]
         try:
             # Fast path for hashables; NaN gets a single code via sentinel
             codes, _ = pd.factorize(s, use_na_sentinel=True)
-            mask_other[c] = (len(np.unique(codes)) <= 1)
+            mask_other[c] = len(np.unique(codes)) <= 1
         except TypeError:
             # Unhashables (lists/dicts/sets/ndarrays) -> safe fallback.
 
             first_val = s.iloc[0]
 
             # Only treat as "scalar-NaN" when not list-like; otherwise don't call isna
-            is_listlike = isinstance(first_val, (list, tuple, dict, set, np.ndarray))
+            is_listlike = isinstance(
+                first_val, (list, tuple, dict, set, np.ndarray)
+            )
             if (not is_listlike) and pd.isna(first_val):
                 # All-NaN (scalar NaN) is uniform; mixed NaN/non-NaN is not.
                 mask_other[c] = s.isna().all()
@@ -2599,7 +3110,9 @@ def find_uniform_columns(df_comparable):
                 mask_other[c] = bool(eq.all())
 
     # Combine
-    mask = pd.concat([mask_num, mask_dtn, mask_other]).reindex(cols, fill_value=False)
+    mask = pd.concat([mask_num, mask_dtn, mask_other]).reindex(
+        cols, fill_value=False
+    )
     return mask
 
 
@@ -2608,6 +3121,7 @@ def macro_aggregate(agg, group, aggregator, average='mean'):
     Helper function
     """
     import pandas as pd
+
     blocklist = {'fpath'}
     hash_cols = ['region_id'] + agg.test_dset_cols
 
@@ -2621,7 +3135,6 @@ def macro_aggregate(agg, group, aggregator, average='mean'):
     allow_nonuniform = True
 
     if has_multiple_param_runs:
-
         # All aggregations are the mean when combining over the same region id
         sub_aggregator = {c: average for c in aggregator.keys()}
         sub_aggregator.update({c: average for c in agg.resources.columns})
@@ -2631,10 +3144,12 @@ def macro_aggregate(agg, group, aggregator, average='mean'):
         subrows = []
         try:
             for _, subgroup in subgroups:
-                subrow = aggregate_param_cols(df=subgroup,
-                                              aggregator=sub_aggregator,
-                                              hash_cols=sub_hash_cols,
-                                              allow_nonuniform=allow_nonuniform)
+                subrow = aggregate_param_cols(
+                    df=subgroup,
+                    aggregator=sub_aggregator,
+                    hash_cols=sub_hash_cols,
+                    allow_nonuniform=allow_nonuniform,
+                )
                 subrows.append(subrow)
         except Exception:
             print(f'_={_}')
@@ -2643,9 +3158,12 @@ def macro_aggregate(agg, group, aggregator, average='mean'):
         # Now each region is in exactly one row.
         table = pd.DataFrame(subrows)
 
-    macro_row = aggregate_param_cols(df=table, aggregator=aggregator,
-                                     hash_cols=hash_cols,
-                                     allow_nonuniform=allow_nonuniform)
+    macro_row = aggregate_param_cols(
+        df=table,
+        aggregator=aggregator,
+        hash_cols=hash_cols,
+        allow_nonuniform=allow_nonuniform,
+    )
     return macro_row
 
 
@@ -2667,7 +3185,7 @@ def hash_param(row, version=1):
     # TODO: something like multibase
     # https://github.com/multiformats/multibase
     if version == 1:
-        param_hashid = ub.hash_data(row, base=36)[0:12]
+        param_hashid = ub.hash_data(row, base=cast(Any, 36))[0:12]
     else:
         raise KeyError(version)
     return param_hashid
@@ -2675,7 +3193,7 @@ def hash_param(row, version=1):
 
 def hash_regions(rois):
     try:
-        suffix = ub.hash_data(sorted(rois), base=36)[0:6]
+        suffix = ub.hash_data(sorted(rois), base=cast(Any, 36))[0:6]
     except Exception:
         print('Error---')
         print('rois = {}'.format(ub.urepr(rois, nl=1)))
@@ -2686,7 +3204,12 @@ def hash_regions(rois):
 
 
 def nan_eq(a, b):
-    if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
+    if (
+        isinstance(a, float)
+        and isinstance(b, float)
+        and math.isnan(a)
+        and math.isnan(b)
+    ):
         return True
     else:
         return a == b
@@ -2761,7 +3284,7 @@ def _coerce_grouptop(grouptop, aliases=None):
     # Resolve parameter aliases
     if aliases:
         resolved = []
-        for param in new_grouptop["params"]:
+        for param in new_grouptop['params']:
             param = aliases.get(param, param)
             if isinstance(param, str):
                 param = [param]
@@ -2792,26 +3315,32 @@ def _build_metrics_info_table(agg, node):
         else:
             user_metric_info = _default_fn
             if not ub.iterable(user_metric_info):
-                raise ValueError(ub.paragraph(
-                    '''
+                raise ValueError(
+                    ub.paragraph(
+                        """
                     Unexpected definition of default_metrics in
                     node={node}. The cannonical definition is a function
                     that returns a List[Dict]. Got: {_default_fn!r}.
-                    '''))
+                    """
+                    )
+                )
     except (AttributeError, NotImplementedError):
         print(f'User did not specify _default_metrics2 for {node}')
     else:
         for info in user_metric_info:
             suffix = info.get('metric', info.get('suffix', None))
             if suffix is None:
-                raise ValueError(ub.paragraph(
-                    f'''
+                raise ValueError(
+                    ub.paragraph(
+                        f"""
                     The info={info} specified in default_metrics for
                     node={node} is missing required items.  You must
                     specify ``"metric": <value>`` where value is the name
                     of the metric relative to the node name.  I.e.
                     ``{metrics_prefix}.<value>``.
-                    '''))
+                    """
+                    )
+                )
             name = f'{metrics_prefix}.{suffix}'
             agg._metric_info[name] = info.copy()
             agg._metric_info[name]['name'] = name
@@ -2820,23 +3349,45 @@ def _build_metrics_info_table(agg, node):
         if agg._metric_info:
             # If the metrics info was specified, then dont use the old _default_metrics
             if agg.primary_metric_cols == 'auto':
-                agg.primary_metric_cols = [info['name'] for info in agg._metric_info.values() if info.get('primary', False)]
+                agg.primary_metric_cols = [
+                    info['name']
+                    for info in agg._metric_info.values()
+                    if info.get('primary', False)
+                ]
                 if len(agg.primary_metric_cols) == 0:
-                    warnings.warn(f'No metrics for {node} were marked as primary, forcing at least one')
-                    agg.primary_metric_cols = [ub.peek(agg._metric_info.values())['name']]
+                    warnings.warn(
+                        f'No metrics for {node} were marked as primary, forcing at least one'
+                    )
+                    agg.primary_metric_cols = [
+                        ub.peek(agg._metric_info.values())['name']  # type: ignore
+                    ]  
             if agg.display_metric_cols == 'auto':
-                agg.display_metric_cols = [info['name'] for info in agg._metric_info.values() if info.get('display', False)]
-                agg.display_metric_cols = list(ub.oset(agg.primary_metric_cols + agg.display_metric_cols))
+                agg.display_metric_cols = [
+                    info['name']
+                    for info in agg._metric_info.values()
+                    if info.get('display', False)
+                ]
+                agg.display_metric_cols = list(
+                    ub.oset(agg.primary_metric_cols + agg.display_metric_cols)
+                )
         else:
             # TODO: deprecate the old _default_metrics stuff entirely
             if hasattr(node, '_default_metrics'):
-                _primary_metrics_suffixes, _display_metrics_suffixes = node._default_metrics()
+                _primary_metrics_suffixes, _display_metrics_suffixes = (
+                    node._default_metrics()
+                )
                 # should we prevent double prefixes?
-                _primary_metrics = [f'{metrics_prefix}.{s}' for s in _primary_metrics_suffixes]
-                _display_metrics = [f'{metrics_prefix}.{s}' for s in _display_metrics_suffixes]
+                _primary_metrics = [
+                    f'{metrics_prefix}.{s}' for s in _primary_metrics_suffixes
+                ]
+                _display_metrics = [
+                    f'{metrics_prefix}.{s}' for s in _display_metrics_suffixes
+                ]
             else:
                 # fallback to something
-                _display_metrics = list(agg.table.search_columns('metrics'))[0:3]
+                _display_metrics = list(agg.table.search_columns('metrics'))[
+                    0:3
+                ]
                 _primary_metrics = _display_metrics[0:1]
             if agg.primary_metric_cols == 'auto':
                 agg.primary_metric_cols = _primary_metrics
@@ -2866,9 +3417,12 @@ def pandas_condense_paths(colvals):
         >>> colvals = pd.DataFrame(rows)['path1']
         >>> pandas_condense_paths(colvals)
     """
-    import pandas as pd
     import os
+
+    import pandas as pd
+
     from kwdagger.utils.util_stringalgo import shortest_unique_suffixes
+
     is_valid = ~pd.isnull(colvals)
     valid_vals = colvals[is_valid].apply(os.fspath)
     unique_valid_vals = valid_vals.unique().tolist()

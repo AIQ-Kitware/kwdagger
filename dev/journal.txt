@@ -1,0 +1,5 @@
+2026-01-29
+----------
+
+Discovered related work: CWL, common workflow language. The big difference is
+CWL does not do param sweeps as a first class object.
