@@ -113,9 +113,9 @@ import numpy as np
 try:
     import yaml  # PyYAML
 except Exception:  # pragma: no cover
-    HAS_PYYAML = True
-else:
     HAS_PYYAML = False
+else:
+    HAS_PYYAML = True
 
 
 GroupType = Literal["and", "or"]
