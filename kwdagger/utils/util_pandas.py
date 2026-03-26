@@ -6,6 +6,13 @@ import math
 import pandas as pd
 
 
+def compat_applymap(df, func):
+    """Apply ``func`` elementwise without triggering pandas 3 deprecations."""
+    if hasattr(df, 'map'):
+        return df.map(func)
+    return df.apply(lambda series: series.map(func))
+
+
 class DataFrame(pd.DataFrame):
     """
     Extension of pandas dataframes with quality-of-life improvements.

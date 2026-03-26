@@ -1636,11 +1636,13 @@ if 1:
         def __iter__(self):
             keys = self.keys
             if isinstance(keys, list) and len(keys) == 1:
-                # Handle this special case to avoid a warning
-                for key, group in self.grouper.get_iterator(self._selected_obj, axis=self.axis):
-                    yield (key,), group
+                # Normalize single-key list groupbys so callers always see the
+                # future tuple-shaped key, regardless of pandas version.
+                for key, group in self.__wrapped__.__iter__():
+                    if not isinstance(key, tuple):
+                        key = (key,)
+                    yield key, group
             else:
-                # Otherwise use the parent impl
                 yield from self.__wrapped__.__iter__()
 
     def fix_groupby(groups):

@@ -16,6 +16,7 @@ import ubelt as ub
 import scriptconfig as scfg
 from cmd_queue.cli_boilerplate import CMDQueueConfig
 from kwdagger.pipeline import coerce_slurm_options
+from kwdagger.utils import util_pandas
 
 
 class ScheduleEvaluationConfig(CMDQueueConfig):
@@ -178,7 +179,7 @@ def build_schedule(config):
                 return slugify_ext.smart_truncate(item, max_length=16, trunc_loc=0)
             else:
                 return item
-        displayable = relevant.applymap(pandas_preformat)
+        displayable = util_pandas.compat_applymap(relevant, pandas_preformat)
         rich.print(displayable.to_string())
 
     for job in queue.jobs:

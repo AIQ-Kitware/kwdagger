@@ -141,9 +141,9 @@ def build_special_columns(agg):
 def preprocess_table_for_seaborn(agg, table):
     fillna_cols = table.columns.intersection(agg.resolved_params.columns.union(agg.resolved_params.columns))
     table.loc[:, fillna_cols] = table.loc[:, fillna_cols].fillna('None')
-    table = table.applymap(lambda x: str(x) if isinstance(x, list) else x)
-
     from kwdagger.utils import util_pandas
+    table = util_pandas.compat_applymap(table, lambda x: str(x) if isinstance(x, list) else x)
+
     table = util_pandas.DataFrame(table)
     channel_cols = table.match_columns('*.channels')
     if len(channel_cols):

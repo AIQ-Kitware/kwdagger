@@ -509,7 +509,7 @@ class AggregatorAnalysisMixin:
         table = table.fillna('None')
 
         main_metric = agg.primary_metric_cols[0]
-        table = table.applymap(lambda x: str(x) if isinstance(x, list) else x)
+        table = util_pandas.compat_applymap(table, lambda x: str(x) if isinstance(x, list) else x)
 
         results = []
         for idx, row in enumerate(table.to_dict('records')):
@@ -531,7 +531,7 @@ class AggregatorAnalysisMixin:
     def varied_param_counts(agg, min_variations=2, dropna=False):
         from kwdagger.utils import util_pandas
         params = util_pandas.DataFrame(agg.resolved_params)
-        params = params.applymap(lambda x: str(x) if isinstance(x, list) else x)
+        params = util_pandas.compat_applymap(params, lambda x: str(x) if isinstance(x, list) else x)
         varied_counts = params.varied_value_counts(dropna=dropna, min_variations=min_variations)
         varied_counts = ub.udict(varied_counts).sorted_values(key=len)
         return varied_counts
@@ -634,7 +634,8 @@ class AggregatorAnalysisMixin:
             metrics_of_interest = agg.primary_metric_cols
 
         metrics = agg.metrics[metrics_of_interest]
-        resolved_params = resolved_params.applymap(lambda x: str(x) if isinstance(x, list) else x)
+        resolved_params = util_pandas.compat_applymap(
+            resolved_params, lambda x: str(x) if isinstance(x, list) else x)
 
         varied_counts = resolved_params.varied_value_counts(dropna=True)
 
@@ -1967,7 +1968,8 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             list(effective_params.groupby(param_cols, dropna=False))
         except Exception:
             # effective_params = effective_params.applymap(lambda x: str(x) if isinstance(x, list) else x)
-            effective_params = effective_params.applymap(lambda x: str(x) if isinstance(x, (list, dict)) else x)
+            effective_params = util_pandas.compat_applymap(
+                effective_params, lambda x: str(x) if isinstance(x, (list, dict)) else x)
 
         if 0:
             # dev helper to check which params are being varied. This can help
