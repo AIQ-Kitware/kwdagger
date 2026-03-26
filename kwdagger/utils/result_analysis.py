@@ -1323,6 +1323,9 @@ class SkillTracker:
         player_ids (List[T]):
             a list of ids (usually ints) used to represent each player
 
+    CommandLine:
+        xdoctest -m kwdagger.utils.result_analysis SkillTracker
+
     Example:
         >>> # xdoctest: +REQUIRES(module:openskill)
         >>> self = SkillTracker([1, 2, 3, 4, 5])
@@ -1331,12 +1334,15 @@ class SkillTracker:
         >>> self.observe([2, 3, 4, 5, 1])  # Everyone played, player 2 won.
         >>> win_probs = self.predict_win()
         >>> print('win_probs = {}'.format(ub.urepr(win_probs, nl=1, precision=2)))
+
+        # NOTE: openskill has had bug fixes in supported versions, so
+        # we cannot test this until we bump our minimum openskill version to >=6
         win_probs = {
-            1: 0.20,
-            2: 0.21,
-            3: 0.19,
-            4: 0.20,
-            5: 0.20,
+            1: 0.17,
+            2: 0.29,
+            3: 0.14,
+            4: 0.21,
+            5: 0.18,
         }
 
     Requirements:
@@ -1347,6 +1353,11 @@ class SkillTracker:
         import openskill
         if hasattr(openskill, "Rating"):
             # OpenSkill < 5: legacy top-level API
+            # This uses a plackett luce model by default, but older versions
+            # have bugs that are resolved, so numbers are will change depending
+            # on your version. We will likely update our reqs to openskill >= 6
+            # later.
+            # https://github.com/vivekjoshy/openskill.py/issues/124
             return {
                 "new_rating": openskill.Rating,
                 "rate": openskill.rate,
@@ -1354,8 +1365,11 @@ class SkillTracker:
             }
         else:
             # OpenSkill >= 5: use a model instance
-            from openskill.models import PlackettLuce
-            model = PlackettLuce()
+            #from openskill.models import BradleyTerryFull as Model
+            #from openskill.models import ThurstoneMostellerPart as Model
+            #from openskill.models import BradleyTerryPart as Model
+            from openskill.models import PlackettLuce as Model
+            model = Model()
             return {
                 "new_rating": model.rating,
                 "rate": model.rate,
