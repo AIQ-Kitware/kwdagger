@@ -66,9 +66,11 @@ TODO:
 """
 
 from __future__ import annotations
+
 import math
+from typing import Any, Dict, cast
+
 import ubelt as ub
-from typing import Dict, Any, cast
 from scriptconfig import DataConfig, Value
 
 
@@ -168,9 +170,10 @@ class AggregateLoader(DataConfig):
             self.target = resolved
 
     def coerce_aggregators(config) -> dict[str, Any]:
-        from kwutil import util_path
-        from kwdagger.aggregate_loader import build_tables
         import pandas as pd
+        from kwutil import util_path
+
+        from kwdagger.aggregate_loader import build_tables
 
         input_targets = util_path.coerce_patterned_paths(
             cast(Any, config.target)
@@ -595,8 +598,8 @@ class AggregatorAnalysisMixin:
 
     def macro_analysis(agg: Any):
         import pandas as pd
-        from kwdagger.utils import result_analysis
-        from kwdagger.utils import util_pandas
+
+        from kwdagger.utils import result_analysis, util_pandas
 
         macro_keys = list(agg.macro_key_to_regions.keys())
         if len(macro_keys) == 0:
@@ -758,8 +761,7 @@ class AggregatorAnalysisMixin:
         Does a stats analysis on each varied parameter. Note this makes
         independence assumptions that may not hold in general.
         """
-        from kwdagger.utils import util_pandas
-        from kwdagger.utils import result_analysis
+        from kwdagger.utils import result_analysis, util_pandas
 
         resolved_params = util_pandas.DataFrame(agg.resolved_params)
         if metrics_of_interest is None:
@@ -857,9 +859,10 @@ class AggregatorAnalysisMixin:
             >>> agg.report_best(print_models=True, top_k=3, grouptop='special:model')
             >>> agg.report_best(print_models=True, top_k=3, grouptop='special:model', reference_region='region1')
         """
-        import rich
-        import pandas as pd
         import numpy as np
+        import pandas as pd
+        import rich
+
         from kwdagger.utils import util_pandas
 
         if isinstance(per_group, float) and math.isinf(per_group):
@@ -1286,6 +1289,7 @@ class AggregatorAnalysisMixin:
 
         if print_models:
             import itertools as it
+
             from kwutil.util_yaml import Yaml
 
             # FIXME: handle macro regions?
@@ -1860,11 +1864,12 @@ class Aggregator(
             >>> agg.resource_summary_table()
             >>> agg.report_best()
         """
-        from kwarray import distributions as dmod
-        import pandas as pd
-        import numpy as np
-        import kwarray
         import uuid
+
+        import kwarray
+        import numpy as np
+        import pandas as pd
+        from kwarray import distributions as dmod
 
         rng = kwarray.ensure_rng(rng)
 
@@ -2199,8 +2204,8 @@ class Aggregator(
             >>> assert not agg.table['context.demo_node.uuid'].str.startswith('c').all()
             >>> print(subagg.table['context.demo_node.uuid'])
         """
-        import numpy as np
         import kwarray
+        import numpy as np
 
         final_flags = 1
 
@@ -2341,8 +2346,10 @@ class Aggregator(
             * ``self.effective_params``
 
         """
-        import pandas as pd
         import itertools as it
+
+        import pandas as pd
+
         from kwdagger.utils import util_pandas
 
         requested_params = self.requested_params
@@ -2617,8 +2624,9 @@ class Aggregator(
             DataFrame | None:
         """
 
-        import pandas as pd
         import numpy as np
+        import pandas as pd
+
         from kwdagger.utils.util_pandas import DotDictDataFrame
         # Given a specific group of regions,
 
@@ -2818,8 +2826,8 @@ def aggregate_param_cols(
         specified.params.demo_node.package_fpath                  1
         Name: 0, dtype: object
     """
-    import pandas as pd
     import numpy as np
+    import pandas as pd
     import rich
 
     agg_row = df.iloc[0]
@@ -3409,8 +3417,10 @@ def pandas_condense_paths(colvals):
         >>> colvals = pd.DataFrame(rows)['path1']
         >>> pandas_condense_paths(colvals)
     """
-    import pandas as pd
     import os
+
+    import pandas as pd
+
     from kwdagger.utils.util_stringalgo import shortest_unique_suffixes
 
     is_valid = ~pd.isnull(colvals)

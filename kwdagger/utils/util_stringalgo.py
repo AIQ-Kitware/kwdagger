@@ -4,8 +4,9 @@ pip install pygtrie
 
 from __future__ import annotations
 
-import numpy as np  # NOQA
 from typing import Iterable, Sequence
+
+import numpy as np  # NOQA
 
 
 def shortest_unique_prefixes(

@@ -1,10 +1,11 @@
 """Turn saliency rasters into bounding box detections."""
 
 from __future__ import annotations
+
 import kwcoco
+import numpy as np
 import scriptconfig as scfg
 import ubelt as ub
-import numpy as np
 from skimage import measure
 
 

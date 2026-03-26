@@ -4,10 +4,11 @@ Ported from netharn.device, previously called gpu_infos
 
 from __future__ import annotations
 
-import ubelt as ub
 import os
 import warnings
 from typing import Any
+
+import ubelt as ub
 
 
 class NvidiaSMIError(Exception):

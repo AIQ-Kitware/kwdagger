@@ -5,8 +5,9 @@ The first stage performs a tiny keyword-based "model" and the second stage
 evaluates it. Each node documents the pieces kwdagger needs to wire things up.
 """
 
-import kwdagger
 import ubelt as ub
+
+import kwdagger
 
 # Normally we want to invoke installed Python modules so we can abstract away
 # hard coded paths, but for this example we will avoid that for simplicity.
@@ -46,6 +47,7 @@ class KeywordSentimentPredict(kwdagger.ProcessNode):
 
     def load_result(self, node_dpath):
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 
@@ -105,6 +107,7 @@ class SentimentEvaluate(kwdagger.ProcessNode):
         kwutil.ProcessContext conventions shown in the CLI examples.
         """
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 

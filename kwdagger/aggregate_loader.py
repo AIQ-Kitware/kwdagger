@@ -6,13 +6,14 @@ Used by ./aggregate.py
 
 from __future__ import annotations
 
-import ubelt as ub
-from kwutil import util_pattern
-from kwutil import util_parallel
-from kwdagger.utils import util_dotdict
-import parse
 import json
 from typing import Any
+
+import parse
+import ubelt as ub
+from kwutil import util_parallel, util_pattern
+
+from kwdagger.utils import util_dotdict
 
 
 def build_tables(
@@ -228,8 +229,8 @@ def load_result_worker(
         >>> use_cache = False
         >>> result = load_result_worker(fpath, node_name, node=node, dag=dag, use_cache=use_cache)
     """
-    import safer
     import rich
+    import safer
     from kwutil import util_json
     from kwutil.util_exception import add_exception_note
 

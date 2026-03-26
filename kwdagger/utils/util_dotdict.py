@@ -21,9 +21,10 @@ Related Work:
 
 from __future__ import annotations
 
-import ubelt as ub
-import pygtrie
 from typing import Any
+
+import pygtrie
+import ubelt as ub
 
 
 class DotDict(ub.UDict):
@@ -480,7 +481,7 @@ def explore_nested_dict(data):
     """
     graph = indexable_to_graph(data)
 
-    from cmd_queue.util.util_networkx import write_network_text
     import rich
+    from cmd_queue.util.util_networkx import write_network_text
 
     write_network_text(graph, path=rich.print, end='')

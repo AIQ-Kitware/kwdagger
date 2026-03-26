@@ -138,14 +138,14 @@ from __future__ import annotations
 import itertools as it
 import math
 import warnings
+from typing import cast
 
 import numpy as np
 import pandas as pd
+import rich
 import scipy
 import scipy.stats  # NOQA
 import ubelt as ub
-import rich
-from typing import cast
 
 # a list of common objectives
 DEFAULT_METRIC_TO_OBJECTIVE = {

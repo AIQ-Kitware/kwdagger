@@ -17,14 +17,15 @@ __submodules__ = {
 }
 
 ###
-from kwdagger import aggregate
-from kwdagger import aggregate_loader
-from kwdagger import aggregate_plots
-from kwdagger import demo
-from kwdagger import pipeline
-from kwdagger import schedule
-from kwdagger import utils
-
+from kwdagger import (
+    aggregate,
+    aggregate_loader,
+    aggregate_plots,
+    demo,
+    pipeline,
+    schedule,
+    utils,
+)
 from kwdagger.pipeline import (
     Pipeline,
     ProcessNode,

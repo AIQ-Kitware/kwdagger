@@ -32,16 +32,16 @@ Usage
 
 from __future__ import annotations
 
+import glob
 import json
 from typing import Any, Dict, List
 
+import kwplot
+import numpy as np
 import pandas as pd
+import rich
 import scriptconfig as scfg
 import ubelt as ub
-import rich
-import glob
-import numpy as np
-import kwplot
 
 
 class OllamaCustomAggregateConfig(scfg.DataConfig):

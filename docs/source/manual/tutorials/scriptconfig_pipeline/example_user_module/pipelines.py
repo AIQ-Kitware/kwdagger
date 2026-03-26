@@ -5,9 +5,9 @@ The first stage performs a tiny keyword-based "model" and the second stage
 evaluates it. Each node derives its IO/param groups from a scriptconfig schema.
 """
 
-import kwdagger
 import ubelt as ub
 
+import kwdagger
 from example_user_module.cli.keyword_sentiment_predict import (
     KeywordSentimentPredictCLI,
 )
@@ -33,6 +33,7 @@ class KeywordSentimentPredict(kwdagger.ProcessNode):
 
     def load_result(self, node_dpath):
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 
@@ -79,6 +80,7 @@ class SentimentEvaluate(kwdagger.ProcessNode):
         kwutil.ProcessContext conventions shown in the CLI examples.
         """
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 

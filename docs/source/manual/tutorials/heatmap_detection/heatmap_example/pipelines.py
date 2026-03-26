@@ -1,9 +1,10 @@
 """Heatmap-to-detections tutorial pipeline for kwdagger."""
 
 from __future__ import annotations
-import json
-import kwdagger
 
+import json
+
+import kwdagger
 from kwdagger.utils import util_dotdict
 
 

@@ -63,8 +63,8 @@ from statistics import mean
 from typing import Any, Dict, List
 
 import kwutil
-import safer
 import requests
+import safer
 import scriptconfig as scfg
 import ubelt as ub
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import json
-import scriptconfig as scfg
-import ubelt as ub
+
 import kwutil
 import rich
+import scriptconfig as scfg
+import ubelt as ub
 from rich.markup import escape
 
 

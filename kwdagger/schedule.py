@@ -15,12 +15,14 @@ TODO:
 
 from __future__ import annotations
 
-import ubelt as ub
+from typing import Any
+
 import scriptconfig as scfg
+import ubelt as ub
 from cmd_queue.cli_boilerplate import CMDQueueConfig
+
 from kwdagger.pipeline import coerce_slurm_options
 from kwdagger.utils import util_pandas
-from typing import Any
 
 
 class ScheduleEvaluationConfig(CMDQueueConfig):
@@ -129,11 +131,12 @@ def build_schedule(config) -> tuple[Any, Any]:
     appropriate path. (as noted by model_dpath)
     """
     import json
+
+    import kwutil
     import pandas as pd
     import rich
-    import kwutil
-    from kwutil import slugify_ext
-    from kwutil import util_progress
+    from kwutil import slugify_ext, util_progress
+
     from kwdagger.pipeline import coerce_pipeline
     from kwdagger.utils.result_analysis import varied_values
     from kwdagger.utils.util_param_grid import expand_param_grid

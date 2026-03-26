@@ -4,9 +4,10 @@ Heavilly modified / simplified subset of data frame extensions ported from geowa
 
 from __future__ import annotations
 
-import ubelt as ub
 import math
+
 import pandas as pd
+import ubelt as ub
 
 
 def compat_applymap(df, func):
@@ -379,6 +380,7 @@ class DataFrame(pd.DataFrame):
             >>> assert list(new.columns) == ['id', 'metrics.magic', 'metrics.acc', 'model.lr', 'data.magic']
         """
         import ubelt as ub
+
         from kwdagger.utils.util_stringalgo import shortest_unique_suffixes
 
         old_cols = self.columns

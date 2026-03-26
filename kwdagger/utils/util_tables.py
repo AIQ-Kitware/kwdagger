@@ -4,9 +4,9 @@ Common table helpers (i.e. List[Dict])
 
 from __future__ import annotations
 
-import ubelt as ub
 import math
-from typing import Any, Iterable
+
+import ubelt as ub
 
 
 class UnhashablePlaceholder(str): ...

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import re
-from kwutil import util_time
 from typing import Any, Mapping
+
+from kwutil import util_time
 
 
 def _handle_process_item(item: dict[str, Any]) -> dict[str, Any]:

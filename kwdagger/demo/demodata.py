@@ -130,13 +130,14 @@ Example:
 
 from __future__ import annotations
 
-from kwdagger.pipeline import ProcessNode
-from kwdagger.pipeline import Pipeline
-import ubelt as ub
-import scriptconfig as scfg
-import kwutil
 import json
 from typing import Any
+
+import kwutil
+import scriptconfig as scfg
+import ubelt as ub
+
+from kwdagger.pipeline import Pipeline, ProcessNode
 
 ### EXECUTABLE PROCESS CODE
 
@@ -295,6 +296,7 @@ class Stage1_Predict(ProcessNode):
 
     def load_result(self, node_dpath):
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 
@@ -341,6 +343,7 @@ class Stage1_Evaluate(ProcessNode):
             Dict[str, Any]
         """
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 

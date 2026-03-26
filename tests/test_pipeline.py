@@ -2,8 +2,7 @@ def test_variable_inputs():
     """
     Test case where a node depends on a variable length set of inputs.
     """
-    from kwdagger.pipeline import ProcessNode
-    from kwdagger.pipeline import Pipeline
+    from kwdagger.pipeline import Pipeline, ProcessNode
 
     # A simple pipeline where we don't need to manage reconfiguration.
     node1 = ProcessNode(
@@ -51,8 +50,7 @@ def test_variable_inputs():
 
 
 def test_slurm_options(tmp_path):
-    from kwdagger.pipeline import ProcessNode
-    from kwdagger.pipeline import Pipeline
+    from kwdagger.pipeline import Pipeline, ProcessNode
 
     class TimedNode(ProcessNode):
         slurm_options = {

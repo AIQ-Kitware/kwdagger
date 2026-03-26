@@ -4,10 +4,11 @@ Utilities for saving the data that gave rise to particular hash values.
 
 from __future__ import annotations
 
-import ubelt as ub
-import shelve
 import os
+import shelve
 from typing import Any, cast
+
+import ubelt as ub
 
 
 class ReverseHashTable:

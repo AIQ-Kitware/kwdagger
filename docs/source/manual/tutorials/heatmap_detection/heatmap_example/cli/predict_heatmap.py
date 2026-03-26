@@ -1,12 +1,13 @@
 """Simulate segmentation predictions by writing saliency maps."""
 
 from __future__ import annotations
+
 import kwarray
 import kwcoco
 import kwimage
+import numpy as np
 import scriptconfig as scfg
 import ubelt as ub
-import numpy as np
 
 
 class PredictHeatmapConfig(scfg.DataConfig):

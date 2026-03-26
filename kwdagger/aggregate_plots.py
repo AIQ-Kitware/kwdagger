@@ -7,8 +7,9 @@ Used by ./aggregate.py
 
 from __future__ import annotations
 
-import ubelt as ub
 from typing import Any, cast
+
+import ubelt as ub
 
 
 def build_plotter(agg, rois, plot_config):
@@ -19,8 +20,9 @@ def build_plotter(agg, rois, plot_config):
     Returns:
         ParamPlotter
     """
-    from kwdagger.utils import util_kwplot
     from kwutil import Yaml
+
+    from kwdagger.utils import util_kwplot
 
     build_special_columns(agg)
     agg.build()
@@ -248,6 +250,7 @@ class ParamPlotter:
         Draw tables that summarize the resource usage of the experiments.
         """
         import rich
+
         from kwdagger.utils import util_kwplot
 
         assert plotter.plot_dpath is not None
@@ -279,8 +282,8 @@ class ParamPlotter:
         Draw the overview for each vantage point.
         Draw tables that summarize the resource usage of the experiments.
         """
-        from kwutil.util_progress import ProgressManager
         import rich
+        from kwutil.util_progress import ProgressManager
 
         pman = ProgressManager()
 
@@ -303,8 +306,8 @@ class ParamPlotter:
         )
 
     def plot_params(plotter: Any) -> None:
-        from kwutil.util_progress import ProgressManager
         import rich
+        from kwutil.util_progress import ProgressManager
 
         pman = ProgressManager()
 
@@ -337,12 +340,13 @@ class ParamPlotter:
                 This must have keys: metric1, metric2 and can optionally
                 contain keys: scale1, scale2, objective1, and objective2.
         """
+        import kwimage
+        import kwplot
+        import numpy as np
+        import rich
+
         from kwdagger.utils import util_kwplot
         from kwdagger.utils.util_kwplot import scatterplot_highlight
-        import numpy as np
-        import kwplot
-        import kwimage
-        import rich
 
         sns = kwplot.autosns()
         plt = kwplot.autoplt()  # NOQA
@@ -470,12 +474,13 @@ class ParamPlotter:
                 This must have keys: metric1, metric2 and can optionally
                 contain keys: scale1, scale2, objective1, and objective2.
         """
-        from kwdagger.utils import util_kwplot
-        from kwdagger.utils.util_kwplot import scatterplot_highlight
-        import kwplot
         import kwimage
+        import kwplot
         import numpy as np
         import rich
+
+        from kwdagger.utils import util_kwplot
+        from kwdagger.utils.util_kwplot import scatterplot_highlight
 
         rich.print('[white]### Plot Vantage Macro Overview:')
         rich.print(f'[white] * {vantage}')
@@ -599,6 +604,7 @@ class ParamPlotter:
         """
         import kwplot
         import rich
+
         from kwdagger.utils import util_pandas
 
         rich.print('[white]### Plot Vantage Params:')
@@ -750,15 +756,16 @@ class ParamPlotter:
         Inner loop for :func:`ParamPlotter.plot_vantage_params`,
         todo: reduce arguments
         """
-        import rich
-        import kwplot
         import kwarray
+        import kwplot
+        import numpy as np
         import pandas as pd
+        import rich
+        import seaborn as sns
         from kwcoco.metrics.drawing import concice_si_display
+
         from kwdagger.utils import util_kwplot
         from kwdagger.utils.util_kwplot import scatterplot_highlight
-        import numpy as np
-        import seaborn as sns
 
         rich.print(f'param_name = {ub.urepr(param_name, nl=1)}')
 

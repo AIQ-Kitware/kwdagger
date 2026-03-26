@@ -103,12 +103,14 @@ Example:
 """
 
 from __future__ import annotations
+
+import warnings
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
-import warnings
-import pandas as pd
+from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
+
 import numpy as np
+import pandas as pd
 
 try:
     import yaml  # PyYAML

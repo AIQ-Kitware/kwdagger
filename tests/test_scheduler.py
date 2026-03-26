@@ -105,8 +105,9 @@ def test_simple_slurm_dry_run():
         sys.path.append(ubelt.expandpath('~/code/kwdagger/tests'))
         from test_scheduler import *  # NOQA
     """
-    from kwdagger import schedule
     import ubelt as ub
+
+    from kwdagger import schedule
 
     dpath = ub.Path.appdir(
         'kwdagger/unit_tests/scheduler/test_slurm_dryrun'
@@ -153,8 +154,9 @@ def test_simple_slurm_dry_run():
 
 
 def test_slurm_options_from_param_grid(tmp_path):
-    from kwdagger import schedule
     import ubelt as ub
+
+    from kwdagger import schedule
 
     dpath = ub.Path(tmp_path) / 'slurm_grid'
     dpath.delete().ensuredir()
@@ -217,9 +219,9 @@ def test_simple_but_real_custom_pipeline():
         sys.path.append(ubelt.expandpath('~/code/kwdagger/tests'))
         from test_scheduler import *  # NOQA
     """
-    from kwdagger import schedule
-    from kwdagger import aggregate
     import ubelt as ub
+
+    from kwdagger import aggregate, schedule
 
     dpath = ub.Path.appdir(
         'kwdagger/unit_tests/scheduler/test_real_pipeline'

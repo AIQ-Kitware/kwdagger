@@ -21,15 +21,17 @@ actual execution.
 from __future__ import annotations
 
 import functools
-import networkx as nx
 import os
-import ubelt as ub
+import typing
 import warnings
 from functools import cached_property
-from typing import Any, Optional, Union, Dict, Set, List
-from kwdagger.utils import util_dotdict
+from typing import Any, Dict, List, Optional, Set, Union
+
 import kwutil
-import typing
+import networkx as nx
+import ubelt as ub
+
+from kwdagger.utils import util_dotdict
 
 Collection = Optional[Union[Dict, Set, List]]
 Configurable = Optional[Dict[str, Any]]
@@ -337,8 +339,8 @@ class Pipeline:
         output connects to which input.  See :func:`Pipeline.print_io_graph`
         for that level of detail.
         """
-        import rich
         import networkx as nx
+        import rich
 
         self._ensure_clean()
         _labelize_graph(self.proc_graph, shrink_labels, show_types)
@@ -353,8 +355,8 @@ class Pipeline:
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
         """
-        import rich
         import networkx as nx
+        import rich
 
         self._ensure_clean()
         _labelize_graph(
@@ -404,10 +406,10 @@ class Pipeline:
         Also takes care of adding special bookkeeping jobs that add helper
         files and symlinks to node output paths.
         """
-        import cmd_queue
-
         # import shlex
         import json
+
+        import cmd_queue
         import networkx as nx
 
         if queue is None:
@@ -2578,8 +2580,8 @@ def _resolve_pipeline(pipeline):
 
 
 def _coerce_modpath(modpath_or_name):
-    import types
     import os
+    import types
 
     if isinstance(modpath_or_name, types.ModuleType):
         raise TypeError('Expected a static module but got a dynamic one')

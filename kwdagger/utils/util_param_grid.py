@@ -7,9 +7,10 @@ its underlying workhorse: :func:`extended_github_action_matrix`.
 
 from __future__ import annotations
 
-import ubelt as ub
-import kwutil
 from typing import Any
+
+import kwutil
+import ubelt as ub
 
 
 def coerce_list_of_action_matrices(

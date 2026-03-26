@@ -16,11 +16,12 @@ TODO:
 
 from __future__ import annotations
 
-import ubelt as ub
-import matplotlib as mpl
-import matplotlib.text  # NOQA
 import typing
 from typing import Any, Sized, cast
+
+import matplotlib as mpl
+import matplotlib.text  # NOQA
+import ubelt as ub
 
 
 class TitleBuilder:
@@ -110,9 +111,9 @@ def dataframe_table(
         >>> fpath = dpath / 'dfi.png'
         >>> dataframe_table(table, fpath, title='A caption / title')
     """
+    import dataframe_image as dfi
     import kwimage
     import kwplot
-    import dataframe_image as dfi
     import pandas as pd
     # table_conversion = "chrome"  # matplotlib
 
@@ -720,8 +721,8 @@ class ArtistManager:
             angle (float): The angles of the first axes, degrees CCW from the x-axis.
 
         """
-        import numpy as np
         import kwimage
+        import numpy as np
 
         if color is not None:
             if 'edgecolors' not in attrs:
@@ -776,8 +777,8 @@ class ArtistManager:
         self.add_ellipse_marker(xy, rx=r, ry=r, angle=0, **attrs)
 
     def build_collections(self, ax=None):
-        import numpy as np
         import matploblib.collections  # NOQA
+        import numpy as np
 
         collections = []
         for hashid, segments in self.group_to_line_segments.items():

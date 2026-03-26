@@ -5,9 +5,9 @@ This mirrors the tutorial structure: a ProcessNode that runs a scriptconfig CLI,
 and exposes summary metrics via load_result() for aggregation.
 """
 
-import kwdagger
 import ubelt as ub
 
+import kwdagger
 
 # Reuse the EXAMPLE_DPATH pattern from the tutorial so we can run this
 # both inside the installed example and from a dev checkout.
@@ -57,6 +57,7 @@ class OllamaBenchmark(kwdagger.ProcessNode):
         - flatten with util_dotdict
         """
         import json
+
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
 
