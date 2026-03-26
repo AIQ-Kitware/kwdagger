@@ -1874,6 +1874,7 @@ class ProcessNode(Node):
         Basic version of command, can be overwritten
         """
         argstr = self._make_argstr(self.final_config)
+        assert self.executable is not None
         if argstr:
             command = self.executable + ' \\\n    ' + argstr
         else:

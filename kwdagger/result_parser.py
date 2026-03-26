@@ -9,43 +9,6 @@ import re
 from kwutil import util_time
 
 
-# Do we need to memoize this?
-def parse_json_header(fpath):
-    """
-    Ideally the information we need is in the first few bytes of the json file
-    """
-    from kwdagger.utils import ijson_ext
-    import zipfile
-    if zipfile.is_zipfile(fpath):
-        # We have a compressed json file, but we can still read the header
-        # fairly quickly.
-        zfile = zipfile.ZipFile(fpath)
-        names = zfile.namelist()
-        assert len(names) == 1
-        member = names[0]
-        # Stream the header directly from the zipfile.
-        file = zfile.open(member, 'r')
-    else:
-        # Normal json file
-        file = open(fpath, 'r')
-
-    with file:
-        # import ijson
-        # We only expect there to be one info section
-        # try:
-        #     # Try our extension if the main library fails (due to NaN)
-        #     info_section_iter = ijson.items(file, prefix='info')
-        #     info_section = next(info_section_iter)
-        # except ijson.IncompleteJSONError:
-        # Try our extension if the main library fails (due to NaN)
-        # file.seek(0)
-
-        # Nans are too frequent, only use our extension
-        info_section_iter = ijson_ext.items(file, prefix='info')
-        info_section = next(info_section_iter)
-    return info_section
-
-
 def _handle_process_item(item):
     """
     Json data written by the process context has changed over time slightly.

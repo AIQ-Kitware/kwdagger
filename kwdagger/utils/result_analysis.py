@@ -585,6 +585,7 @@ class ResultAnalysis(ub.NiceRepr):
             >>> self = ResultAnalysis.demo(100)
 
         """
+        raise NotImplementedError
         from ray import tune
 
         # 1. Define an objective function.

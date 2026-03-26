@@ -717,6 +717,7 @@ class ArtistManager:
 
     def build_collections(self, ax=None):
         import numpy as np
+        import matploblib.collections  # NOQA
         collections = []
         for hashid, segments in self.group_to_line_segments.items():
             attrs = self.group_to_attrs[hashid]
