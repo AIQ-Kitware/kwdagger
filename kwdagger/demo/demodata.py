@@ -158,10 +158,10 @@ class Stage1PredictCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs):
-        config = cls.cli(
-            argv=argv,
+        config = cls.cli(  # type: ignore
+            argv=argv,   # type: ignore
             data=kwargs,
-            strict=True,  # type: ignore
+            strict=True,  
             verbose='auto',
         )
 
@@ -205,10 +205,10 @@ class Stage1EvaluateCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs):
-        config = cls.cli(
-            argv=argv,
+        config = cls.cli(  # type: ignore
+            argv=argv,   # type: ignore
             data=kwargs,
-            strict=True,  # type: ignore
+            strict=True,  
             verbose='auto',
         )
 

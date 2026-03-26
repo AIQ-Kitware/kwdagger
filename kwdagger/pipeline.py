@@ -1722,12 +1722,12 @@ class ProcessNode(Node):
             unconnected_in_paths = ub.udict({})
         else:
             unconnected_in_paths = (
-                ub.udict(self.final_in_paths) & unconnected_inputs
-            )  # type: ignore
+                ub.udict(self.final_in_paths) & unconnected_inputs  # type: ignore
+            )  
 
         final_algo_config = (
-            self.config - self.non_algo_keys
-        ) | unconnected_in_paths  # type: ignore
+            self.config - self.non_algo_keys  # type: ignore
+        ) | unconnected_in_paths  
 
         if isinstance(self.algo_params, dict):
             for k, v in self.algo_params.items():

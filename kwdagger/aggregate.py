@@ -420,7 +420,7 @@ class AggregateEvluationConfig(AggregateLoader):
         run_aggregate(config)
 
 
-def run_aggregate(config) -> Any:
+def run_aggregate(config) -> dict[str, Aggregator]:
     import rich
     from kwutil.util_yaml import Yaml
 
@@ -596,18 +596,18 @@ class AggregatorAnalysisMixin:
     Analysis methods for :class:`Aggregator`.
     """
 
-    def macro_analysis(agg: Any):
+    def macro_analysis(agg: Aggregator):
         import pandas as pd
 
         from kwdagger.utils import result_analysis, util_pandas
 
-        macro_keys = list(agg.macro_key_to_regions.keys())
+        macro_keys = list(agg.macro_key_to_regions.keys())  # ty: ignore[unresolved-attribute]
         if len(macro_keys) == 0:
             raise Exception('Build a macro result first')
 
         # regions_of_interest = agg.macro_key_to_regions[agg.primary_macro_region]
         tables = util_pandas.DotDictDataFrame(
-            agg.region_to_tables[agg.primary_macro_region]
+            agg.region_to_tables[agg.primary_macro_region]  # ty: ignore[not-subscriptable]
         )
 
         resolved_params = tables['resolved_params']
@@ -617,7 +617,7 @@ class AggregatorAnalysisMixin:
         table = pd.concat([index, resolved_params, metrics], axis=1)
         table = table.fillna('None')
 
-        main_metric = agg.primary_metric_cols[0]
+        main_metric = agg.primary_metric_cols[0]  # ty: ignore[unresolved-attribute]
         table = util_pandas.compat_applymap(
             table, lambda x: str(x) if isinstance(x, list) else x
         )
@@ -645,7 +645,7 @@ class AggregatorAnalysisMixin:
         return analysis, table
 
     def varied_param_counts(
-        agg: Any, min_variations: int = 2, dropna: bool = False
+        agg: Aggregator, min_variations: int = 2, dropna: bool = False
     ):
         from kwdagger.utils import util_pandas
 
@@ -659,7 +659,7 @@ class AggregatorAnalysisMixin:
         varied_counts = ub.udict(varied_counts).sorted_values(key=len)
         return varied_counts
 
-    def dump_varied_parameter_report(agg: Any):
+    def dump_varied_parameter_report(agg: Aggregator):
         """
         Write the varied parameter report to disk
         """
@@ -678,13 +678,13 @@ class AggregatorAnalysisMixin:
             # not sure why ruamel.yaml will cause an error here
             yaml_text = kwutil.Yaml.dumps(fixed_report, backend='pyyaml')
 
-        agg.output_dpath.ensuredir()
-        report_fpath = agg.output_dpath / 'varied_param_report.yaml'
+        agg.output_dpath.ensuredir()  # ty: ignore[unresolved-attribute]
+        report_fpath = agg.output_dpath / 'varied_param_report.yaml'  # ty: ignore[unsupported-operator]
         rich.print(f'Write varied parameter report to: {report_fpath}')
         report_fpath.write_text(yaml_text)
 
     def varied_parameter_report(
-        agg: Any, concise: bool = True, concise_value_char_threshold: int = 80
+        agg: Aggregator, concise: bool = True, concise_value_char_threshold: int = 80
     ):
         """
         Dump a machine and human readable varied parameter report.
@@ -756,7 +756,7 @@ class AggregatorAnalysisMixin:
         report['column_summary'] = column_summary
         return report
 
-    def analyze(agg: Any, metrics_of_interest=None):
+    def analyze(agg: Aggregator, metrics_of_interest=None):
         """
         Does a stats analysis on each varied parameter. Note this makes
         independence assumptions that may not hold in general.
@@ -765,7 +765,7 @@ class AggregatorAnalysisMixin:
 
         resolved_params = util_pandas.DataFrame(agg.resolved_params)
         if metrics_of_interest is None:
-            metrics_of_interest = agg.primary_metric_cols
+            metrics_of_interest = agg.primary_metric_cols  # ty: ignore[unresolved-attribute]
 
         metrics = agg.metrics[metrics_of_interest]
         resolved_params = util_pandas.compat_applymap(
@@ -793,7 +793,7 @@ class AggregatorAnalysisMixin:
         analysis.analysis()
 
     def report_best(
-        agg: Any,
+        agg: Aggregator,
         top_k: int = 100,
         shorten: bool = True,
         per_group=None,
@@ -871,7 +871,7 @@ class AggregatorAnalysisMixin:
             top_k = cast(Any, None)
 
         primary_metric_objectives = [
-            agg._metric_info[c]['objective'] for c in agg.primary_metric_cols
+            agg._metric_info[c]['objective'] for c in agg.primary_metric_cols  # ty: ignore[unresolved-attribute]
         ]
 
         if reference_region:
@@ -880,15 +880,15 @@ class AggregatorAnalysisMixin:
             # macro scores.
             if reference_region == 'final':
                 reference_region = region_id = list(
-                    agg.region_to_tables.keys()
+                    agg.region_to_tables.keys()  # ty: ignore[unresolved-attribute]
                 )[-1]
             else:
                 region_id = reference_region
 
             # Lookup the table corresponding to the reference region
-            group = agg.region_to_tables[region_id]
+            group = agg.region_to_tables[region_id]  # ty: ignore[not-subscriptable]
             if len(group) == 0:
-                region_to_len = ub.udict(agg.region_to_tables).map_values(len)
+                region_to_len = ub.udict(agg.region_to_tables).map_values(len)  # ty: ignore[no-matching-overload]
                 print(
                     'region_to_len = {}'.format(ub.urepr(region_to_len, nl=1))
                 )
@@ -908,7 +908,7 @@ class AggregatorAnalysisMixin:
                 for subkey, subgroup in group.groupby(grouptop['params']):
                     locs = util_pandas.DataFrame.argextrema(
                         subgroup,
-                        agg.primary_metric_cols,
+                        agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
                         objective=primary_metric_objectives,
                         k=grouptop['top_k'],
                     )
@@ -924,7 +924,7 @@ class AggregatorAnalysisMixin:
             try:
                 top_locs = util_pandas.DataFrame.argextrema(
                     group_to_rank,
-                    agg.primary_metric_cols,
+                    agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
                     objective=primary_metric_objectives,
                     k=top_k,
                 )
@@ -943,8 +943,8 @@ class AggregatorAnalysisMixin:
             # Filter the agg object to consider only the top parameters
             _agg = agg.filterto(param_hashids=top_param_hashids)
 
-            if region_id in agg.macro_key_to_regions:
-                rois = agg.macro_key_to_regions[region_id]
+            if region_id in agg.macro_key_to_regions:  # ty: ignore[unsupported-operator]
+                rois = agg.macro_key_to_regions[region_id]  # ty: ignore[not-subscriptable]
                 _agg.build_macro_tables(rois)
             reference_hashids = top_param_hashids
             reference_hashid_to_rank = {
@@ -953,8 +953,8 @@ class AggregatorAnalysisMixin:
 
             if verbose > 3:
                 # Print out information on how much was filtered per region
-                for region_id in agg.region_to_tables.keys():
-                    old_table = agg.region_to_tables[region_id]
+                for region_id in agg.region_to_tables.keys():  # ty: ignore[unresolved-attribute]
+                    old_table = agg.region_to_tables[region_id]  # ty: ignore[not-subscriptable]
                     new_table = _agg.region_to_tables[region_id]
                     print(
                         f'Filter reduces {region_id} to {len(new_table)} / {len(old_table)}'
@@ -968,14 +968,14 @@ class AggregatorAnalysisMixin:
             _agg = agg
 
         metric_display_cols = list(
-            ub.oset(_agg.primary_metric_cols + _agg.display_metric_cols)
+            ub.oset(_agg.primary_metric_cols + _agg.display_metric_cols)  # ty: ignore[unresolved-attribute]
         )
 
         # For each region determine what information will be returned / shown
         region_id_to_summary = {}
         big_param_lut = {}
         region_id_to_ntotal = {}
-        for region_id, group in _agg.region_to_tables.items():
+        for region_id, group in _agg.region_to_tables.items():  # ty: ignore[unresolved-attribute]
             if len(group) == 0:
                 continue
             index_cols = group.columns.intersection(_agg.index.columns)
@@ -992,7 +992,7 @@ class AggregatorAnalysisMixin:
                     for subkey, subgroup in group.groupby(grouptop['params']):
                         locs = util_pandas.DataFrame.argextrema(
                             subgroup,
-                            _agg.primary_metric_cols,
+                            _agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
                             objective=primary_metric_objectives,
                             k=grouptop['top_k'],
                         )
@@ -1003,7 +1003,7 @@ class AggregatorAnalysisMixin:
 
                 ranked_locs = util_pandas.DataFrame.argextrema(
                     group_to_rank,
-                    _agg.primary_metric_cols,
+                    _agg.primary_metric_cols,  # ty: ignore[unresolved-attribute]
                     objective=primary_metric_objectives,
                     k=top_k,
                 )
@@ -1021,7 +1021,7 @@ class AggregatorAnalysisMixin:
             # Note: this report will only display requested params, but there
             # might be more detailed variations of interest.
             ranked_group = group.loc[ranked_locs]
-            param_lut = _agg.hashid_to_effective_params.subdict(
+            param_lut = _agg.hashid_to_effective_params.subdict(  # ty: ignore[unresolved-attribute]
                 ranked_group['param_hashid']
             )
             big_param_lut.update(param_lut)
@@ -1154,7 +1154,7 @@ class AggregatorAnalysisMixin:
                 # table per-region.
                 justone = pd.concat(list(region_id_to_summary.values()), axis=0)
                 submacro = (
-                    ub.udict(_agg.macro_key_to_regions)
+                    ub.udict(_agg.macro_key_to_regions)  # ty: ignore[no-matching-overload]
                     & justone['region_id'].values
                 )
 
@@ -1205,8 +1205,8 @@ class AggregatorAnalysisMixin:
                             f' wrt to reference region {reference_region}'
                         )
 
-                    if region_id in _agg.macro_key_to_regions:
-                        macro_regions = _agg.macro_key_to_regions[region_id]
+                    if region_id in _agg.macro_key_to_regions:  # ty: ignore[unsupported-operator]
+                        macro_regions = _agg.macro_key_to_regions[region_id]  # ty: ignore[not-subscriptable]
                         rich.print(
                             f'Top {len(summary_table)} / {ntotal} for {agg.node_type}, {region_id} = {macro_regions}{ref_text}'
                         )
@@ -1318,10 +1318,10 @@ class AggregatorAnalysisMixin:
             table.loc[top_locs, 'rank'] = np.arange(len(top_locs))
             table = table.sort_values('rank')
 
-            if len(agg.model_cols) == 0:
+            if len(agg.model_cols) == 0:  # type: ignore
                 print('No model columns are availble')
             else:
-                model_col = agg.model_cols[0]
+                model_col = agg.model_cols[0]  # type: ignore
 
                 # HACK: we want to group models that came from the same training
                 # run so we report a more diverse set of models. We typically group
@@ -1369,7 +1369,7 @@ class AggregatorAnalysisMixin:
         report = TopResultsReport(region_id_to_summary, top_param_lut)
         return report
 
-    def resource_summary_table(agg: Any):
+    def resource_summary_table(agg: Aggregator):
         """
         Sumarize resource usage of the pipeline
         """
@@ -1451,7 +1451,7 @@ class AggregatorAnalysisMixin:
         resource_summary_df = pd.DataFrame(resource_summary)
         return resource_summary_df
 
-    def resource_summary_table_friendly(agg):
+    def resource_summary_table_friendly(agg: Aggregator):
         resource_summary_df = agg.resource_summary_table()
         # TODO: nicer report
         import kwutil
@@ -1507,7 +1507,7 @@ class AggregatorAnalysisMixin:
         )
         return friendly
 
-    def report_resources(agg):
+    def report_resources(agg: Aggregator):
         import rich
 
         resource_summary_df = agg.resource_summary_table()
@@ -1520,7 +1520,7 @@ class AggregatorAnalysisMixin:
 
         rich.print(resource_summary_df.to_string())
 
-    def make_summary_analysis(subagg, config):
+    def make_summary_analysis(subagg: Aggregator, config):
         output_dpath = ub.Path(config['output_dpath']) / 'aggregate'
         agg_group_dpath = output_dpath / ('agg_summary_params2_v3')
         agg_group_dpath = agg_group_dpath.ensuredir()
@@ -1544,7 +1544,7 @@ class AggregatorAnalysisMixin:
             f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]'
         )
 
-    def make_result_node_symlinks(agg: Any):
+    def make_result_node_symlinks(agg: Aggregator):
         """
         Builds symlinks to results node paths based on region and param
         hashids.
@@ -1592,7 +1592,7 @@ class AggregatorAnalysisMixin:
 
         rich.print(f'Made Param Links: [link={base_dpath}]{base_dpath}[/link]')
 
-    def build_plotter(agg, rois=None, plot_config=None):
+    def build_plotter(agg: Aggregator, rois=None, plot_config=None):
         if rois is None:
             ...
         if plot_config is None:
@@ -1601,16 +1601,16 @@ class AggregatorAnalysisMixin:
 
         if isinstance(rois, str):
             # fixme: ensure rois are coerced before this point.
-            rois = cast(Aggregator, agg)._coerce_rois(rois)
+            rois = agg._coerce_rois(rois)
         # agg.macro_key_to_regions
         plotter = aggregate_plots.build_plotter(agg, rois, plot_config)
         return plotter
 
-    def plot_all(agg, rois=None, plot_config=None):
+    def plot_all(agg: Aggregator, rois=None, plot_config=None):
         plotter = agg.build_plotter(rois, plot_config)
         plotter.plot_requested()
 
-    def _wip_build_per_region_variance_tables(agg: Any):
+    def _wip_build_per_region_variance_tables(agg: Aggregator):
         from kwdagger.utils import util_pandas
 
         table = util_pandas.DataFrame(agg.table)
@@ -1637,7 +1637,7 @@ class AggregatorAnalysisMixin:
 
         group_rows = []
         metric_keys = ub.oset(
-            list(agg.primary_metric_cols + agg.display_metric_cols)
+            list(agg.primary_metric_cols + agg.display_metric_cols)  # ty: ignore[unresolved-attribute]
         )
 
         for _, subgroup in table.groupby(['region_id']):
@@ -3359,8 +3359,8 @@ def _build_metrics_info_table(agg, node):
                         f'No metrics for {node} were marked as primary, forcing at least one'
                     )
                     agg.primary_metric_cols = [
-                        ub.peek(agg._metric_info.values())['name']
-                    ]  # type: ignore
+                        ub.peek(agg._metric_info.values())['name']  # type: ignore
+                    ]  
             if agg.display_metric_cols == 'auto':
                 agg.display_metric_cols = [
                     info['name']

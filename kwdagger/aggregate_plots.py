@@ -908,9 +908,9 @@ class ParamPlotter:
             )
         if anova_rank_p is not None:
             title_builder.ensure_newline()
-            title_builder.append(
+            title_builder.append(   # type: ignore
                 f'Effect of {param_name}: anova_rank_p={concice_si_display(anova_rank_p)}'
-            )  # type: ignore
+            ) 
         header_text = title_builder.finalize()
 
         param_valname_map, had_value_remap = shrink_param_names(
@@ -1110,11 +1110,12 @@ class ParamPlotter:
                     }
                 )
             param_code_lut = pd.DataFrame(
-                param_code_lut, columns=['code', 'value', 'num']
-            )  # type: ignore
+                param_code_lut,
+                columns=['code', 'value', 'num'],  
+            )
             if not had_value_remap:
                 param_code_lut = param_code_lut.drop('code', axis=1)
-            param_title = 'Key: ' + modifier._modify_text(param_name)  # type: ignore
+            param_title = 'Key: ' + modifier._modify_text(param_name)
             lut_style = param_code_lut.style.set_caption(param_title)
             util_kwplot.dataframe_table(
                 lut_style, param_fpath, title=param_title
