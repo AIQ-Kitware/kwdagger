@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
+from __future__ import annotations
+
 import scriptconfig as scfg
 # from module.cli.script import ScriptCLI
 

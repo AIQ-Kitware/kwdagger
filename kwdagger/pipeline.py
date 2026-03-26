@@ -17,6 +17,8 @@ process inputs. This DAG can then be configured with customized input paths and
 parameters. The resulting jobs can then be submitted to a cmd_queue.Queue for
 actual execution.
 """
+from __future__ import annotations
+
 import functools
 import networkx as nx
 import os

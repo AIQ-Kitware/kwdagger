@@ -127,6 +127,8 @@ Example:
     >>> aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
     >>> aggregate.__cli__.main(argv=False, **aggregate_config)
 """
+from __future__ import annotations
+
 from kwdagger.pipeline import ProcessNode
 from kwdagger.pipeline import Pipeline
 import ubelt as ub

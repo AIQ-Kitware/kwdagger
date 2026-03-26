@@ -12,6 +12,8 @@ TODO:
     - [ ] Allow the output of tracking to feed into activity classification
     - [x] Rename to "schedule". The pipeline does not have to be an evaluation.
 """
+from __future__ import annotations
+
 import ubelt as ub
 import scriptconfig as scfg
 from cmd_queue.cli_boilerplate import CMDQueueConfig

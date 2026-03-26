@@ -13,6 +13,8 @@ TODO:
     - [ ] from kwplot.managers import ArtistManager
     - [ ] etc...
 """
+from __future__ import annotations
+
 import ubelt as ub
 import matplotlib as mpl
 import matplotlib.text  # NOQA
@@ -46,7 +48,7 @@ class TitleBuilder:
     def __repr__(self):
         return repr(self.title_rows)
 
-    def add_part(self, part):
+    def add_part(self, part: str):
         self._row.append(part)
 
     def newline(self):
@@ -314,7 +316,7 @@ class LabelModifier:
                 self._dict_mapper.update(ub.udict(mapping).map_keys(str))
         return self
 
-    def update(self, dict_mapping):
+    def update(self, dict_mapping):  # type: ignore
         self._dict_mapper.update(dict_mapping)
         self._dict_mapper.update(ub.udict(dict_mapping).map_keys(str))
         return self
@@ -347,13 +349,13 @@ class LabelModifier:
         for label in legend.texts:
             self._modify_labels(label)
 
-    def relabel_yticks(self, ax=None):
+    def relabel_yticks(self, ax: Any = None):
         old_ytick_labels = ax.get_yticklabels()
         new_yticklabels = [self._modify_labels(label) for label in old_ytick_labels]
         ax.set_yticks(ax.get_yticks())
         ax.set_yticklabels(new_yticklabels)
 
-    def relabel_xticks(self, ax=None):
+    def relabel_xticks(self, ax: Any = None):
         # Set xticks and yticks first before setting tick labels
         # https://stackoverflow.com/questions/63723514/userwarning-fixedformatter-should-only-be-used-together-with-fixedlocator
         # print(f'new_xlabel={new_xlabel}')
@@ -370,7 +372,7 @@ class LabelModifier:
         ax.set_xticks(ax.get_xticks())
         ax.set_xticklabels(new_xticklabels)
 
-    def relabel_axes_labels(self, ax=None):
+    def relabel_axes_labels(self, ax: Any = None):
         old_xlabel = ax.get_xlabel()
         old_ylabel = ax.get_ylabel()
         old_title = ax.get_title()
@@ -383,11 +385,11 @@ class LabelModifier:
         ax.set_ylabel(new_ylabel)
         ax.set_title(new_title)
 
-    def relabel_legend(self, ax=None):
+    def relabel_legend(self, ax: Any = None):
         if ax.legend_ is not None:
             self._modify_legend(ax.legend_)
 
-    def relabel(self, ax=None, ticks=True, axes_labels=True, legend=True):
+    def relabel(self, ax: Any = None, ticks: bool = True, axes_labels: bool = True, legend: bool = True):
         if axes_labels:
             self.relabel_axes_labels(ax)
         if ticks:
@@ -396,7 +398,7 @@ class LabelModifier:
         if legend:
             self.relabel_legend(ax)
 
-    def __call__(self, ax=None):
+    def __call__(self, ax: Any = None):
         self.relabel(ax)
 
 
@@ -774,8 +776,8 @@ class ArtistManager:
         all_coords[flags] = np.nan
         all_coords = all_coords.astype(float)
 
-        minx, miny = np.nanmin(all_coords, axis=0) if len(all_coords) else 0
-        maxx, maxy = np.nanmax(all_coords, axis=0) if len(all_coords) else 1
+        minx, miny = np.nanmin(all_coords, axis=0) if len(all_coords) else (0, 0)
+        maxx, maxy = np.nanmax(all_coords, axis=0) if len(all_coords) else (1, 1)
         ltrb = minx, miny, maxx, maxy
         return ltrb
 
@@ -825,7 +827,7 @@ class Palette(ub.udict):
         self.update(data)
         return self
 
-    def update(self, other):
+    def update(self, other):  # type: ignore
         if isinstance(other, dict):
             self.add_labels(label_to_color=other)
         else:
@@ -871,7 +873,7 @@ class Palette(ub.udict):
         legend = kwplot.make_legend_img(self, dpi=dpi, **kwargs)
         return legend
 
-    def sorted_keys(self):
+    def sorted_keys(self):  # ty: ignore[invalid-method-override]
         return self.__class__(super().sorted_keys())
 
     def reorder(self, head=None, tail=None):

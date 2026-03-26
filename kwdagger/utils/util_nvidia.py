@@ -1,6 +1,8 @@
 """
 Ported from netharn.device, previously called gpu_infos
 """
+from __future__ import annotations
+
 import ubelt as ub
 import os
 import warnings
@@ -92,7 +94,7 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
     # Coerce into the old-style format for backwards compatibility
     gpus = {}
     for row in gpu_rows:
-        gpu = row.copy()
+        gpu: dict[str, Any] = dict(row)
         num = int(gpu['index'])
         gpu['num'] = num
         gpu['mem_used'] = float(gpu['memory.used'].strip().replace('MiB', ''))

@@ -64,9 +64,10 @@ TODO:
           model, otherwise it is confusing.
 
 """
+from __future__ import annotations
 import math
 import ubelt as ub
-from typing import Dict, Any
+from typing import Dict, Any, cast
 from scriptconfig import DataConfig, Value
 
 
@@ -109,11 +110,11 @@ class AggregateLoader(DataConfig):
         results.
         '''))
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         from kwutil.util_yaml import Yaml
-        self.eval_nodes = Yaml.coerce(self.eval_nodes)
-        self.primary_metric_cols = Yaml.coerce(self.primary_metric_cols)
-        self.display_metric_cols = Yaml.coerce(self.display_metric_cols)
+        self.eval_nodes = cast(Any, Yaml.coerce(cast(Any, self.eval_nodes)))
+        self.primary_metric_cols = cast(Any, Yaml.coerce(cast(Any, self.primary_metric_cols)))
+        self.display_metric_cols = cast(Any, Yaml.coerce(cast(Any, self.display_metric_cols)))
         ####
         # Pre-corece patterned inputs for nicer reporting?
         inputs = self.target
@@ -123,25 +124,25 @@ class AggregateLoader(DataConfig):
 
             def resolve_item(item):
                 try:
-                    loaded = Yaml.loads(item)
+                    loaded = Yaml.loads(cast(Any, item))
                 except (ComposerError, TypeError):
                     loaded = item
-                if ub.iterable(loaded):
+                if isinstance(loaded, (list, tuple)):
                     yield from loaded
                 else:
                     yield loaded
-            if ub.iterable(inputs):
+            if isinstance(inputs, (list, tuple)):
                 for item in inputs:
                     resolved.extend(list(resolve_item(item)))
             else:
                 resolved.extend(list(resolve_item(inputs)))
             self.target = resolved
 
-    def coerce_aggregators(config):
+    def coerce_aggregators(config) -> dict[str, Any]:
         from kwutil import util_path
         from kwdagger.aggregate_loader import build_tables
         import pandas as pd
-        input_targets = util_path.coerce_patterned_paths(config.target)
+        input_targets = util_path.coerce_patterned_paths(cast(Any, config.target))
         eval_type_to_tables = ub.ddict(list)
 
         print('Coerce aggregators for pipeline:')
@@ -260,14 +261,14 @@ class AggregateEvluationConfig(AggregateLoader):
     def __post_init__(self):
         super().__post_init__()
         from kwutil.util_yaml import Yaml
-        self.plot_params = Yaml.coerce(self.plot_params)
+        self.plot_params = cast(Any, Yaml.coerce(cast(Any, self.plot_params)))
         # if self.query is not None:
         #     self.query = ub.paragraph(self.query)
         if isinstance(self.plot_params, int):
             self.plot_params = {
                 'enabled': bool(self.plot_params)
             }
-        self.stdout_report = Yaml.coerce(self.stdout_report)
+        self.stdout_report = cast(Any, Yaml.coerce(cast(Any, self.stdout_report)))
 
     def coerce_aggregators(config):
         eval_type_to_aggregator = super().coerce_aggregators()
@@ -328,7 +329,7 @@ class AggregateEvluationConfig(AggregateLoader):
         run_aggregate(config)
 
 
-def run_aggregate(config):
+def run_aggregate(config) -> Any:
     import rich
     from kwutil.util_yaml import Yaml
     eval_type_to_aggregator = config.coerce_aggregators()
@@ -436,8 +437,9 @@ def run_aggregate(config):
                 if rois is not None:
                     agg.build_macro_tables(rois)
 
-                reportkw = ub.compatible(report_config, agg.report_best)
+                reportkw = ub.compatible(cast(dict[str, Any], report_config), agg.report_best)
                 agg.report_best(**reportkw)
+                report_config = cast(dict[str, Any], report_config)
                 if report_config.get('analyze', False):
                     agg.analyze()
                 if report_config.get('macro_analysis', False):
@@ -489,7 +491,7 @@ class AggregatorAnalysisMixin:
     """
     Analysis methods for :class:`Aggregator`.
     """
-    def macro_analysis(agg):
+    def macro_analysis(agg: Any):
         import pandas as pd
         from kwdagger.utils import result_analysis
         from kwdagger.utils import util_pandas
@@ -514,8 +516,8 @@ class AggregatorAnalysisMixin:
         results = []
         for idx, row in enumerate(table.to_dict('records')):
             row = ub.udict(row)
-            row_metrics = row & set(metrics.keys())
-            row_params = row & set(resolved_params.keys())
+            row_metrics = ub.udict({k: row[k] for k in metrics.keys() if k in row})
+            row_params = ub.udict({k: row[k] for k in resolved_params.keys() if k in row})
             result = result_analysis.Result(str(idx), row_params, row_metrics)
             results.append(result)
 
@@ -528,7 +530,7 @@ class AggregatorAnalysisMixin:
         analysis.report()
         return analysis, table
 
-    def varied_param_counts(agg, min_variations=2, dropna=False):
+    def varied_param_counts(agg: Any, min_variations: int = 2, dropna: bool = False):
         from kwdagger.utils import util_pandas
         params = util_pandas.DataFrame(agg.resolved_params)
         params = util_pandas.compat_applymap(params, lambda x: str(x) if isinstance(x, list) else x)
@@ -536,7 +538,7 @@ class AggregatorAnalysisMixin:
         varied_counts = ub.udict(varied_counts).sorted_values(key=len)
         return varied_counts
 
-    def dump_varied_parameter_report(agg):
+    def dump_varied_parameter_report(agg: Any):
         """
         Write the varied parameter report to disk
         """
@@ -557,8 +559,8 @@ class AggregatorAnalysisMixin:
         rich.print(f'Write varied parameter report to: {report_fpath}')
         report_fpath.write_text(yaml_text)
 
-    def varied_parameter_report(agg, concise=True,
-                                concise_value_char_threshold=80):
+    def varied_parameter_report(agg: Any, concise: bool = True,
+                                concise_value_char_threshold: int = 80):
         """
         Dump a machine and human readable varied parameter report.
 
@@ -583,12 +585,12 @@ class AggregatorAnalysisMixin:
             for value, count in value_counts.items():
                 type_counts[type(value).__name__] += count
             type_counts = ub.odict(type_counts)
-            summary = {
+            summary: dict[str, Any] = {
                 'num_variations': len(value_counts),
             }
             if concise and len(type_counts) == 1:
                 # Just indicate what the type of all values was
-                summary['type'] = ub.peek(type_counts.keys())
+                summary['type'] = cast(Any, ub.peek(type_counts.keys()))
             else:
                 summary['type_counts'] = type_counts
 
@@ -622,7 +624,7 @@ class AggregatorAnalysisMixin:
         report['column_summary'] = column_summary
         return report
 
-    def analyze(agg, metrics_of_interest=None):
+    def analyze(agg: Any, metrics_of_interest=None):
         """
         Does a stats analysis on each varied parameter. Note this makes
         independence assumptions that may not hold in general.
@@ -657,9 +659,9 @@ class AggregatorAnalysisMixin:
         # analysis.results
         analysis.analysis()
 
-    def report_best(agg, top_k=100, shorten=True, per_group=None, verbose=1,
-                    reference_region=None, print_models=False, concise=False,
-                    show_csv=False, grouptop=None) -> TopResultsReport:
+    def report_best(agg: Any, top_k: int = 100, shorten: bool = True, per_group=None, verbose: int = 1,
+                    reference_region=None, print_models: bool = False, concise: bool = False,
+                    show_csv: bool = False, grouptop=None) -> TopResultsReport:
         """
         Report the top k pointwise results for each region / macro-region.
 
@@ -723,7 +725,7 @@ class AggregatorAnalysisMixin:
         if isinstance(per_group, float) and math.isinf(per_group):
             per_group = None
         if isinstance(top_k, float) and math.isinf(top_k):
-            top_k = None
+            top_k = cast(Any, None)
 
         primary_metric_objectives = [
             agg._metric_info[c]['objective'] for c in
@@ -906,9 +908,9 @@ class AggregatorAnalysisMixin:
 
                 non_varied_params = ub.udict().union(*top_nonvaried_param_lut.values())
                 from rich.markup import escape
-                rich.print('Varied Basis: = {}'.format(escape(ub.urepr(varied, nl=2))))
-                rich.print('Constant Params: {}'.format(escape(ub.urepr(non_varied_params, nl=2))))
-                rich.print('Varied Parameter LUT: {}'.format(escape(ub.urepr(top_varied_param_lut, nl=2))))
+                rich.print('Varied Basis: = {}'.format(escape(str(ub.urepr(varied, nl=2)))))
+                rich.print('Constant Params: {}'.format(escape(str(ub.urepr(non_varied_params, nl=2)))))
+                rich.print('Varied Parameter LUT: {}'.format(escape(str(ub.urepr(top_varied_param_lut, nl=2)))))
             else:
                 raise KeyError(PARAMTER_DISPLAY_MODE)
 
@@ -947,7 +949,7 @@ class AggregatorAnalysisMixin:
                     # Not sure why I differentiated this case, but keeping
                     # code consistent
                     if submacro:
-                        print('Macro Regions LUT: ' +  ub.urepr(submacro, nl=1))
+                        print('Macro Regions LUT: ' + cast(str, ub.urepr(submacro, nl=1)))
                 _justone = util_pandas.DataFrame(justone)
                 if concise:
                     if concise == 'split':
@@ -1284,8 +1286,8 @@ class AggregatorAnalysisMixin:
                 node_byparamid_dpath = (byparamid_dpath / param_hashid / region_id / version_id)
                 node_byregion_dpath.parent.ensuredir()
                 node_byparamid_dpath.parent.ensuredir()
-                ub.symlink(real_path=node_dpath, link_path=node_byparamid_dpath, overwrite=1)
-                ub.symlink(real_path=node_dpath, link_path=node_byregion_dpath, overwrite=1)
+                ub.symlink(real_path=node_dpath, link_path=node_byparamid_dpath, overwrite=True)
+                ub.symlink(real_path=node_dpath, link_path=node_byregion_dpath, overwrite=True)
 
         import rich
         rich.print(f'Made Param Links: [link={base_dpath}]{base_dpath}[/link]')
@@ -1318,7 +1320,7 @@ class AggregatorAnalysisMixin:
             for key, stats in metric_description.T.iterrows():
                 stats = ub.udict(stats.to_dict())
                 count = stats.pop('count')
-                stats = stats - {'50%', '75%', '25%'}
+                stats = ub.udict({k: v for k, v in stats.items() if k not in {'50%', '75%', '25%'}})
                 keystats = util_dotdict.DotDict(stats).add_prefix(key)
                 stats_row.update(keystats)
                 stats_row['count'] = count

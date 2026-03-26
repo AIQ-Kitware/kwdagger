@@ -3,6 +3,8 @@ Logic for loading raw results from the MLops DAG root dir.
 
 Used by ./aggregate.py
 """
+from __future__ import annotations
+
 import ubelt as ub
 from kwutil import util_pattern
 from kwutil import util_parallel

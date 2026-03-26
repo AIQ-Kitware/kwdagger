@@ -1,6 +1,8 @@
 """
 Heavilly modified / simplified subset of data frame extensions ported from geowatch
 """
+from __future__ import annotations
+
 import ubelt as ub
 import math
 import pandas as pd
@@ -48,7 +50,8 @@ class DataFrame(pd.DataFrame):
                 return list(data)
         columns = coerce_index(columns)
         index = coerce_index(rows)
-        random_data = [{c: rng.rand() for c in columns} for r in index]
+        rand = getattr(rng, 'rand', None) or getattr(rng, 'random')
+        random_data = [{c: rand() for c in columns} for r in index]
         self = cls(random_data, index=index, columns=columns)
         return self
 

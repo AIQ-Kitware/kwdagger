@@ -4,6 +4,8 @@ Handles github actions like parameter matrices
 The main function of interest here is :func:`expand_param_grid` and
 its underlying workhorse: :func:`extended_github_action_matrix`.
 """
+from __future__ import annotations
+
 import ubelt as ub
 import kwutil
 from typing import Any

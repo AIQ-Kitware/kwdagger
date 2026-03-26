@@ -1,6 +1,8 @@
 """
 Common table helpers (i.e. List[Dict])
 """
+from __future__ import annotations
+
 import ubelt as ub
 import math
 from typing import Any, Iterable
@@ -103,7 +105,7 @@ def varied_values(longform, min_variations: int = 0, max_variations: int | None 
             value = row.get(key, default)
             if isinstance(value, list):
                 value = tuple(value)
-            if isinstance(value, numbers.Number) and math.isnan(value):
+            if isinstance(value, numbers.Number) and not isinstance(value, tuple) and math.isnan(float(value)):
                 if dropna:
                     continue
                 else:
@@ -231,7 +233,7 @@ def varied_value_counts(longform, min_variations: int = 0, max_variations: int |
             if isinstance(value, list):
                 value = tuple(value)
 
-            if isinstance(value, numbers.Number) and math.isnan(value):
+            if isinstance(value, numbers.Number) and not isinstance(value, tuple) and math.isnan(float(value)):
                 if dropna:
                     continue
                 else:

@@ -4,6 +4,8 @@ between parameters and metrics from various vantage points.
 
 Used by ./aggregate.py
 """
+from __future__ import annotations
+
 import ubelt as ub
 from typing import Any
 

@@ -1,11 +1,13 @@
 """
 pip install pygtrie
 """
+from __future__ import annotations
+
 import numpy as np  # NOQA
 from typing import Iterable, Sequence
 
 
-def shortest_unique_prefixes(items: Sequence[str], sep: str | None = None, allow_simple: bool = True, min_length: int = 0, allow_end: bool = False) -> list[str]:
+def shortest_unique_prefixes(items: Sequence[str] | Iterable[str], sep: str | None = None, allow_simple: bool = True, min_length: int = 0, allow_end: bool = False) -> list[str]:
     r"""
     The shortest unique prefix algorithm.
 
@@ -76,6 +78,7 @@ def shortest_unique_prefixes(items: Sequence[str], sep: str | None = None, allow
             time per loop: best=4.063 s, mean=4.063 ± 0.0 s
     """
     import pygtrie
+    items = list(items)
     if len(set(items)) != len(items):
         raise ValueError('inputs must be unique')
 
@@ -199,7 +202,7 @@ def _trie_iteritems(self):
                 stack.append(list(node.children.iteritems()))
 
 
-def shortest_unique_suffixes(items: Sequence[str], sep: str | None = None, min_length: int = 0) -> list[str]:
+def shortest_unique_suffixes(items: Sequence[str] | Iterable[str], sep: str | None = None, min_length: int = 0) -> list[str]:
     r"""
     Example:
         >>> # xdoctest: +REQUIRES(--pygtrie)

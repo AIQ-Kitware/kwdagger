@@ -18,6 +18,8 @@ Related Work:
 
     https://pypi.org/project/omegaconf/
 """
+from __future__ import annotations
+
 import ubelt as ub
 import pygtrie
 from typing import Any

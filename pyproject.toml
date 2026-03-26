@@ -43,6 +43,7 @@ ignore_missing_imports = true
 [tool.ty.rules]
 unused-type-ignore-comment = "ignore"
 unresolved-import = "ignore"
+possibly-missing-submodule = "ignore"
 
 [tool.ruff]
 line-length = 80
