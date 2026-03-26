@@ -458,7 +458,7 @@ def run_aggregate(config) -> Any:
     if config.plot_params['enabled']:
         for eval_type, agg in eval_type_to_aggregator.items():
             if len(agg):
-                plot_config = ub.udict(config.plot_params) - {'enabled'}
+                plot_config = ub.udict(config.plot_params) - {'enabled'}  # type: ignore
                 agg.plot_all(rois, plot_config)
                 # TODO: have text reports in a separate group
                 agg.dump_varied_parameter_report()
@@ -899,11 +899,11 @@ class AggregatorAnalysisMixin:
                 # Show all unvaried requested parameters and then the varied
                 # requested parameters for each hash
                 varied_param_names = set(varied.keys())
-                top_varied_param_lut = {k: ub.udict(v) & varied_param_names
+                top_varied_param_lut = {k: ub.udict(v) & varied_param_names  # type: ignore
                                         for k, v in top_param_lut.items()}
 
                 top_nonvaried_param_lut = {
-                    k: ub.udict(v) - varied_param_names
+                    k: ub.udict(v) - varied_param_names  # type: ignore
                     for k, v in top_param_lut.items()}
 
                 non_varied_params = ub.udict().union(*top_nonvaried_param_lut.values())
@@ -1106,14 +1106,14 @@ class AggregatorAnalysisMixin:
         report = TopResultsReport(region_id_to_summary, top_param_lut)
         return report
 
-    def resource_summary_table(agg):
+    def resource_summary_table(agg: Any):
         """
         Sumarize resource usage of the pipeline
         """
         import pandas as pd
         from kwutil import util_time
-        table = agg.table.copy()
-        resources = agg.resources
+        table = agg.table.copy()  # type: ignore
+        resources = agg.resources  # type: ignore
 
         duration_cols = [
             k for k in resources.keys()
@@ -1138,7 +1138,7 @@ class AggregatorAnalysisMixin:
                     idx = 0
                 chosen.append(idx)
 
-            asec = util_time.timedelta(seconds=1)
+            asec = util_time.timedelta(seconds=1)  # type: ignore
 
             unique_rows = table.loc[chosen]
             row = {
@@ -1251,15 +1251,15 @@ class AggregatorAnalysisMixin:
         rich.print(f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]')
 
         # Given these set of A/B values, visualize each region
-        for region_id, group in ub.ProgIter(list(subagg.index.groupby('region_id')), desc='Inspect Region'):
-            group_agg = subagg.filterto(index=group.index)
+        for region_id, group in ub.ProgIter(list(subagg.index.groupby('region_id')), desc='Inspect Region'):  # type: ignore
+            group_agg = subagg.filterto(index=group.index)  # type: ignore
             for id, row in group_agg.index.iterrows():
                 ...
                 inspect_node(subagg, id, row, group_agg, agg_group_dpath)
 
         rich.print(f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]')
 
-    def make_result_node_symlinks(agg):
+    def make_result_node_symlinks(agg: Any):
         """
         Builds symlinks to results node paths based on region and param
         hashids.
@@ -1300,7 +1300,7 @@ class AggregatorAnalysisMixin:
         from kwdagger import aggregate_plots
         if isinstance(rois, str):
             # fixme: ensure rois are coerced before this point.
-            rois = agg._coerce_rois(rois)
+            rois = cast(Aggregator, agg)._coerce_rois(rois)
         # agg.macro_key_to_regions
         plotter = aggregate_plots.build_plotter(agg, rois, plot_config)
         return plotter
@@ -1309,7 +1309,7 @@ class AggregatorAnalysisMixin:
         plotter = agg.build_plotter(rois, plot_config)
         plotter.plot_requested()
 
-    def _wip_build_per_region_variance_tables(agg):
+    def _wip_build_per_region_variance_tables(agg: Any):
         from kwdagger.utils import util_pandas
         table = util_pandas.DataFrame(agg.table)
 
@@ -1389,7 +1389,8 @@ class _AggregatorDeprecatedMixin:
             migration='use requested_params instead',
             deprecate='0.15.0', error='1.0.0', remove='1.1.0',
         )
-        return self.subtables['params']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['params']
 
     @property
     def hashid_to_params(self):
@@ -1398,7 +1399,7 @@ class _AggregatorDeprecatedMixin:
             migration='use hashid_to_effective_params instead',
             deprecate='0.18.4', error='1.0.0', remove='1.1.0',
         )
-        return self.hashid_to_effective_params
+        return cast(Any, self).hashid_to_effective_params
 
     @property
     def type(self):
@@ -1408,7 +1409,7 @@ class _AggregatorDeprecatedMixin:
             deprecate='0.18.4', error='1.0.0', remove='1.1.0',
             stacklevel=2,
         )
-        return self.node_type
+        return cast(Any, self).node_type
 
 
 class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixin):
@@ -1595,7 +1596,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         _pyrng = kwarray.ensure_rng(rng, api='python')
         def _seeded_uuid():
             # uuid.uuid4()
-            _int = int.from_bytes(_pyrng.randbytes(16), byteorder='big')
+            _int = int.from_bytes(cast(Any, _pyrng).randbytes(16), byteorder='big')
             # _int = int.from_bytes(rng.randbytes(16))
             return uuid.UUID(int=_int, version=4)
 
@@ -1696,7 +1697,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         agg.macro_compatible = agg.find_macro_comparable()
         return agg
 
-    def _build_metrics_column_preferences(agg):
+    def _build_metrics_column_preferences(agg: Any):
         """
         Builds a table indexed by column name for the metrics columns.
 
@@ -1764,13 +1765,13 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         # print(f'agg._metric_info = {ub.urepr(agg._metric_info, nl=2)}')
 
     def __nice__(self):
-        return f'{self.node_type}, n={len(self)}'
+        return f'{cast(Any, self).node_type}, n={len(self)}'
 
     def __len__(self):
         return len(self.table)
 
     @property
-    def primary_macro_region(agg):
+    def primary_macro_region(agg: Any):
         macro_keys = list(agg.macro_key_to_regions.keys())
         if len(macro_keys) == 0:
             region_keys = list(agg.region_to_tables.keys())
@@ -1780,7 +1781,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             key = macro_keys[-1]
         return key
 
-    def filterto(agg, index=None, models=None, param_hashids=None, query=None):
+    def filterto(agg: Any, index=None, models=None, param_hashids=None, query=None):
         """
         Build a new aggregator with a subset of rows from this one.
 
@@ -1873,7 +1874,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
         return new_agg
 
-    def compress(agg, flags):
+    def compress(agg: Any, flags):
         new_table = agg.table[flags].copy()
         new_agg = Aggregator(new_table, node_type=agg.node_type,
                              dag=agg.dag, output_dpath=agg.output_dpath,
@@ -1883,31 +1884,38 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
     @property
     def metrics(self):
-        return self.subtables['metrics']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['metrics']
 
     @property
     def resources(self):
-        return self.subtables['resources']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['resources']
 
     @property
     def index(self):
-        return self.subtables['index']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['index']
 
     @property
     def requested_params(self):
-        return self.subtables['params']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['params']
 
     @property
     def specified_params(self):
-        return self.subtables['specified']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['specified']
 
     @property
     def resolved_params(self):
-        return self.subtables['resolved_params']
+        subtables = cast(dict[str, Any], cast(Any, self).subtables)
+        return subtables['resolved_params']
 
     @property
     def default_vantage_points(self):
         try:
+            assert self.node_type is not None
             if self.dag is not None:
                 node = self.dag.nodes[self.node_type]
                 vantage_points = node.default_vantage_points
@@ -1941,8 +1949,8 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         requested_params = self.requested_params
         effective_params = requested_params.copy()
 
-        model_cols = self.model_cols
-        test_dset_cols = self.test_dset_cols
+        model_cols = cast(list[Any], self.model_cols or [])
+        test_dset_cols = cast(list[Any], self.test_dset_cols or [])
 
         mappings : Dict[str, Dict[Any, str]] = {}
         path_colnames = model_cols + test_dset_cols
@@ -1960,7 +1968,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
 
         # For each unique set of effective parameters compute a hashid
         # TODO: better mechanism for user-specified ignore param columns
-        hashid_ignore_columns = list(self.test_dset_cols)
+        hashid_ignore_columns = list(test_dset_cols)
 
         param_cols = ub.oset(effective_params.columns).difference(hashid_ignore_columns)
         param_cols = list(param_cols - {'region_id', 'node'})
@@ -2058,7 +2066,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
         self.mappings = mappings
         self.effective_params = effective_params
 
-    def find_macro_comparable(agg, verbose=0):
+    def find_macro_comparable(agg: Any, verbose=0):
         """
         Search for groups that have the same parameters over multiple regions.
 
@@ -2091,7 +2099,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                     region_to_num_compatible[region_id] += num
 
         if verbose:
-            macro_compatible_num = macro_compatible_num.sorted_values()
+            macro_compatible_num = ub.udict(macro_compatible_num).sorted_values()
 
             macro_compatible_cumsum = {}
 
@@ -2109,7 +2117,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             print('region_to_num_compatible = {}'.format(ub.urepr(region_to_num_compatible, nl=1)))
         return macro_compatible
 
-    def gather_macro_compatable_groups(agg, regions_of_interest):
+    def gather_macro_compatable_groups(agg: Any, regions_of_interest):
         """
         Given a set of ROIs, find groups in the comparable regions that contain
         all of the requested ROIs.
@@ -2132,7 +2140,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             rois = 'max'
         if isinstance(rois, str):
             if rois == 'max' or rois == 'auto':
-                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)
+                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)  # type: ignore
             else:
                 from kwutil.util_yaml import Yaml
                 regions_of_interest = Yaml.coerce(rois)
@@ -2142,7 +2150,7 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
             regions_of_interest = rois
         return regions_of_interest
 
-    def build_macro_tables(agg, rois=None, **kwargs):
+    def build_macro_tables(agg: Any, rois=None, **kwargs):
         """
         Builds one or more macro tables
         """
@@ -2260,10 +2268,12 @@ class Aggregator(ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixi
                     macro_rows.append(macro_row)
 
             macro_table = pd.DataFrame(macro_rows).reset_index(drop=True)
-            agg.region_to_tables.pop(macro_key, None)
-            agg.macro_key_to_regions.pop(macro_key, None)
-            agg.macro_key_to_regions[macro_key] = regions_of_interest
-            agg.region_to_tables[macro_key] = macro_table
+            region_to_tables = cast(dict[Any, Any], agg.region_to_tables)
+            macro_key_to_regions = cast(dict[Any, Any], agg.macro_key_to_regions)
+            region_to_tables.pop(macro_key, None)
+            macro_key_to_regions.pop(macro_key, None)
+            macro_key_to_regions[macro_key] = regions_of_interest
+            region_to_tables[macro_key] = macro_table
             return macro_table
 
 
@@ -2671,7 +2681,7 @@ def hash_param(row, version=1):
     # TODO: something like multibase
     # https://github.com/multiformats/multibase
     if version == 1:
-        param_hashid = ub.hash_data(row, base=36)[0:12]
+        param_hashid = ub.hash_data(row, base=cast(Any, 36))[0:12]
     else:
         raise KeyError(version)
     return param_hashid
@@ -2679,7 +2689,7 @@ def hash_param(row, version=1):
 
 def hash_regions(rois):
     try:
-        suffix = ub.hash_data(sorted(rois), base=36)[0:6]
+        suffix = ub.hash_data(sorted(rois), base=cast(Any, 36))[0:6]
     except Exception:
         print('Error---')
         print('rois = {}'.format(ub.urepr(rois, nl=1)))
@@ -2827,7 +2837,7 @@ def _build_metrics_info_table(agg, node):
                 agg.primary_metric_cols = [info['name'] for info in agg._metric_info.values() if info.get('primary', False)]
                 if len(agg.primary_metric_cols) == 0:
                     warnings.warn(f'No metrics for {node} were marked as primary, forcing at least one')
-                    agg.primary_metric_cols = [ub.peek(agg._metric_info.values())['name']]
+                    agg.primary_metric_cols = [ub.peek(agg._metric_info.values())['name']]  # type: ignore
             if agg.display_metric_cols == 'auto':
                 agg.display_metric_cols = [info['name'] for info in agg._metric_info.values() if info.get('display', False)]
                 agg.display_metric_cols = list(ub.oset(agg.primary_metric_cols + agg.display_metric_cols))

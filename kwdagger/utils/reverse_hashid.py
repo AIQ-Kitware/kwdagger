@@ -139,7 +139,7 @@ def condense_config(params, type: str, human_opts=None, register: bool = True) -
     else:
         human_part = ''
     # This hash convention was modified wrt to the old geowatch version
-    cfgstr_suffix = human_part + ub.hash_data(other_opts, base=36)[0:12]
+    cfgstr_suffix = human_part + ub.hash_data(other_opts, base=36)[0:12]  # type: ignore
     cfgstr = f'{type}_{cfgstr_suffix}'
     if register:
         raise AssertionError('Do not use the reverse hash table. We are removing it.')

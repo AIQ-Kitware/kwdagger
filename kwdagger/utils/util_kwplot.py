@@ -18,7 +18,8 @@ from __future__ import annotations
 import ubelt as ub
 import matplotlib as mpl
 import matplotlib.text  # NOQA
-from typing import Any
+import typing
+from typing import Any, Sized, cast
 
 
 class TitleBuilder:
@@ -162,12 +163,15 @@ def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=Non
                 df2[col] = df[col].apply(humanize.intcomma)
             if callable(fmt):
                 df2[col] = df[col].apply(fmt)
+    
+
     if human_labels:
+        assert isinstance(human_labels, typing.Mapping)
         df2 = df2.rename(human_labels, axis=1)
 
     indexes = [df2.index, df2.columns]
     if human_labels:
-
+        assert isinstance(human_labels, typing.Mapping)
         for index in indexes:
             if index.name is not None:
                 index.name = human_labels.get(index.name, index.name)
@@ -179,6 +183,7 @@ def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=Non
             if '_' in x or x.islower():
                 return ' '.join([w.capitalize() for w in x.split('_')])
             return x
+        assert isinstance(human_labels, typing.Mapping)
         df2.index.values[:] = [human_labels.get(x, x) for x in df2.index.values]
         df2.index.values[:] = list(map(capcase, df2.index.values))
         # human_df = human_df.applymap(lambda x: str(x) if isinstance(x, int) else '{:0.2f}'.format(x))
@@ -302,7 +307,7 @@ class LabelModifier:
 
     def copy(self):
         new = self.__class__()
-        new.add_mapping(self._dict_mappem.copy())
+        new.add_mapping(self._dict_mapper.copy())
         for m in self._func_mappers:
             new.add_mapping(m)
         return new
@@ -438,11 +443,15 @@ class FigureFinalizer(ub.NiceRepr):
         verbose=0,
         **kwargs
     ):
-        locals_ = ub.udict(locals())
-        locals_ -= {'self', 'kwargs'}
-        locals_.update(kwargs)
         self.verbose = verbose
-        self.update(locals_)
+        self.dpath = dpath
+        self.size_inches = size_inches
+        self.cropwhite = cropwhite
+        self.tight_layout = tight_layout
+
+        # also set any extra keyword args as attributes
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def __nice__(self):
         return ub.urepr(self.__dict__)
@@ -606,7 +615,7 @@ class ArtistManager:
         if 'color' in attrs:
             attrs['color'] = kwimage.Color.coerce(attrs['color']).as01()
         if 'hashid' in attrs:
-            attrs = attrs - {'hashid'}
+            attrs = attrs - {'hashid'}  # type: ignore
         hashid = ub.hash_data(sorted(attrs.items()))[0:8]
         return hashid, attrs
 
@@ -655,7 +664,7 @@ class ArtistManager:
         self.group_to_patches[hashid]['circle'].append(ell)
         self.group_to_attrs[hashid] = attrs
 
-    def add_ellipse_marker(self, xy, rx, ry, angle=0, color=None, **attrs):
+    def add_ellipse_marker(self, xy, rx, ry, angle: float | Sized = 0, color=None, **attrs):
         """
         Args:
             xy : center
@@ -687,8 +696,8 @@ class ArtistManager:
         # Broadcast shapes
         rx = [rx] if not ub.iterable(rx) else rx
         ry = [ry] if not ub.iterable(ry) else ry
-        angle = [angle] if not ub.iterable(angle) else angle
-        nums = list(map(len, (xy, rx, ry, angle)))
+        angle_ = cast(Sized, [angle] if not ub.iterable(angle) else angle)
+        nums = list(map(len, (xy, rx, ry, angle_)))
         if not ub.allsame(nums):
             new_n = max(nums)
             for n in nums:
@@ -699,13 +708,13 @@ class ArtistManager:
                 rx = np.repeat(rx, new_n, axis=0)
             if len(ry) == 1:
                 ry = np.repeat(ry, new_n, axis=0)
-            if len(angle) == 1:
+            if len(angle_) == 1:
                 ry = np.repeat(ry, new_n, axis=0)
 
         cols['xy'].append(xy)
         cols['rx'].append(rx)
         cols['ry'].append(ry)
-        cols['angle'].append(angle)
+        cols['angle'].append(angle_)
         self.group_to_attrs[hashid] = attrs
 
     def add_circle_marker(self, xy, r, **attrs):
@@ -744,7 +753,7 @@ class ArtistManager:
                 units='points',
                 # units='x',
                 # units='xy',
-                transOffset=ax.transData,
+                transOffset=ax.transData,  # type: ignore
                 **attrs
             )
             # collection.set_transOffset(ax.transData)
@@ -789,7 +798,7 @@ class ArtistManager:
 
         from kwimage.structs import _generic
         minx, miny, maxx, maxy = self.bounds()
-        _generic._setlim(minx, miny, maxx, maxy, 1.1, ax=ax)
+        _generic._setlim(minx, miny, maxx, maxy, 1.1, ax=ax)  # type: ignore
         # ax.set_xlim(minx, maxx)
         # ax.set_ylim(miny, maxy)
 
@@ -852,7 +861,7 @@ class Palette(ub.udict):
         # Determine which labels in the input mapping are not explicitly given
         specified = {k: kwimage.Color.coerce(v).as01()
                      for k, v in label_to_color.items() if v is not None}
-        unspecified = ub.oset(label_to_color.keys()) - specified
+        unspecified = ub.oset(label_to_color.keys()) - specified  # type: ignore
 
         # Merge specified colors into this pallet
         super().update(specified)
@@ -884,7 +893,7 @@ class Palette(ub.udict):
         head_part = self.subdict(head)
         tail_part = self.subdict(tail)
         end_keys = (head_part.keys() | tail_part.keys())
-        mid_part = self - end_keys
+        mid_part = self - end_keys  # type: ignore
         new = self.__class__(head_part | mid_part | tail_part)
         return new
 

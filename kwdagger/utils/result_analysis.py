@@ -144,6 +144,7 @@ import scipy
 import scipy.stats  # NOQA
 import ubelt as ub
 import rich
+from typing import cast
 
 # a list of common objectives
 DEFAULT_METRIC_TO_OBJECTIVE = {
@@ -209,7 +210,7 @@ class Result(ub.NiceRepr):
         import kwarray
         import numpy as np
 
-        rng = kwarray.ensure_rng(rng)
+        rng = cast(np.random.RandomState, kwarray.ensure_rng(rng, api='numpy'))
 
         if mode == "null":
             # The null hypothesis should generally be true here,
@@ -624,7 +625,8 @@ class ResultAnalysis(ub.NiceRepr):
             >>> self.ablate(param_group)
         """
         if self.table is None:
-            self.table = self.build_table()
+            raise NotImplementedError('was build table not ported from geowatch?')
+            #self.table = self.build_table()
         if not ub.iterable(param_group):
             param_group = [param_group]
 
@@ -840,8 +842,8 @@ class ResultAnalysis(ub.NiceRepr):
                 metric_vals1 = value_to_metric[param_val1]
                 metric_vals2 = value_to_metric[param_val2]
 
-                rank1 = param_to_rank[param_val1]
-                rank2 = param_to_rank[param_val2]
+                rank1 : int = cast(int, param_to_rank[param_val1])
+                rank2 : int = cast(int, param_to_rank[param_val2])
                 pair_stats["winner"] = param_val1 if rank1 < rank2 else param_val2
                 pair_stats["value1"] = param_val1
                 pair_stats["value2"] = param_val2
@@ -996,6 +998,7 @@ class ResultAnalysis(ub.NiceRepr):
         self._description["built"] = True
 
     def report(self):
+        assert self.statistics is not None
         stat_groups = ub.group_items(self.statistics, key=lambda x: x["param_name"])
         stat_groups_items = list(stat_groups.items())
 
@@ -1076,6 +1079,7 @@ class ResultAnalysis(ub.NiceRepr):
 
     def conclusions(self):
         conclusions = []
+        assert self.statistics is not None
         for stat in self.statistics:
             param_name = stat["param_name"]
             metric = stat["metric"]
@@ -1486,7 +1490,7 @@ def varied_values(longform, min_variations: int = 0, max_variations: int | None 
             value = row.get(key, default)
             if isinstance(value, list):
                 value = tuple(value)
-            if isinstance(value, numbers.Number) and math.isnan(value):
+            if isinstance(value, numbers.Number) and math.isnan(value):  # type: ignore
                 if dropna:
                     continue
                 else:
@@ -1608,7 +1612,7 @@ def varied_value_counts(longform, min_variations: int = 0, max_variations: int |
             if isinstance(value, list):
                 value = tuple(value)
 
-            if isinstance(value, numbers.Number) and math.isnan(value):
+            if isinstance(value, numbers.Number) and math.isnan(value):  # type: ignore
                 if dropna:
                     continue
                 else:
@@ -1661,6 +1665,7 @@ if 1:
         """
 
         def __iter__(self):
+            assert hasattr(self, 'keys')
             keys = self.keys
             if isinstance(keys, list) and len(keys) == 1:
                 # Normalize single-key list groupbys so callers always see the
@@ -1741,10 +1746,10 @@ def aggregate_stats(data, suffix: str = "", group_keys=None):
     stats_cols = [c + suffix for c in raw_stats_cols]
     mapper = dict(zip(stats_cols, raw_stats_cols))
     unmapper = dict(zip(raw_stats_cols, stats_cols))
-    non_stats_cols = list(ub.oset(data.columns) - stats_cols)
+    non_stats_cols = list(ub.oset(data.columns) - stats_cols)  # type: ignore
     if group_keys is None:
         group_keys = non_stats_cols
-    non_group_keys = list(ub.oset(non_stats_cols) - group_keys)
+    non_group_keys = list(ub.oset(non_stats_cols) - group_keys)  # type: ignore
 
     new_rows = []
     for group_vals, group in list(data.groupby(group_keys)):

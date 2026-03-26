@@ -12,7 +12,7 @@ from kwutil import util_time
 from typing import Any, Mapping
 
 
-def _handle_process_item(item: Mapping[str, Any]) -> dict[str, Any]:
+def _handle_process_item(item: dict[str, Any]) -> dict[str, Any]:
     """
     Json data written by the process context has changed over time slightly.
     Consolidate different usages until a consistent API and usage patterns are

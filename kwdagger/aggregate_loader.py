@@ -134,7 +134,7 @@ def build_tables(root_dpath, dag, io_workers, eval_nodes,
                 print(f'num_ignored = {ub.urepr(num_ignored, nl=1)}')
 
             results = {
-                'fpath': pd.DataFrame(cols['fpath'], columns=['fpath']),
+                'fpath': pd.DataFrame({'fpath': cols['fpath']}),
                 'index': pd.DataFrame(cols['index']),
                 'metrics': pd.DataFrame(cols['metrics']),
                 'requested_params': pd.DataFrame(cols['requested_params'], dtype=object),  # prevents nones from being read as nan
@@ -255,7 +255,7 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache: bool = 
             HACK_FOR_REGION_ID = True
             if HACK_FOR_REGION_ID:
                 # Munge data to get the region ids we expect
-                candidate_keys = list(flat.query_keys('region_ids'))
+                candidate_keys = list(flat.query_keys('region_ids'))  # type: ignore
                 region_ids = None
                 for k in candidate_keys:
                     region_ids = flat[k]
@@ -270,12 +270,12 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache: bool = 
                         warnings.warn(msg)
                     region_ids = 'unknown'
 
-            resolved_params_keys = list(flat.query_keys('resolved_params'))
-            metrics_keys = list(flat.query_keys('metrics'))
-            resolved_params = flat & resolved_params_keys
-            metrics = flat & metrics_keys
+            resolved_params_keys = list(flat.query_keys('resolved_params'))  # type: ignore
+            metrics_keys = list(flat.query_keys('metrics'))  # type: ignore
+            resolved_params = flat & resolved_params_keys  # type: ignore
+            metrics = flat & metrics_keys  # type: ignore
 
-            other = flat - (resolved_params_keys + metrics_keys)
+            other = flat - (resolved_params_keys + metrics_keys)  # type: ignore
 
             index = {
                 'node': node_name,
@@ -450,7 +450,7 @@ if 1:
     import numpy as np
     if np.bool_ is not bool:
         # Hack for a ubelt issue
-        @ub.hash_data.register(np.bool_)
+        @ub.hash_data.register(np.bool_)  # type: ignore
         def _hashnp_bool(data):
             from ubelt.util_hash import _int_to_bytes
             # warnings.warn('Hashing ints is slow, numpy is preferred')

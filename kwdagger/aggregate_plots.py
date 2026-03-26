@@ -7,7 +7,7 @@ Used by ./aggregate.py
 from __future__ import annotations
 
 import ubelt as ub
-from typing import Any
+from typing import Any, cast
 
 
 def build_plotter(agg, rois, plot_config):
@@ -84,8 +84,7 @@ def build_plotter(agg, rois, plot_config):
     plotter.param_to_palette = param_to_palette
 
     # This is for remapping parameter values
-    plotter.param_to_valmap = Yaml.coerce(plot_config.get('param_to_valmap', {}))
-    plotter.param_to_valmap = plotter.param_to_valmap or {}
+    plotter.param_to_valmap = Yaml.coerce(plot_config.get('param_to_valmap', {})) or {}
 
     # The modifier is for remapping parameter names
     plotter.modifier = modifier
@@ -127,6 +126,7 @@ def build_special_columns(agg) -> None:
         cols1 = prefix_to_batchsize.get(prefix, None)
         cols2 = prefix_to_accumbatch.get(prefix, None)
         val_accum = 1
+        assert cols1 is not None
         val_bsize = resolved_params[cols1[0]]
         if cols2 is not None:
             assert len(cols2) == 1
@@ -172,6 +172,17 @@ class ParamPlotter:
     """
     def __init__(plotter, agg, vantage_points=None):
         plotter.agg = agg
+        plotter.plot_dpath = None
+        plotter.macro_plot_dpath = None
+        plotter.param_to_palette = {}
+        plotter.param_to_valmap = {}
+        plotter.modifier = None
+        plotter.label_modifier = None
+        plotter.macro_table = None
+        plotter.single_table = None
+        plotter.rois = None
+        plotter.plot_config = {}
+        plotter.roi_attr = 'region_id'
 
         # We will conduct analysis under serveral different vantage points
         if vantage_points is None:
@@ -186,11 +197,12 @@ class ParamPlotter:
             vantage['name'] = name
         plotter.vantage_points = vantage_points
 
-    def plot_requested(plotter) -> None:
+    def plot_requested(plotter: Any) -> None:
         """
         Simplified entry point
         """
         plot_config = plotter.plot_config
+        assert plotter.plot_dpath is not None
         plotter.plot_dpath.ensuredir()
 
         flag = plot_config.get('plot_resources', 'try')
@@ -208,12 +220,13 @@ class ParamPlotter:
         if plot_config.get('plot_params', 1):
             plotter.plot_params()
 
-    def plot_resources(plotter) -> None:
+    def plot_resources(plotter: Any) -> None:
         """
         Draw tables that summarize the resource usage of the experiments.
         """
         import rich
         from kwdagger.utils import util_kwplot
+        assert plotter.plot_dpath is not None
         plotter.plot_dpath.ensuredir()
         agg = plotter.agg
         rich.print('[green] ### Plot Resources')
@@ -235,7 +248,7 @@ class ParamPlotter:
         print(tex)
         table_tex_fpath.write_text(tex)
 
-    def plot_overviews(plotter) -> None:
+    def plot_overviews(plotter: Any) -> None:
         """
         Draw the overview for each vantage point.
         Draw tables that summarize the resource usage of the experiments.
@@ -245,6 +258,7 @@ class ParamPlotter:
         pman = ProgressManager()
 
         rich.print('[green]### Plot Overviews')
+        assert plotter.plot_dpath is not None
         rich.print(f'Dpath: [link={plotter.plot_dpath}]{plotter.plot_dpath}[/link]')
         with pman:
             for vantage in pman.progiter(plotter.vantage_points, desc='plotting vantage overviews'):
@@ -255,7 +269,7 @@ class ParamPlotter:
 
         rich.print(f'Dpath: [link={plotter.plot_dpath}]{plotter.plot_dpath}[/link]')
 
-    def plot_params(plotter) -> None:
+    def plot_params(plotter: Any) -> None:
         from kwutil.util_progress import ProgressManager
         import rich
         pman = ProgressManager()
@@ -270,7 +284,7 @@ class ParamPlotter:
                 plotter.plot_vantage_params(vantage, pman=pman)
         rich.print(f'Dpath: [link={plotter.macro_plot_dpath}]{plotter.macro_plot_dpath}[/link]')
 
-    def plot_vantage_per_region_overview(plotter, vantage):
+    def plot_vantage_per_region_overview(plotter: Any, vantage):
         """
         Draw scatter plots and box plots that that distinguish each region with
         respect to a vantage point.
@@ -295,6 +309,7 @@ class ParamPlotter:
         rich.print(f'[white] * {vantage}')
 
         agg = plotter.agg
+        assert plotter.single_table is not None
         single_table = plotter.single_table
 
         name = vantage['name']
@@ -305,6 +320,7 @@ class ParamPlotter:
         main_metric = y
         roi_attr = plotter.roi_attr
 
+        assert plotter.plot_dpath is not None
         plotter.plot_dpath.ensuredir()
         finalize_figure = util_kwplot.FigureFinalizer(
             dpath=plotter.plot_dpath,
@@ -342,6 +358,7 @@ class ParamPlotter:
         ax.set_title(f'Per-Region Results (n={len(agg)})')
         ax.set_xscale(xscale)
         ax.set_yscale(yscale)
+        assert plotter.modifier is not None
         plotter.modifier.relabel(ax, ticks=False)
         finalize_figure.finalize(fig, f'overview-{name}.png')
         rich.print(f'[green] made overview-{name}.png')
@@ -378,7 +395,7 @@ class ParamPlotter:
         kwimage.imwrite(roi_legend_fpath, roi_legend)
         rich.print('[green] made roi_legend.png')
 
-    def plot_vantage_macro_overview(plotter, vantage):
+    def plot_vantage_macro_overview(plotter: Any, vantage):
         """
         Draw a scatter plot that gives an overview of the requested macro table
         wrt to a metric vantage point.
@@ -404,6 +421,7 @@ class ParamPlotter:
         kwplot.close_figures()
 
         rois = plotter.rois
+        assert plotter.macro_table is not None
         macro_table = plotter.macro_table
         roi_attr = plotter.roi_attr
 
@@ -461,11 +479,12 @@ class ParamPlotter:
         ax.set_title(title_builder.finalize())
         ax.set_xscale(xscale)
         ax.set_yscale(yscale)
+        assert plotter.modifier is not None
         plotter.modifier.relabel(ax, ticks=False)
         roi_finalizer.finalize(fig, f'overview-macro_results-{name}.png')
         rich.print('[green] made overview-macro_results-{name}.png')
 
-    def plot_vantage_params(plotter, vantage, pman=None, params_of_interest=None):
+    def plot_vantage_params(plotter: Any, vantage, pman=None, params_of_interest=None):
         """
         The main parameter inspection plots.
 
@@ -505,6 +524,7 @@ class ParamPlotter:
         kwplot.autosns()
         kwplot.close_figures()
 
+        assert plotter.macro_table is not None
         macro_table = plotter.macro_table
 
         main_metric = vantage['metric1']
@@ -524,7 +544,7 @@ class ParamPlotter:
 
         if params_of_interest is not None:
             chosen_params = params_of_interest
-            params_of_interest = set(params_of_interest)
+            params_of_interest = set(params_of_interest)  # type: ignore
             valid_params_of_interest = list(resolved_params.columns.intersection(params_of_interest))
             missing = sorted(set(params_of_interest) - set(valid_params_of_interest))
             chosen_params = valid_params_of_interest
@@ -537,7 +557,7 @@ class ParamPlotter:
             print('params_of_interest is unspecified, automatically choosing')
 
         # TODO: cleanup logic
-        DO_STAT_ANALYSIS = plotter.plot_config.get('stats_ranking', False)
+        DO_STAT_ANALYSIS = plotter.plot_config.get('stats_ranking', False)  # type: ignore
         if DO_STAT_ANALYSIS:
             ### Build param analysis
             from kwdagger.utils import result_analysis
@@ -551,7 +571,7 @@ class ParamPlotter:
             analysis.build()
             analysis.analysis()
             print('analysis.varied = {}'.format(ub.urepr(analysis.varied, nl=2)))
-            ranked_stats = list(sorted(analysis.statistics, key=lambda x: x['anova_rank_p']))
+            ranked_stats = list(sorted(cast(list[Any], analysis.statistics), key=lambda x: x['anova_rank_p']))  # type: ignore
             param_name_to_stats = {s['param_name']: s for s in ranked_stats}
             ranked_params = ub.oset(param_name_to_stats.keys())
             chosen_params = ranked_params
@@ -596,7 +616,7 @@ class ParamPlotter:
                 pman.__exit__()
         return results
 
-    def _plot_single_vantage_param(plotter, rank, macro_table, param_name,
+    def _plot_single_vantage_param(plotter: Any, rank, macro_table, param_name,
                                    vantage, params_of_interest,
                                    param_name_to_stats):
         """
@@ -615,16 +635,21 @@ class ParamPlotter:
 
         rich.print(f'param_name = {ub.urepr(param_name, nl=1)}')
 
+        assert plotter.macro_plot_dpath is not None
         param_group_dpath = plotter.macro_plot_dpath / 'params'
         param_to_palette = plotter.param_to_palette
-        vantage_dpath = ((plotter.macro_plot_dpath / 'vantage' / vantage['name']).ensuredir()).resolve()
+        assert hasattr(plotter, 'macro_plot_dpath')
+        vantage_dpath = ((plotter.macro_plot_dpath / 'vantage' / vantage['name']).ensuredir()).resolve()  # type: ignore
         vantage_flat_dpath = (vantage_dpath / '_flat').ensuredir()
         finalize_figure = util_kwplot.FigureFinalizer(
             size_inches=np.array([6.4, 4.8]) * 1.0,
         )
 
+        assert hasattr(plotter, 'modifier')
+        assert plotter.modifier is not None
         modifier = plotter.modifier
 
+        assert hasattr(plotter, 'rois')
         rois = plotter.rois
         main_metric = y = vantage['metric1']
         secondary_metric = x = vantage['metric2']
@@ -657,6 +682,8 @@ class ParamPlotter:
         sub_macro_table = macro_table
         num_macro_rows = len(macro_table)
 
+        assert hasattr(plotter, 'plot_config')
+        assert isinstance(plotter.plot_config, dict)
         min_variations = plotter.plot_config.get('min_variations', 1)  # if less than this number of groups, skip the plot
         max_variations = plotter.plot_config.get('max_variations', float('inf'))  # if less than this number of groups, skip the plot
         min_support = plotter.plot_config.get('min_support', 1)  # minimum amount of values in a group, otherwise remove that group
@@ -665,7 +692,7 @@ class ParamPlotter:
 
         if min_support > 1 and not explicitly_requested:
             ignore_params = [k for k, v in param_histogram.items() if v < min_support]
-            param_histogram = ub.udict(param_histogram) - set(ignore_params)
+            param_histogram = ub.udict(param_histogram) - set(ignore_params)  # type: ignore
             row_is_ignored = kwarray.isect_flags(macro_table[param_name], ignore_params)
             sub_macro_table = macro_table[~row_is_ignored]
 
@@ -707,7 +734,7 @@ class ParamPlotter:
         if param_name in param_to_palette:
             snskw['palette'] = param_to_palette[param_name]
 
-        s = plotter.plot_config.get('scatter.markersize', None)
+        s = plotter.plot_config.get('scatter.markersize', None)   # type: ignore
         scatterkw = snskw.copy()
         if s is not None:
             scatterkw['s'] = s
@@ -720,16 +747,16 @@ class ParamPlotter:
             title_builder.add_part(f'Macro Analysis over {ub.urepr(rois, sv=1, nl=0)}')
         if anova_rank_p is not None:
             title_builder.ensure_newline()
-            title_builder.append(f'Effect of {param_name}: anova_rank_p={concice_si_display(anova_rank_p)}')
+            title_builder.append(f'Effect of {param_name}: anova_rank_p={concice_si_display(anova_rank_p)}')  # type: ignore
         header_text = title_builder.finalize()
 
         param_valname_map, had_value_remap = shrink_param_names(param_name, list(param_histogram))
         print(f'had_value_remap={had_value_remap}')
 
-        if param_name in plotter.param_to_valmap:
+        if param_name in plotter.param_to_valmap:  # type: ignore
             had_value_remap = True
             # User can overload the mappign of the parameter value names
-            param_valname_map.update(plotter.param_to_valmap[param_name])
+            param_valname_map.update(plotter.param_to_valmap[param_name])  # type: ignore
             ...
 
         # Mapper for the legend
@@ -765,7 +792,7 @@ class ParamPlotter:
         if 'is_star' in sub_macro_table:
             scatterplot_highlight(data=sub_macro_table, x=x, y=y, highlight='is_star', ax=ax, size=300)
 
-        if plotter.plot_config.get('compare_sv_hack', False):
+        if plotter.plot_config.get('compare_sv_hack', False):  # type: ignore
             # Hack to compare before/after SV
             if 'sv_poly_eval' in x.split('.'):
                 plotter._add_sv_hack_lines(ax, sub_macro_table, x, y)
@@ -844,8 +871,8 @@ class ParamPlotter:
             else:
                 freq_mapper_box.relabel_xticks(ax)
                 ax.set_title(header_text)
-                modifier.relabel(ax, ticks=False)
-                modifier.relabel_xticks(ax)
+                modifier.relabel(ax, ticks=False)  # type: ignore
+                modifier.relabel_xticks(ax)  # type: ignore
                 finalize_figure.finalize(fig, param_fpath)
                 rich.print(f'[green] wrote {param_fpath.name}')
                 drawn_rows.append({
@@ -870,10 +897,10 @@ class ParamPlotter:
                     'value': old_name,
                     'num': param_histogram[old_name],
                 })
-            param_code_lut = pd.DataFrame(param_code_lut, columns=['code', 'value', 'num'])
+            param_code_lut = pd.DataFrame(param_code_lut, columns=['code', 'value', 'num'])  # type: ignore
             if not had_value_remap:
                 param_code_lut = param_code_lut.drop('code', axis=1)
-            param_title = 'Key: ' + modifier._modify_text(param_name)
+            param_title = 'Key: ' + modifier._modify_text(param_name)  # type: ignore
             lut_style = param_code_lut.style.set_caption(param_title)
             util_kwplot.dataframe_table(lut_style, param_fpath, title=param_title)
             rich.print(f'[green] wrote {param_fpath.name}')
@@ -1130,7 +1157,7 @@ class Vantage:
     scale2: str = 'linear'
     objective1: str = 'maximize'
     objective2: str = 'maximize'
-    name: str = None
+    name: str | None = None
 
     def __getitem__(self, key):
         return getattr(self, key)

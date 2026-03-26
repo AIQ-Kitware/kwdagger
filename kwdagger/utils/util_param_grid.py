@@ -11,7 +11,7 @@ import kwutil
 from typing import Any
 
 
-def coerce_list_of_action_matrices(arg) -> list[dict[str, Any]]:
+def coerce_list_of_action_matrices(arg: str | dict | list) -> list[dict[str, Any]]:
     """
     Preprocess the parameter grid input into a standard form
 
@@ -45,7 +45,7 @@ def coerce_list_of_action_matrices(arg) -> list[dict[str, Any]]:
         for item in data:
             action_matrices.append(item)
     elif isinstance(data, dict):
-        if not len(ub.udict(data) & {'matrix', 'include'}):
+        if not len(ub.udict(data) & {'matrix', 'include'}):  # type: ignore
             data = {'matrix': data}
         action_matrices.append(data)
     return action_matrices

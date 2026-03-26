@@ -113,7 +113,9 @@ import numpy as np
 try:
     import yaml  # PyYAML
 except Exception:  # pragma: no cover
-    yaml = None
+    HAS_PYYAML = True
+else:
+    HAS_PYYAML = False
 
 
 GroupType = Literal["and", "or"]
@@ -194,7 +196,7 @@ class QueryPlan:
             return QueryPlan(plan={}, strict=strict)
 
         data = None
-        if yaml is not None:
+        if HAS_PYYAML:
             try:
                 data = yaml.safe_load(cli_arg)
             except Exception:
@@ -204,18 +206,18 @@ class QueryPlan:
         if data is None:
             # Raw string → __all__ AND group
             plan = {"__all__": [("and", [str(cli_arg)])]}
-            return QueryPlan(plan=plan, strict=strict)
+            return QueryPlan(plan=plan, strict=strict)  # type: ignore
 
         # YAML scalar -> same as raw string
         if isinstance(data, str):
             plan = {"__all__": [("and", [data])]}
-            return QueryPlan(plan=plan, strict=strict)
+            return QueryPlan(plan=plan, strict=strict)  # type: ignore
 
         # YAML list -> __all__ AND chain
         if isinstance(data, list):
             exprs = [str(x) for x in data]
             plan = {"__all__": [("and", exprs)]}
-            return QueryPlan(plan=plan, strict=strict)
+            return QueryPlan(plan=plan, strict=strict)  # type: ignore
 
         # YAML mapping -> per-node
         if isinstance(data, dict):
@@ -506,13 +508,13 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
     if isinstance(val, dict):
         # explicit 'and' and/or 'or'
         if "and" in val:
-            and_val = val.get("and", [])
+            and_val = val.get("and", [])  # type: ignore
             if isinstance(and_val, str):
                 add_and([and_val])
             else:
                 add_and(and_val)
         if "or" in val:
-            or_val = val.get("or", [])
+            or_val = val.get("or", [])  # type: ignore
             if isinstance(or_val, str):
                 add_or([or_val])
             else:

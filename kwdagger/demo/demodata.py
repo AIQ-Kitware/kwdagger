@@ -135,6 +135,7 @@ import ubelt as ub
 import scriptconfig as scfg
 import kwutil
 import json
+from typing import Any
 
 ### EXECUTABLE PROCESS CODE
 
@@ -154,7 +155,7 @@ class Stage1PredictCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs):
-        config = cls.cli(argv=argv, data=kwargs, strict=True,
+        config = cls.cli(argv=argv, data=kwargs, strict=True,  # type: ignore
                          verbose='auto')
 
         data = {
@@ -174,7 +175,7 @@ class Stage1PredictCLI(scfg.DataConfig):
         text = ub.Path(config.src_fpath).read_text()
 
         # A dummy prediction computation
-        data['result'] = ub.hash_data(str(config.param1) + str(text))
+        data['result'] = ub.hash_data(str(config.param1) + str(text))  # type: ignore
 
         obj = proc_context.stop()
         data['info'].append(obj)
@@ -199,10 +200,10 @@ class Stage1EvaluateCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs):
-        config = cls.cli(argv=argv, data=kwargs, strict=True,
+        config = cls.cli(argv=argv, data=kwargs, strict=True,  # type: ignore
                          verbose='auto')
 
-        data = {
+        data : dict[str, Any] = {
             'info': [],
             'result': None
         }
@@ -227,13 +228,13 @@ class Stage1EvaluateCLI(scfg.DataConfig):
         size = (len(true_hashid) * 4)
         acc = (size - hamming_distance) / size
 
-        metrics = {
+        metrics : dict[str, Any] = {
             'accuracy': acc,
             'hamming_distance': hamming_distance,
         }
 
         # A dummy evaluate computation
-        data['result'] = metrics
+        data['result'] = metrics  
 
         obj = proc_context.stop()
         data['info'].append(obj)
@@ -289,7 +290,7 @@ class Stage1_Predict(ProcessNode):
         import json
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
-        output_fpath = node_dpath / self.out_paths[self.primary_out_key]
+        output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
@@ -334,7 +335,7 @@ class Stage1_Evaluate(ProcessNode):
         import json
         from kwdagger.aggregate_loader import new_process_context_parser
         from kwdagger.utils import util_dotdict
-        output_fpath = node_dpath / self.out_paths[self.primary_out_key]
+        output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
@@ -415,7 +416,7 @@ def my_demo_pipeline() -> Pipeline:
 ### Programatic code to execute the pipeline that can be used in tests
 
 
-def run_demo_schedule() -> dict[str, object]:
+def run_demo_schedule() -> dict[str, Any]:
     """
     Example:
         from kwdagger.demo.demodata import run_demo_schedule
@@ -484,7 +485,7 @@ def run_demo_aggregate() -> object:
         ''')
     aggregate_config['target'] = [eval_dpath]
     aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
-    aggregate.main(argv=False, **aggregate_config)
+    aggregate.__cli__.main(argv=False, **aggregate_config)
 
 
 if __name__ == '__main__':

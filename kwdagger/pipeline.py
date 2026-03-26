@@ -28,6 +28,7 @@ from functools import cached_property
 from typing import Any, Optional, Union, Dict, Set, List
 from kwdagger.utils import util_dotdict
 import kwutil
+import typing
 
 Collection = Optional[Union[Dict, Set, List]]
 Configurable = Optional[Dict[str, Any]]
@@ -208,6 +209,7 @@ class Pipeline:
         # }
 
         rows = []
+        assert isinstance(self.io_graph, nx.DiGraph)
         for node in self.node_dict.values():
             # Build up information about each node option
 
@@ -224,7 +226,7 @@ class Pipeline:
                     'type': 'in_path',
                     'maybe_required': not is_connected,
                 })
-
+            
             for key, io_node in node.outputs.items():
                 is_connected = self.io_graph.out_degree[io_node.key] > 0
                 rows.append({
@@ -285,6 +287,7 @@ class Pipeline:
             for node in self.node_dict.values():
                 node._configured_cache.clear()  # hack, make more elegant
 
+        assert isinstance(self.proc_graph, nx.DiGraph)
         if config is not None:
             config = dict(config)
             self.__slurm_options__ = coerce_slurm_options(
@@ -383,6 +386,8 @@ class Pipeline:
             queue = cmd_queue.Queue.create(**queue_kw)
 
         node_order = list(nx.topological_sort(self.proc_graph))
+
+        assert isinstance(self.proc_graph, nx.DiGraph)
         for node_name in node_order:
             node_data = self.proc_graph.nodes[node_name]
             try:
@@ -401,6 +406,7 @@ class Pipeline:
         }
         node_status = summary['node_status']
 
+        assert isinstance(self.proc_graph, nx.DiGraph)
         for node_name in node_order:
             node = self.proc_graph.nodes[node_name]['node']
             # print('-----')
@@ -411,6 +417,7 @@ class Pipeline:
                 node.will_exist = node.does_exist
                 continue
 
+            assert isinstance(self.proc_graph, nx.DiGraph)
             pred_node_names = list(self.proc_graph.predecessors(node_name))
             pred_nodes = [
                 self.proc_graph.nodes[n]['node']
@@ -654,6 +661,7 @@ class Node(ub.NiceRepr):
 
         self_is_proc = (self.__node_type__ == 'process')
         if self_is_proc:
+            assert hasattr(self, 'outputs')
             outputs = self.outputs
         else:
             assert self.__node_type__ == 'io'
@@ -670,7 +678,8 @@ class Node(ub.NiceRepr):
             else:
                 inputs = {other.name: other}
 
-        outmap = ub.udict({src_map.get(k, k): k for k in outputs.keys()})
+        assert isinstance(outputs, typing.Mapping)
+        outmap = ub.udict({src_map.get(k, k): k for k in outputs.keys()}) 
         inmap = ub.udict({dst_map.get(k, k): k for k in inputs.keys()})
 
         common = outmap.keys() & inmap.keys()
@@ -681,14 +690,15 @@ class Node(ub.NiceRepr):
 
         if self_is_proc or other_is_proc:
             # print(f'Connect Process to Process {self.name=} to {other.name=}')
-            self_output_keys = (outmap & common).values()
-            other_input_keys = (inmap & common).values()
+            self_output_keys = (outmap & common).values()  # type: ignore
+            other_input_keys = (inmap & common).values()  # type: ignore
 
             for out_key, in_key in zip(self_output_keys, other_input_keys):
                 out_node = outputs[out_key]
                 in_node = inputs[in_key]
                 # out_node._connect_single(in_node, src_map, dst_map)
-                out_node._connect_single(in_node, {}, {})
+                assert hasattr(out_node, '_connect_single')
+                out_node._connect_single(in_node, {}, {})  # type: ignore
 
     def connect(self, *others, param_mapping=None, src_map=None, dst_map=None):
         """
@@ -1068,10 +1078,10 @@ class ProcessNode(Node):
     # Should be specified as templates
     out_paths : Collection = None
 
-    primary_out_key : str = None
+    primary_out_key : str | None = None
 
     # Optional job-level slurm options. Can be overridden via configuration.
-    slurm_options: Dict[str, Any] = None
+    slurm_options: Dict[str, Any] | None = None
 
     # Optional scriptconfig schema for deriving path/param groups. This is the
     # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
@@ -1170,6 +1180,7 @@ class ProcessNode(Node):
             else:
                 self.in_paths = set(self.in_paths) | set(derived_in_paths)
             for key, value in derived_out_paths.items():
+                assert isinstance(self.out_paths, dict)
                 self.out_paths.setdefault(key, value)
             if isinstance(self.algo_params, dict):
                 for key, value in derived_algo_params.items():
@@ -1185,8 +1196,8 @@ class ProcessNode(Node):
                 self.primary_out_key = derived_primary_out_key
 
         if self.primary_out_key is None:
-            if len(self.out_paths) == 1:
-                self.primary_out_key = ub.peek(self.out_paths)
+            if len(self.out_paths) == 1:  # type: ignore
+                self.primary_out_key = ub.peek(self.out_paths)  # type: ignore
 
         if self.group is None:
             self.group = '.'
@@ -1218,6 +1229,7 @@ class ProcessNode(Node):
         self.configure(self.config)
 
         if self.primary_out_key is not None:
+            assert self.out_paths is not None
             if self.primary_out_key not in self.out_paths:
                 raise KeyError(ub.paragraph(
                     f'''
@@ -1411,12 +1423,12 @@ class ProcessNode(Node):
                     if default_value is not None:
                         warnings.warn(
                             f'Ignoring default for in_path "{key}" defined in params.')
-                    path_kwargs[group_key].add(key)
+                    path_kwargs[group_key].add(key)  # type: ignore
                 elif group_key == 'out_paths':
                     if isinstance(default_value, str) and default_value:
-                        path_kwargs[group_key][key] = default_value
+                        path_kwargs[group_key][key] = default_value  # type: ignore
                 else:
-                    path_kwargs[group_key][key] = default_value
+                    path_kwargs[group_key][key] = default_value  # type: ignore
 
         return (
             path_kwargs['in_paths'],
@@ -1462,7 +1474,7 @@ class ProcessNode(Node):
                 self.inputs[key].final_value = non_specified[key]
 
         # self.algo_params = set(self.config) - non_algo_keys
-        in_path_keys = self.config & set(self.in_paths)
+        in_path_keys = self.config & set(self.in_paths)  # type: ignore
         for key in in_path_keys:
             self.inputs[key].final_value = self.config[key]
 
@@ -1478,6 +1490,7 @@ class ProcessNode(Node):
         condensed = {}
         for node in self.predecessor_process_nodes():
             condensed.update(node.condensed)
+        assert isinstance(self.name, str)
         condensed.update({
             self.name + '_algo_id': self.algo_id,
             self.name + '_id': self.process_id,
@@ -1542,7 +1555,8 @@ class ProcessNode(Node):
 
     @memoize_configured_property
     def final_perf_config(self):
-        final_perf_config = self.config & set(self.perf_params)
+        assert self.perf_params is not None
+        final_perf_config = self.config & set(self.perf_params)  # type: ignore
         if isinstance(self.perf_params, dict):
             for k, v in self.perf_params.items():
                 if k not in final_perf_config:
@@ -1589,9 +1603,9 @@ class ProcessNode(Node):
         if self._no_inarg:
             unconnected_in_paths = ub.udict({})
         else:
-            unconnected_in_paths = ub.udict(self.final_in_paths) & unconnected_inputs
+            unconnected_in_paths = ub.udict(self.final_in_paths) & unconnected_inputs  # type: ignore
 
-        final_algo_config = (self.config - self.non_algo_keys) | unconnected_in_paths
+        final_algo_config = (self.config - self.non_algo_keys) | unconnected_in_paths  # type: ignore
 
         if isinstance(self.algo_params, dict):
             for k, v in self.algo_params.items():
@@ -1623,7 +1637,7 @@ class ProcessNode(Node):
             :func:`ProcessNode.final_out_paths`
         """
         if not isinstance(self.out_paths, dict):
-            out_paths = self.config & self.out_paths
+            out_paths = self.config & self.out_paths  # type: ignore
         else:
             out_paths = self.out_paths
         template_node_dpath = self.template_node_dpath
@@ -1677,6 +1691,8 @@ class ProcessNode(Node):
         """
         if self._overwrite_group_dpath is not None:
             return ub.Path(self._overwrite_group_dpath)
+        assert isinstance(self.root_dpath, ub.Path)
+        assert isinstance(self.name, str)
         if self.group is None:
             return self.root_dpath / self.name
         else:
@@ -1689,6 +1705,7 @@ class ProcessNode(Node):
         """
         if self._overwrite_node_dpath is not None:
             return ub.Path(self._overwrite_node_dpath)
+        assert isinstance(self.name, str)
         key = self.name + '_id'
         return self.template_group_dpath / ('{' + key + '}')
 
@@ -1792,6 +1809,7 @@ class ProcessNode(Node):
         This does NOT have a dependency on the larger the DAG.
         """
         from kwdagger.utils.reverse_hashid import condense_config
+        assert isinstance(self.name, str)
         algo_id = condense_config(
             self.final_algo_config, self.name + '_algo_id', register=False)
         return algo_id
@@ -1807,6 +1825,7 @@ class ProcessNode(Node):
         """
         from kwdagger.utils.reverse_hashid import condense_config
         depends = self.depends
+        assert isinstance(self.name, str)
         proc_id = condense_config(
             depends, self.name + '_id', register=False)
         return proc_id
@@ -1842,7 +1861,7 @@ class ProcessNode(Node):
         return '\n'.join(parts).lstrip().rstrip('\\')
 
     @cached_property
-    def inputs(self):
+    def inputs(self) -> dict[str, InputNode]:
         """
         Input nodes representing specific input locations.
 
@@ -1853,11 +1872,12 @@ class ProcessNode(Node):
         Returns:
             Dict[str, InputNode]
         """
+        assert self.in_paths is not None
         inputs = {k: InputNode(name=k, parent=self) for k in self.in_paths}
         return inputs
 
     @cached_property
-    def outputs(self):
+    def outputs(self) -> dict[str, OutputNode]:
         """
         Output nodes representing specific output locations. These can be
         connected to the input nodes of other processes.
@@ -1865,6 +1885,7 @@ class ProcessNode(Node):
         Returns:
             Dict[str, OutputNode]
         """
+        assert self.out_paths is not None
         outputs = {k: OutputNode(name=k, parent=self) for k in self.out_paths}
         return outputs
 
@@ -2011,6 +2032,8 @@ class ProcessNode(Node):
         json_jobs = ub.Executor(mode='thread', max_workers=workers)
 
         rows = []
+        assert self.out_paths is not None
+        assert isinstance(self.out_paths, dict)
         for dpath in ub.ProgIter(existing_dpaths, desc='parsing templates'):
 
             out_fpaths = {}
@@ -2056,7 +2079,7 @@ def _labelize_graph(graph, shrink_labels, show_types, color_procs: int = 0):
     """
     colors = ['bright_magenta', 'yellow', 'cyan']
     unused_colors = colors.copy()
-    clsname_to_color = {
+    clsname_to_color : dict[str, str | None] = {
         'ProcessNode': 'yellow',
         'InputNode': 'bright_cyan',
         'OutputNode': 'bright_yellow',
