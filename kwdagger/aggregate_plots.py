@@ -5,6 +5,7 @@ between parameters and metrics from various vantage points.
 Used by ./aggregate.py
 """
 import ubelt as ub
+from typing import Any
 
 
 def build_plotter(agg, rois, plot_config):
@@ -98,7 +99,7 @@ def build_plotter(agg, rois, plot_config):
     return plotter
 
 
-def build_all_param_plots(agg, rois, plot_config):
+def build_all_param_plots(agg, rois, plot_config) -> None:
     """
     Main entry point for plotting results from an :class:`Aggregator`.
     """
@@ -106,7 +107,7 @@ def build_all_param_plots(agg, rois, plot_config):
     plotter.plot_requested()
 
 
-def build_special_columns(agg):
+def build_special_columns(agg) -> None:
     from kwdagger.utils import util_pandas
     resolved_params = util_pandas.DotDictDataFrame(agg.resolved_params)
     part1 = resolved_params.search_columns('batch_size')
@@ -183,7 +184,7 @@ class ParamPlotter:
             vantage['name'] = name
         plotter.vantage_points = vantage_points
 
-    def plot_requested(plotter):
+    def plot_requested(plotter) -> None:
         """
         Simplified entry point
         """
@@ -205,7 +206,7 @@ class ParamPlotter:
         if plot_config.get('plot_params', 1):
             plotter.plot_params()
 
-    def plot_resources(plotter):
+    def plot_resources(plotter) -> None:
         """
         Draw tables that summarize the resource usage of the experiments.
         """
@@ -232,7 +233,7 @@ class ParamPlotter:
         print(tex)
         table_tex_fpath.write_text(tex)
 
-    def plot_overviews(plotter):
+    def plot_overviews(plotter) -> None:
         """
         Draw the overview for each vantage point.
         Draw tables that summarize the resource usage of the experiments.
@@ -252,7 +253,7 @@ class ParamPlotter:
 
         rich.print(f'Dpath: [link={plotter.plot_dpath}]{plotter.plot_dpath}[/link]')
 
-    def plot_params(plotter):
+    def plot_params(plotter) -> None:
         from kwutil.util_progress import ProgressManager
         import rich
         pman = ProgressManager()

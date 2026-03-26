@@ -4,13 +4,14 @@ Ported from netharn.device, previously called gpu_infos
 import ubelt as ub
 import os
 import warnings
+from typing import Any
 
 
 class NvidiaSMIError(Exception):
     pass
 
 
-def nvidia_smi(ignore_environ=False):
+def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
     """
     Run nvidia-smi and parse output
 
@@ -167,7 +168,7 @@ def nvidia_smi(ignore_environ=False):
     return gpus
 
 
-def _query_nvidia_smi(mode, fields):
+def _query_nvidia_smi(mode: str, fields: list[str]) -> list[dict[str, str]]:
     """
     Runs nvidia smi in query mode
 

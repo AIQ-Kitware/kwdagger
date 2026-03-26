@@ -20,6 +20,7 @@ Related Work:
 """
 import ubelt as ub
 import pygtrie
+from typing import Any
 
 
 class DotDict(ub.UDict):
@@ -61,7 +62,7 @@ class DotDict(ub.UDict):
         self._trie_cache = {}
 
     @classmethod
-    def from_nested(cls, data):
+    def from_nested(cls, data: dict[str, Any]):
         """
         Args:
             data (Dict):
@@ -163,7 +164,7 @@ class DotDict(ub.UDict):
             self._trie_cache['suffix_trie'] = _trie
         return self._trie_cache['suffix_trie']
 
-    def suffix_get(self, suffix, default=ub.NoParam, backend='trie'):
+    def suffix_get(self, suffix: str, default=ub.NoParam, backend: str = 'trie'):
         """
         Retrieve all key-value pairs whose keys end with a given dot-suffix.
 
@@ -207,7 +208,7 @@ class DotDict(ub.UDict):
             return default
         return matches
 
-    def prefix_get(self, key, default=ub.NoParam):
+    def prefix_get(self, key: str, default=ub.NoParam):
         """
         Example:
             >>> from kwdagger.utils.util_dotdict import *  # NOQA
@@ -234,7 +235,7 @@ class DotDict(ub.UDict):
                 suffix_dict[sub_key] = self[full_key]
             return suffix_dict
 
-    def suffix_subdict(self, suffixes, backend='trie'):
+    def suffix_subdict(self, suffixes, backend: str = 'trie'):
         """
         Filter DotDict to only contain keys ending with any given suffixes.
 

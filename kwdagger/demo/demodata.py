@@ -151,7 +151,7 @@ class Stage1PredictCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(cls, argv=1, **kwargs):
+    def main(cls, argv: int | bool | list[str] = 1, **kwargs):
         config = cls.cli(argv=argv, data=kwargs, strict=True,
                          verbose='auto')
 
@@ -196,7 +196,7 @@ class Stage1EvaluateCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(cls, argv=1, **kwargs):
+    def main(cls, argv: int | bool | list[str] = 1, **kwargs):
         config = cls.cli(argv=argv, data=kwargs, strict=True,
                          verbose='auto')
 
@@ -374,7 +374,7 @@ class Stage1_Evaluate(ProcessNode):
         return vantage_points
 
 
-def my_demo_pipeline():
+def my_demo_pipeline() -> Pipeline:
     """
     Example:
         >>> from kwdagger.demo.demodata import *  # NOQA
@@ -413,7 +413,7 @@ def my_demo_pipeline():
 ### Programatic code to execute the pipeline that can be used in tests
 
 
-def run_demo_schedule():
+def run_demo_schedule() -> dict[str, object]:
     """
     Example:
         from kwdagger.demo.demodata import run_demo_schedule
@@ -454,7 +454,7 @@ def run_demo_schedule():
     return info
 
 
-def run_demo_aggregate():
+def run_demo_aggregate() -> object:
     # TODO: use these in doctests in a useful way where
     # the doctest has some control
     # Also load the results

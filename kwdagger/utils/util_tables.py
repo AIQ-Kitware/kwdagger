@@ -3,6 +3,7 @@ Common table helpers (i.e. List[Dict])
 """
 import ubelt as ub
 import math
+from typing import Any, Iterable
 
 
 class UnhashablePlaceholder(str):
@@ -19,8 +20,8 @@ def _ensure_longform(longform):
     return longform
 
 
-def varied_values(longform, min_variations=0, max_variations=None,
-                  default=ub.NoParam, dropna=False, on_error='raise'):
+def varied_values(longform, min_variations: int = 0, max_variations: int | None = None,
+                  default=ub.NoParam, dropna: bool = False, on_error: str = 'raise'):
     """
     Given a list of dictionaries, find the values that differ between them.
 
@@ -144,8 +145,8 @@ def varied_values(longform, min_variations=0, max_variations=None,
     return varied
 
 
-def varied_value_counts(longform, min_variations=0, max_variations=None,
-                        default=ub.NoParam, dropna=False, on_error='raise'):
+def varied_value_counts(longform, min_variations: int = 0, max_variations: int | None = None,
+                        default=ub.NoParam, dropna: bool = False, on_error: str = 'raise'):
     """
     Given a list of dictionaries, find the values that differ between them.
 

@@ -6,9 +6,10 @@ its underlying workhorse: :func:`extended_github_action_matrix`.
 """
 import ubelt as ub
 import kwutil
+from typing import Any
 
 
-def coerce_list_of_action_matrices(arg):
+def coerce_list_of_action_matrices(arg) -> list[dict[str, Any]]:
     """
     Preprocess the parameter grid input into a standard form
 
@@ -48,7 +49,7 @@ def coerce_list_of_action_matrices(arg):
     return action_matrices
 
 
-def prevalidate_param_grid(arg):
+def prevalidate_param_grid(arg) -> None:
     """
     Determine if something may go wrong
     """
@@ -91,7 +92,7 @@ def prevalidate_param_grid(arg):
                         log_issue(k, p, 'might not be a valid path')
 
 
-def expand_param_grid(arg, max_configs=None):
+def expand_param_grid(arg, max_configs: int | None = None):
     """
     Our own method for specifying many combinations. Uses the github actions
     method under the hood with our own

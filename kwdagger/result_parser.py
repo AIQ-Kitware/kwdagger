@@ -7,9 +7,10 @@ Used by ./aggregate_loader.py
 import json
 import re
 from kwutil import util_time
+from typing import Any, Mapping
 
 
-def _handle_process_item(item):
+def _handle_process_item(item: Mapping[str, Any]) -> dict[str, Any]:
     """
     Json data written by the process context has changed over time slightly.
     Consolidate different usages until a consistent API and usage patterns are
@@ -52,11 +53,11 @@ class Found(Exception):
     pass
 
 
-def _add_prefix(prefix, dict_):
+def _add_prefix(prefix: str, dict_: Mapping[str, Any]) -> dict[str, Any]:
     return {prefix + k: v for k, v in dict_.items()}
 
 
-def parse_resource_item(item, arg_prefix='', add_prefix=True):
+def parse_resource_item(item: Mapping[str, Any], arg_prefix: str = '', add_prefix: bool = True) -> dict[str, Any]:
     import kwutil
     resources = {}
     ureg = kwutil.util_units.unit_registry()
@@ -118,7 +119,7 @@ def parse_resource_item(item, arg_prefix='', add_prefix=True):
 
 
 # @ub.memoize
-def _load_json(fpath):
+def _load_json(fpath) -> Any:
     # memo hack for development
     with open(fpath, 'r') as file:
         data = json.load(file)

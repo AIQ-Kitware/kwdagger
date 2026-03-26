@@ -4,6 +4,7 @@ Utilities for saving the data that gave rise to particular hash values.
 import ubelt as ub
 import shelve
 import os
+from typing import Any
 
 
 class ReverseHashTable:
@@ -26,7 +27,7 @@ class ReverseHashTable:
         >>> print('full_shelf = {}'.format(ub.urepr(full_shelf, nl=2)))
     """
 
-    def __init__(self, type='global'):
+    def __init__(self, type: str = 'global'):
         from kwutil.util_locks import Superlock
         self.rlut_dpath = ub.Path.appdir('kwdagger/hash_rlut', type).ensuredir()
         self.shelf_fpath = self.rlut_dpath / 'hash_rlut.shelf'
@@ -35,13 +36,13 @@ class ReverseHashTable:
         self.lock_fpath = self.rlut_dpath / 'flock.lock'
         self.lock = Superlock(thread_key='hash_rlut', lock_fpath=self.lock_fpath)
 
-    def load(self):
+    def load(self) -> dict[str, Any]:
         with self.lock:
             shelf = shelve.open(os.fspath(self.shelf_fpath))
             full_shelf = dict(shelf)
         return full_shelf
 
-    def register(self, key, data):
+    def register(self, key: str, data: Any) -> dict[str, Any]:
         """
         Args:
             key (str): the hash
@@ -92,7 +93,7 @@ class ReverseHashTable:
         return info
 
     @classmethod
-    def query(cls, key=None, verbose=1):
+    def query(cls, key: str | None = None, verbose: int = 1) -> list[dict[str, Any]]:
         """
         If the type of the hash is unknown, we can search in a few different
         locations for it.
@@ -117,7 +118,7 @@ class ReverseHashTable:
         return candidates
 
 
-def condense_config(params, type, human_opts=None, register=True):
+def condense_config(params, type: str, human_opts=None, register: bool = True) -> str:
     """
     Given a dictionary of parameters and a type, makes a hash of the params
     prefixes it with a type and ensures it is registered in the global system

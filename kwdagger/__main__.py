@@ -16,7 +16,7 @@ class KWDaggerModal(scfg.ModalCLI):
 # Or register them here.
 # TemplateModal.register(ScriptCLI)
 
-__cli__ = KWDaggerModal
+__cli__: type[KWDaggerModal] = KWDaggerModal
 main = __cli__.main
 
 

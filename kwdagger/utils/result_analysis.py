@@ -1391,8 +1391,8 @@ class UnhashablePlaceholder(str):
     ...
 
 
-def varied_values(longform, min_variations=0, max_variations=None,
-                  default=ub.NoParam, dropna=False, on_error='raise'):
+def varied_values(longform, min_variations: int = 0, max_variations: int | None = None,
+                  default=ub.NoParam, dropna: bool = False, on_error: str = 'raise'):
     """
     Given a list of dictionaries, find the values that differ between them.
 
@@ -1502,8 +1502,8 @@ def varied_values(longform, min_variations=0, max_variations=None,
     return varied
 
 
-def varied_value_counts(longform, min_variations=0, max_variations=None,
-                        default=ub.NoParam, dropna=False, on_error='raise'):
+def varied_value_counts(longform, min_variations: int = 0, max_variations: int | None = None,
+                        default=ub.NoParam, dropna: bool = False, on_error: str = 'raise'):
     """
     Given a list of dictionaries, find the values that differ between them.
 
@@ -1657,7 +1657,7 @@ if 1:
 # xdev.make_warnings_print_tracebacks()
 
 
-def aggregate_stats(data, suffix="", group_keys=None):
+def aggregate_stats(data, suffix: str = "", group_keys=None):
     """
     Given columns interpreted as containing stats, aggregate those stats
     within each group. For each row, any non-group, non-stat column
@@ -1744,7 +1744,7 @@ def aggregate_stats(data, suffix="", group_keys=None):
     return new_data
 
 
-def stats_dict(data, suffix=""):
+def stats_dict(data, suffix: str = ""):
     stats = {
         "nobs" + suffix: len(data),
         "mean" + suffix: data.mean(),

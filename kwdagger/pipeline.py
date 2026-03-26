@@ -23,7 +23,7 @@ import os
 import ubelt as ub
 import warnings
 from functools import cached_property
-from typing import Union, Dict, Set, List, Any, Optional
+from typing import Any, Optional, Union, Dict, Set, List
 from kwdagger.utils import util_dotdict
 import kwutil
 
@@ -110,7 +110,7 @@ class Pipeline:
         if self._dirty:
             self.build_nx_graphs()
 
-    def submit(self, executable, **kwargs):
+    def submit(self, executable: str, **kwargs):
         """
         Dynamically create a new unique process node and add it to the dag
 
@@ -179,7 +179,7 @@ class Pipeline:
 
         self._dirty = False
 
-    def inspect_configurables(self):
+    def inspect_configurables(self) -> None:
         """
         Show the user what config options should be specified.
 
@@ -258,7 +258,7 @@ class Pipeline:
             default[row['node'] + '.' + row['key']] = None
         rich.print(util_yaml.Yaml.dumps(default))
 
-    def configure(self, config=None, root_dpath=None, cache=True):
+    def configure(self, config=None, root_dpath=None, cache: bool = True):
         """
         Update the DAG configuration
 
@@ -302,7 +302,7 @@ class Pipeline:
                 node = self.proc_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
 
-    def print_process_graph(self, shrink_labels=1, show_types=0):
+    def print_process_graph(self, shrink_labels: int = 1, show_types: int = 0):
         """
         Draw the networkx process graph, which only shows if there exists
         a connection between processes, and does not show details of which
@@ -317,7 +317,7 @@ class Pipeline:
         print('Process Graph')
         nx.write_network_text(self.proc_graph, path=rich.print, end='', vertical_chains=True)
 
-    def print_io_graph(self, shrink_labels=1, show_types=0):
+    def print_io_graph(self, shrink_labels: int = 1, show_types: int = 0):
         """
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
@@ -345,7 +345,7 @@ class Pipeline:
         queue = self.make_queue()['queue']
         queue.print_commands(**kwargs)
 
-    def print_graphs(self, shrink_labels=1, show_types=0):
+    def print_graphs(self, shrink_labels: int = 1, show_types: int = 0):
         """
         Prints the Process and IO graph for the DAG.
         """
@@ -353,8 +353,8 @@ class Pipeline:
                                  show_types=show_types)
         self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types)
 
-    def submit_jobs(self, queue=None, skip_existing=False, enable_links=True,
-                    write_invocations=True, write_configs=True):
+    def submit_jobs(self, queue=None, skip_existing: bool = False, enable_links: bool = True,
+                    write_invocations: bool = True, write_configs: bool = True):
         """
         Submits the jobs to an existing command queue or creates a new one.
 
@@ -564,7 +564,7 @@ class Pipeline:
     make_queue = submit_jobs
 
 
-def bash_printf_literal_string(text, escape_newlines=True):
+def bash_printf_literal_string(text: str, escape_newlines: bool = True) -> str:
     r"""
     Not only do we need to make a bash literal string we
     need to make sure that it is interpreted as literal by
@@ -593,7 +593,7 @@ def bash_printf_literal_string(text, escape_newlines=True):
     return f"'{inside_text}'"
 
 
-def glob_templated_path(template):
+def glob_templated_path(template) -> list[Any]:
     """
     Given an unformated templated path, replace the format parts with "*" and
     return a glob.
@@ -717,7 +717,7 @@ class Node(ub.NiceRepr):
 class IONode(Node):
     __node_type__ = 'io'
 
-    def __init__(self, name, parent):
+    def __init__(self, name: str, parent):
         super().__init__(name)
         self.parent = parent
         self._final_value = None
@@ -2048,7 +2048,7 @@ class ProcessNode(Node):
         return rows
 
 
-def _labelize_graph(graph, shrink_labels, show_types, color_procs=0):
+def _labelize_graph(graph, shrink_labels, show_types, color_procs: int = 0):
     """
     Add a label to a networkx graph with rich colors specific to this use-case.
     """
@@ -2110,7 +2110,7 @@ def _load_json(fpath):
         return json.load(file)
 
 
-def _add_prefix(prefix, dict_):
+def _add_prefix(prefix: str, dict_):
     return {prefix + k: v for k, v in dict_.items()}
 
 

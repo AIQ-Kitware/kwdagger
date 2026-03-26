@@ -17,6 +17,7 @@ import scriptconfig as scfg
 from cmd_queue.cli_boilerplate import CMDQueueConfig
 from kwdagger.pipeline import coerce_slurm_options
 from kwdagger.utils import util_pandas
+from typing import Any
 
 
 class ScheduleEvaluationConfig(CMDQueueConfig):
@@ -76,12 +77,12 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
             GPUS = None if devices is None else ensure_iterable(devices)
         self.devices = GPUS
 
-    def main(argv=True, **kwargs):
+    def main(argv: bool | list[str] = True, **kwargs: Any):
         config = ScheduleEvaluationConfig.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
         build_schedule(config)
 
 
-def build_schedule(config):
+def build_schedule(config) -> tuple[Any, Any]:
     r"""
     First ensure that models have been copied to the DVC repo in the
     appropriate path. (as noted by model_dpath)
@@ -210,7 +211,7 @@ def ensure_iterable(inputs):
     return inputs if ub.iterable(inputs) else [inputs]
 
 
-def _auto_gpus():
+def _auto_gpus() -> list[int]:
     from kwdagger.utils.util_nvidia import nvidia_smi
     # TODO: liberate the needed code from netharn
     # Use all unused devices

@@ -105,7 +105,7 @@ Example:
 from __future__ import annotations
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
 import warnings
 import pandas as pd
 import numpy as np
@@ -149,7 +149,7 @@ class QueryPlan:
     strict: bool = True  # set True to fail fast on bad expressions
 
     @classmethod
-    def parse(QueryPlan, cli_arg: Optional[str], *, strict: bool = True) -> QueryPlan:
+    def parse(QueryPlan, cli_arg: Optional[str], *, strict: bool = True) -> 'QueryPlan':
         """
         Parse the CLI --query argument (YAML or raw) into a QueryPlan.
 

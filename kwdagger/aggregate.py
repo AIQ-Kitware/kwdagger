@@ -277,7 +277,7 @@ class AggregateEvluationConfig(AggregateLoader):
         return eval_type_to_aggregator
 
     @classmethod
-    def main(cls, argv=True, **kwargs):
+    def main(cls, argv: bool | list[str] = True, **kwargs: Any):
         """
         Aggregate entry point.
 

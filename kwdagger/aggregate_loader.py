@@ -9,10 +9,11 @@ from kwutil import util_parallel
 from kwdagger.utils import util_dotdict
 import parse
 import json
+from typing import Any
 
 
 def build_tables(root_dpath, dag, io_workers, eval_nodes,
-                 cache_resolved_results):
+                 cache_resolved_results) -> dict[str, dict[str, Any]]:
     import pandas as pd
     from kwutil import util_progress
 
@@ -145,7 +146,7 @@ def build_tables(root_dpath, dag, io_workers, eval_nodes,
     return eval_type_to_results
 
 
-def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
+def load_result_worker(fpath, node_name, node=None, dag=None, use_cache: bool = True) -> dict[str, Any]:
     """
     Main driver for loading results
 
@@ -302,7 +303,7 @@ def load_result_worker(fpath, node_name, node=None, dag=None, use_cache=True):
     return result
 
 
-def load_result_resolved(node_dpath, node=None, dag=None):
+def load_result_resolved(node_dpath, node=None, dag=None) -> dict[str, Any]:
     """
     Recurse through the DAG filesytem structure and load resolved
     configurations from each step.
@@ -406,7 +407,7 @@ def load_result_resolved(node_dpath, node=None, dag=None):
     return flat_resolved
 
 
-def out_node_matching_fpaths(out_node):
+def out_node_matching_fpaths(out_node) -> list[Any]:
     out_template = out_node.template_value
     parser = parse.Parser(str(out_template))
     patterns = {n: '*' for n in parser.named_fields}
@@ -416,7 +417,7 @@ def out_node_matching_fpaths(out_node):
     return fpaths
 
 
-def new_process_context_parser(proc_item):
+def new_process_context_parser(proc_item) -> dict[str, Any]:
     """
     Load parameters out of data saved by a ProcessContext object
     """

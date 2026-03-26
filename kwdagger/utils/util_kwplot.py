@@ -16,6 +16,7 @@ TODO:
 import ubelt as ub
 import matplotlib as mpl
 import matplotlib.text  # NOQA
+from typing import Any
 
 
 class TitleBuilder:
@@ -62,7 +63,7 @@ class TitleBuilder:
         return text
 
 
-def cropwhite_ondisk(fpath):
+def cropwhite_ondisk(fpath) -> None:
     import kwimage
     from kwplot.mpl_make import crop_border_by_color
     imdata = kwimage.imread(fpath)
@@ -70,8 +71,8 @@ def cropwhite_ondisk(fpath):
     kwimage.imwrite(fpath, imdata)
 
 
-def dataframe_table(table, fpath, title=None, fontsize=12,
-                    table_conversion='auto', dpi=None, fnum=None, show=False):
+def dataframe_table(table, fpath, title=None, fontsize: int = 12,
+                    table_conversion: str = 'auto', dpi=None, fnum=None, show: bool | str = False) -> None:
     """
     Use dataframe_image (dfi) to render a pandas dataframe.
 
@@ -136,7 +137,7 @@ def dataframe_table(table, fpath, title=None, fontsize=12,
 
 
 def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=None,
-                       title=None):
+                       title=None) -> Any:
     import humanize
     df2 = df.copy()
     if col_formats is not None:
@@ -187,8 +188,8 @@ def humanize_dataframe(df, col_formats=None, human_labels=None, index_format=Non
     return df2_style
 
 
-def scatterplot_highlight(data, x, y, highlight, size=10, color='orange',
-                          marker='*', val_to_color=None, ax=None, linewidths=None):
+def scatterplot_highlight(data, x, y, highlight, size: int = 10, color: str = 'orange',
+                          marker: str = '*', val_to_color=None, ax=None, linewidths=None) -> None:
     if ax is None:
         import kwplot
         plt = kwplot.autoplt()
@@ -226,7 +227,7 @@ def humanize_labels():
     ...
 
 
-def relabel_xticks(mapping, ax=None):
+def relabel_xticks(mapping, ax=None) -> None:
     """
     Change the tick labels on the x-axis.
 
@@ -931,7 +932,7 @@ class FigureManager:
         kwplot.set_figtitle(*args, **kwargs, fig=self.fig)
 
 
-def fix_seaborn_palette_issue(x, snskw):
+def fix_seaborn_palette_issue(x, snskw) -> None:
     """
     Modifies the sns keyword arguments to fix a warning
 
