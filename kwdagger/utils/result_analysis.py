@@ -17,7 +17,7 @@ Example:
     >>> # Create a ResultAnalysis object and tell it what metrics should be maximized / minimized
     >>> analysis = ResultAnalysis(table, metric_objectives={'f1': 'max', 'loss': 'min'})
     >>> # An overall analysis can be obtained as follows
-    >>> analysis.analysis()  # xdoctest: +IGNORE_WANT
+>>> analysis.analysis()  # xdoctest: +IGNORE_WANT
     PARAMETER: param2 - METRIC: f1
     ==============================
     f1      count  mean       std   min    25%   50%    75%   max
@@ -132,6 +132,8 @@ Requires:
     pip install ray
     pip install openskill
 """
+from __future__ import annotations
+
 import itertools as it
 import math
 import warnings
@@ -1341,11 +1343,29 @@ class SkillTracker:
         openskill
     """
 
-    def __init__(self, player_ids):
+    def _resolve_openskill_api(self):
         import openskill
+        if hasattr(openskill, "Rating"):
+            # OpenSkill < 5: legacy top-level API
+            return {
+                "new_rating": openskill.Rating,
+                "rate": openskill.rate,
+                "predict_win": openskill.predict_win,
+            }
+        else:
+            # OpenSkill >= 5: use a model instance
+            from openskill.models import PlackettLuce
+            model = PlackettLuce()
+            return {
+                "new_rating": model.rating,
+                "rate": model.rate,
+                "predict_win": model.predict_win,
+            }
 
+    def __init__(self, player_ids):
+        self._os = self._resolve_openskill_api()
         self.player_ids = player_ids
-        self.ratings = {m: openskill.Rating() for m in player_ids}
+        self.ratings = {m: self._os["new_rating"]() for m in player_ids}
         # self.observations = []
 
     def predict_win(self):
@@ -1356,13 +1376,12 @@ class SkillTracker:
         Returns:
             Dict[T, float]: mapping from player ids to win probabilites
         """
-        from openskill import predict_win
-
-        teams = [[p] for p in list(self.ratings.keys())]
         ratings = [[r] for r in self.ratings.values()]
-        probs = predict_win(ratings)
-        win_probs = {team[0]: prob for team, prob in zip(teams, probs)}
-        return win_probs
+        probs = self._os["predict_win"](ratings)
+        return {
+            player_id: prob
+            for player_id, prob in zip(self.ratings.keys(), probs)
+        }
 
     def observe(self, ranking):
         """
@@ -1375,17 +1394,10 @@ class SkillTracker:
                 ranking of all the players that played in this round
                 winners are at the front (0-th place) of the list.
         """
-        import openskill
-
-        # self.observations.append(ranking)
-        ratings = self.ratings
-        team_standings = [[r] for r in ub.take(ratings, ranking)]
-        # new_values = openskill.rate(team_standings)  # Not inplace
-        # new_ratings = [openskill.Rating(*new[0]) for new in new_values]
-        new_team_ratings = openskill.rate(team_standings)
-        new_ratings = [new[0] for new in new_team_ratings]
-        ratings.update(ub.dzip(ranking, new_ratings))
-
+        team_standings = [[self.ratings[player_id]] for player_id in ranking]
+        new_team_ratings = self._os["rate"](team_standings)
+        new_ratings = [team[0] for team in new_team_ratings]
+        self.ratings.update(dict(zip(ranking, new_ratings)))
 
 class UnhashablePlaceholder(str):
     ...
