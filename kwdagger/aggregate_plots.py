@@ -1111,7 +1111,7 @@ class ParamPlotter:
                 )
             param_code_lut = pd.DataFrame(
                 param_code_lut,
-                columns=['code', 'value', 'num'],  
+                columns=cast(Any, ['code', 'value', 'num']),
             )
             if not had_value_remap:
                 param_code_lut = param_code_lut.drop('code', axis=1)

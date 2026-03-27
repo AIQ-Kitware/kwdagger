@@ -25,7 +25,7 @@ import os
 import typing
 import warnings
 from functools import cached_property
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Mapping, Sequence, cast
 
 import kwutil
 import networkx as nx
@@ -33,11 +33,11 @@ import ubelt as ub
 
 from kwdagger.utils import util_dotdict
 
-Collection = Optional[Union[Dict, Set, List]]
-Configurable = Optional[Dict[str, Any]]
+Collection = Mapping[str, Any] | Sequence[Any] | set[Any] | None
+Configurable = dict[str, Any] | None
 
 
-def coerce_slurm_options(slurm_options) -> Dict[str, Any]:
+def coerce_slurm_options(slurm_options: Any) -> dict[str, Any]:
     """
     Normalize slurm option dictionaries.
     """
@@ -92,7 +92,9 @@ class Pipeline:
         >>> self.print_graphs()
     """
 
-    def __init__(self, nodes=None, config=None, root_dpath=None):
+    def __init__(
+        self, nodes: Any = None, config: Any = None, root_dpath: Any = None
+    ) -> None:
         self.proc_graph = None
         self.io_graph = None
         if nodes is None:
@@ -111,14 +113,14 @@ class Pipeline:
             self.configure(config, root_dpath=root_dpath)
 
     @classmethod
-    def demo(cls):
+    def demo(cls) -> 'Pipeline':
         return demodata_pipeline()
 
-    def _ensure_clean(self):
+    def _ensure_clean(self) -> None:
         if self._dirty:
             self.build_nx_graphs()
 
-    def submit(self, executable: str, **kwargs):
+    def submit(self, executable: str, **kwargs: Any) -> Any:
         """
         Dynamically create a new unique process node and add it to the dag
 
@@ -135,7 +137,7 @@ class Pipeline:
         return task
 
     @property
-    def node_dict(self):
+    def node_dict(self) -> dict[str, Any]:
         if isinstance(self.nodes, dict):
             node_dict = self.nodes
         else:
@@ -148,7 +150,7 @@ class Pipeline:
             node_dict = dict(zip(node_names, self.nodes))
         return node_dict
 
-    def build_nx_graphs(self):
+    def build_nx_graphs(self) -> None:
         node_dict = self.node_dict
 
         self.proc_graph = nx.DiGraph()
@@ -286,7 +288,9 @@ class Pipeline:
             default[row['node'] + '.' + row['key']] = None
         rich.print(util_yaml.Yaml.dumps(default))
 
-    def configure(self, config=None, root_dpath=None, cache: bool = True):
+    def configure(
+        self, config: Any = None, root_dpath: Any = None, cache: bool = True
+    ) -> None:
         """
         Update the DAG configuration
 
@@ -332,7 +336,9 @@ class Pipeline:
                 node = self.proc_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
 
-    def print_process_graph(self, shrink_labels: int = 1, show_types: int = 0):
+    def print_process_graph(
+        self, shrink_labels: int = 1, show_types: int = 0
+    ) -> None:
         """
         Draw the networkx process graph, which only shows if there exists
         a connection between processes, and does not show details of which
@@ -350,7 +356,7 @@ class Pipeline:
             self.proc_graph, path=rich.print, end='', vertical_chains=True
         )
 
-    def print_io_graph(self, shrink_labels: int = 1, show_types: int = 0):
+    def print_io_graph(self, shrink_labels: int = 1, show_types: int = 0) -> None:
         """
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
@@ -368,7 +374,7 @@ class Pipeline:
             self.io_graph, path=rich.print, end='', vertical_chains=True
         )
 
-    def print_commands(self, **kwargs):
+    def print_commands(self, **kwargs: Any) -> None:
         """
         Helper (mostly for debugging) to show the commands for the current
         pipeline configuration. This involves making a cmdqueue instance, which
@@ -383,7 +389,7 @@ class Pipeline:
         queue = self.make_queue()['queue']
         queue.print_commands(**kwargs)
 
-    def print_graphs(self, shrink_labels: int = 1, show_types: int = 0):
+    def print_graphs(self, shrink_labels: int = 1, show_types: int = 0) -> None:
         """
         Prints the Process and IO graph for the DAG.
         """
@@ -394,12 +400,12 @@ class Pipeline:
 
     def submit_jobs(
         self,
-        queue=None,
+        queue: Any = None,
         skip_existing: bool = False,
         enable_links: bool = True,
         write_invocations: bool = True,
         write_configs: bool = True,
-    ):
+    ) -> dict[str, Any]:
         """
         Submits the jobs to an existing command queue or creates a new one.
 
@@ -720,12 +726,12 @@ class Node(ub.NiceRepr):
     def __nice__(self):
         return f'{self.name!r}, pred={[n.name for n in self.pred]}, succ={[n.name for n in self.succ]}'
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         self.name = name
         self.pred = []
         self.succ = []
 
-    def _connect_single(self, other, src_map, dst_map):
+    def _connect_single(self, other: Any, src_map: Mapping[str, str], dst_map: Mapping[str, str]) -> None:
         """
         Handles connection rules between this node and another one.
 
@@ -760,6 +766,8 @@ class Node(ub.NiceRepr):
                 inputs = {other.name: other}
 
         assert isinstance(outputs, typing.Mapping)
+        src_map = cast(Any, src_map)
+        dst_map = cast(Any, dst_map)
         outmap = ub.udict({src_map.get(k, k): k for k in outputs.keys()})
         inmap = ub.udict({dst_map.get(k, k): k for k in inputs.keys()})
 
@@ -783,7 +791,13 @@ class Node(ub.NiceRepr):
                 assert hasattr(out_node, '_connect_single')
                 out_node._connect_single(in_node, {}, {})  # type: ignore
 
-    def connect(self, *others, param_mapping=None, src_map=None, dst_map=None):
+    def connect(
+        self,
+        *others: Any,
+        param_mapping: Mapping[str, str] | None = None,
+        src_map: Mapping[str, str] | None = None,
+        dst_map: Mapping[str, str] | None = None,
+    ) -> 'Node':
         """
         Connect the outputs of ``self`` to the inputs of ``others``.
 
@@ -812,14 +826,14 @@ class Node(ub.NiceRepr):
 class IONode(Node):
     __node_type__ = 'io'
 
-    def __init__(self, name: str, parent):
+    def __init__(self, name: str, parent: Any) -> None:
         super().__init__(name)
         self.parent = parent
         self._final_value = None
         self._template_value = None
 
     @property
-    def final_value(self):
+    def final_value(self) -> Any:
         value = self._final_value
         if value is None:
             preds = list(self.pred)
@@ -837,11 +851,11 @@ class IONode(Node):
         return value
 
     @final_value.setter
-    def final_value(self, value):
+    def final_value(self, value: Any) -> None:
         self._final_value = value
 
     @property
-    def key(self):
+    def key(self) -> str:
         return self.parent.key + '.' + self.name
 
 
@@ -850,12 +864,12 @@ class InputNode(IONode): ...
 
 class OutputNode(IONode):
     @property
-    def final_value(self):
+    def final_value(self) -> Any:
         # return self.parent._finalize_templates()['out_paths'][self.name]
         return self.parent.final_out_paths[self.name]
 
     @property
-    def template_value(self):
+    def template_value(self) -> Any:
         return self.parent.template_out_paths[self.name]
 
     def matching_fpaths(self):
@@ -1133,14 +1147,14 @@ class ProcessNode(Node):
 
     __node_type__ = 'process'
 
-    name: Optional[str] = None
+    name: str | None = None
 
     # A path that will specified directly after the DAG root dpath.
-    group: Optional[str] = None
+    group: str | None = None
 
     # resources : Collection = None  # Unused?
 
-    executable: Optional[str] = None
+    executable: str | None = None
 
     # TODO: maybe we want the idea of "unstable" params the user can mark if
     # there is a paramter that had its meaning change, but that wasn't captured
@@ -1149,23 +1163,23 @@ class ProcessNode(Node):
     # something interesting with them. There might be other flavors of this,
     # "dynamic params", "volitle params", "hardcoded params"
 
-    algo_params: Collection = None  # algorithm parameters - impacts output
+    algo_params: Any = None  # algorithm parameters - impacts output
 
-    perf_params: Collection = None  # performance parameters - no output impact
+    perf_params: Any = None  # performance parameters - no output impact
 
     # input paths
     # Should be specified as a set of names wrt the config or as dict mapping
     # from names to absolute paths.
-    in_paths: Collection = None
+    in_paths: Any = None
 
     # output paths
     # Should be specified as templates
-    out_paths: Collection = None
+    out_paths: Any = None
 
     primary_out_key: str | None = None
 
     # Optional job-level slurm options. Can be overridden via configuration.
-    slurm_options: Dict[str, Any] | None = None
+    slurm_options: dict[str, Any] | None = None
 
     # Optional scriptconfig schema for deriving path/param groups. This is the
     # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
@@ -1174,26 +1188,26 @@ class ProcessNode(Node):
     def __init__(
         self,
         *,  # TODO: allow positional arguments after we find a good order
-        name=None,
-        executable=None,
-        algo_params=None,
-        perf_params=None,
+        name: str | None = None,
+        executable: str | None = None,
+        algo_params: Any = None,
+        perf_params: Any = None,
         # resources=None,
-        in_paths=None,
-        out_paths=None,
-        group=None,
-        root_dpath=None,
-        config=None,
-        slurm_options=None,
-        node_dpath=None,  # overwrites configured node dapth
-        group_dpath=None,  # overwrites configured node dapth
-        primary_out_key=None,
-        _overwrite_node_dpath=None,  # overwrites the configured node dpath
-        _overwrite_group_dpath=None,  # overwrites the configured group dpath
-        _no_outarg=False,
-        _no_inarg=False,
-        **aliases,
-    ):
+        in_paths: Any = None,
+        out_paths: Any = None,
+        group: str | None = None,
+        root_dpath: Any = None,
+        config: Any = None,
+        slurm_options: Any = None,
+        node_dpath: Any = None,  # overwrites configured node dapth
+        group_dpath: Any = None,  # overwrites configured node dapth
+        primary_out_key: str | None = None,
+        _overwrite_node_dpath: Any = None,  # overwrites the configured node dpath
+        _overwrite_group_dpath: Any = None,  # overwrites the configured group dpath
+        _no_outarg: bool = False,
+        _no_inarg: bool = False,
+        **aliases: Any,
+    ) -> None:
         if aliases:
             if 'perf_config' in aliases:
                 raise ValueError('You probably meant perf_params')
@@ -1266,8 +1280,9 @@ class ProcessNode(Node):
             if self.perf_params is None:
                 self.perf_params = {}
             if isinstance(self.in_paths, dict):
+                in_paths = cast(dict[str, Any], self.in_paths)
                 for key in derived_in_paths:
-                    self.in_paths.setdefault(key, None)
+                    in_paths.setdefault(key, None)
             else:
                 self.in_paths = set(self.in_paths) | set(derived_in_paths)
             for key, value in derived_out_paths.items():
@@ -1737,13 +1752,14 @@ class ProcessNode(Node):
 
     @memoize_configured_property
     def final_in_paths(self):
-        final_in_paths = self.in_paths
-        if final_in_paths is None:
+        in_paths = self.in_paths
+        final_in_paths: dict[str, Any]
+        if in_paths is None:
             final_in_paths = {}
-        elif isinstance(final_in_paths, dict):
-            final_in_paths = final_in_paths.copy()
+        elif isinstance(in_paths, dict):
+            final_in_paths = cast(dict[str, Any], in_paths.copy())
         else:
-            final_in_paths = {k: None for k in final_in_paths}
+            final_in_paths = {k: None for k in in_paths}
 
         for key, input_node in self.inputs.items():
             final_in_paths[key] = input_node.final_value

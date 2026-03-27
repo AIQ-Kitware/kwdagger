@@ -605,13 +605,13 @@ class AggregatorAnalysisMixin:
 
         from kwdagger.utils import result_analysis, util_pandas
 
-        macro_keys = list(agg.macro_key_to_regions.keys())  # ty: ignore[unresolved-attribute]
+        macro_keys = list(agg.macro_key_to_regions.keys())
         if len(macro_keys) == 0:
             raise Exception('Build a macro result first')
 
         # regions_of_interest = agg.macro_key_to_regions[agg.primary_macro_region]
         tables = util_pandas.DotDictDataFrame(
-            agg.region_to_tables[agg.primary_macro_region]  # ty: ignore[not-subscriptable]
+            agg.region_to_tables[agg.primary_macro_region]
         )
 
         resolved_params = tables['resolved_params']
@@ -888,16 +888,14 @@ class AggregatorAnalysisMixin:
             # reference region. The idea is to make things comparable to the
             # macro scores.
             if reference_region == 'final':
-                reference_region = region_id = list(
-                    agg.region_to_tables.keys()  # ty: ignore[unresolved-attribute]
-                )[-1]
+                reference_region = region_id = list(agg.region_to_tables.keys())[-1]
             else:
                 region_id = reference_region
 
             # Lookup the table corresponding to the reference region
-            group = agg.region_to_tables[region_id]  # ty: ignore[not-subscriptable]
+            group = agg.region_to_tables[region_id]
             if len(group) == 0:
-                region_to_len = ub.udict(agg.region_to_tables).map_values(len)  # ty: ignore[no-matching-overload]
+                region_to_len = ub.udict(agg.region_to_tables).map_values(len)
                 print(
                     'region_to_len = {}'.format(ub.urepr(region_to_len, nl=1))
                 )
@@ -952,8 +950,8 @@ class AggregatorAnalysisMixin:
             # Filter the agg object to consider only the top parameters
             _agg = agg.filterto(param_hashids=top_param_hashids)
 
-            if region_id in agg.macro_key_to_regions:  # ty: ignore[unsupported-operator]
-                rois = agg.macro_key_to_regions[region_id]  # ty: ignore[not-subscriptable]
+            if region_id in agg.macro_key_to_regions:
+                rois = agg.macro_key_to_regions[region_id]
                 _agg.build_macro_tables(rois)
             reference_hashids = top_param_hashids
             reference_hashid_to_rank = {
@@ -962,8 +960,8 @@ class AggregatorAnalysisMixin:
 
             if verbose > 3:
                 # Print out information on how much was filtered per region
-                for region_id in agg.region_to_tables.keys():  # ty: ignore[unresolved-attribute]
-                    old_table = agg.region_to_tables[region_id]  # ty: ignore[not-subscriptable]
+                for region_id in agg.region_to_tables.keys():
+                    old_table = agg.region_to_tables[region_id]
                     new_region_tables = cast(dict[Any, Any], _agg.region_to_tables)
                     new_table = new_region_tables[region_id]
                     print(
@@ -985,7 +983,7 @@ class AggregatorAnalysisMixin:
         region_id_to_summary = {}
         big_param_lut = {}
         region_id_to_ntotal = {}
-        for region_id, group in _agg.region_to_tables.items():  # ty: ignore[unresolved-attribute]
+        for region_id, group in _agg.region_to_tables.items():
             if len(group) == 0:
                 continue
             index_cols = group.columns.intersection(_agg.index.columns)
@@ -1031,7 +1029,7 @@ class AggregatorAnalysisMixin:
             # Note: this report will only display requested params, but there
             # might be more detailed variations of interest.
             ranked_group = group.loc[ranked_locs]
-            param_lut = _agg.hashid_to_effective_params.subdict(  # ty: ignore[unresolved-attribute]
+            param_lut = _agg.hashid_to_effective_params.subdict(
                 ranked_group['param_hashid']
             )
             big_param_lut.update(param_lut)
@@ -1164,7 +1162,7 @@ class AggregatorAnalysisMixin:
                 # table per-region.
                 justone = pd.concat(list(region_id_to_summary.values()), axis=0)
                 submacro = (
-                    ub.udict(_agg.macro_key_to_regions)  # ty: ignore[no-matching-overload]
+                    ub.udict(_agg.macro_key_to_regions)
                     & justone['region_id'].values
                 )
 
@@ -1215,8 +1213,8 @@ class AggregatorAnalysisMixin:
                             f' wrt to reference region {reference_region}'
                         )
 
-                    if region_id in _agg.macro_key_to_regions:  # ty: ignore[unsupported-operator]
-                        macro_regions = _agg.macro_key_to_regions[region_id]  # ty: ignore[not-subscriptable]
+                    if region_id in _agg.macro_key_to_regions:
+                        macro_regions = _agg.macro_key_to_regions[region_id]
                         rich.print(
                             f'Top {len(summary_table)} / {ntotal} for {agg.node_type}, {region_id} = {macro_regions}{ref_text}'
                         )
@@ -1759,6 +1757,21 @@ class _AggregatorDeprecatedMixin:
 class Aggregator(
     ub.NiceRepr, AggregatorAnalysisMixin, _AggregatorDeprecatedMixin
 ):
+    output_dpath: Any = None
+    table: Any
+    node_type: str | None = None
+    dag: Any = None
+    subtables: Any = None
+    config: dict[str, Any]
+    model_cols: Any = None
+    test_dset_cols: Any = None
+    hashid_to_effective_params: Any = None
+    mappings: Any = None
+    effective_params: Any = None
+    macro_key_to_regions: Any = None
+    region_to_tables: Any = None
+    macro_compatible: Any = None
+
     """
     Stores multiple data frames that separate metrics, parameters, and other
     information using consistent pandas indexing. Can be filtered to a
