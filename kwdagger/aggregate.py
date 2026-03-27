@@ -68,7 +68,7 @@ TODO:
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, cast
+from typing import Any, Mapping, Sequence, cast
 
 import ubelt as ub
 from scriptconfig import DataConfig, Value
@@ -152,9 +152,9 @@ class AggregateLoader(DataConfig):
 
             resolved = []
 
-            def resolve_item(item):
+            def resolve_item(item: Any):
                 try:
-                    loaded = Yaml.loads(cast(Any, item))
+                    loaded = Yaml.loads(item)
                 except (ComposerError, TypeError):
                     loaded = item
                 if isinstance(loaded, (list, tuple)):
@@ -361,7 +361,7 @@ class AggregateEvluationConfig(AggregateLoader):
             Any, Yaml.coerce(cast(Any, self.stdout_report))
         )
 
-    def coerce_aggregators(config):
+    def coerce_aggregators(config) -> dict[str, 'Aggregator']:
         eval_type_to_aggregator = super().coerce_aggregators()
         output_dpath = ub.Path(config['output_dpath'])
         for agg in eval_type_to_aggregator.values():
@@ -369,7 +369,7 @@ class AggregateEvluationConfig(AggregateLoader):
         return eval_type_to_aggregator
 
     @classmethod
-    def main(cls, argv: bool | list[str] = True, **kwargs: Any):
+    def main(cls, argv: bool | list[str] = True, **kwargs: Any) -> None:
         """
         Aggregate entry point.
 
@@ -420,7 +420,7 @@ class AggregateEvluationConfig(AggregateLoader):
         run_aggregate(config)
 
 
-def run_aggregate(config) -> dict[str, Aggregator]:
+def run_aggregate(config: Any) -> dict[str, 'Aggregator']:
     import rich
     from kwutil.util_yaml import Yaml
 
@@ -429,7 +429,7 @@ def run_aggregate(config) -> dict[str, Aggregator]:
 
     if config.eval_nodes is not None:
         eval_type_to_aggregator = (
-            ub.udict(eval_type_to_aggregator) & config.eval_nodes
+            ub.udict(eval_type_to_aggregator) & cast(Any, config.eval_nodes)
         )
 
     output_dpath = ub.Path(config['output_dpath'])
@@ -443,7 +443,7 @@ def run_aggregate(config) -> dict[str, Aggregator]:
         print('Running query')
         from kwdagger.query_plan import QueryPlan
 
-        query_plan = QueryPlan.parse(config.query, strict=True)
+        query_plan = QueryPlan.parse(cast(str, config.query), strict=True)
         if 0:
             print(query_plan.describe())
         new_eval_type_to_aggregator = {}
@@ -463,7 +463,7 @@ def run_aggregate(config) -> dict[str, Aggregator]:
 
     if config.custom_query:
         vars_ = dict(globals()) | dict(locals())
-        code = ub.codeblock(config.custom_query)
+        code = ub.codeblock(cast(str, config.custom_query))
         print('Executing custom query')
         print(ub.highlight_code(code, backend='rich'))
         res = exec(code, vars_)
@@ -526,7 +526,7 @@ def run_aggregate(config) -> dict[str, Aggregator]:
 
     if config.stdout_report:
         if config.stdout_report is not True:
-            report_config = Yaml.coerce(config.stdout_report)
+            report_config = Yaml.coerce(cast(Any, config.stdout_report))
         else:
             report_config = {}
         print(f'report_config = {ub.urepr(report_config, nl=1)}')
@@ -586,7 +586,11 @@ class TopResultsReport:
     Object to hold the result of :func:`Aggregator.report_best`.
     """
 
-    def __init__(self, region_id_to_summary, top_param_lut):
+    def __init__(
+        self,
+        region_id_to_summary: Mapping[str, Any],
+        top_param_lut: Mapping[str, Any],
+    ) -> None:
         self.top_param_lut = top_param_lut
         self.region_id_to_summary = region_id_to_summary
 
@@ -596,7 +600,7 @@ class AggregatorAnalysisMixin:
     Analysis methods for :class:`Aggregator`.
     """
 
-    def macro_analysis(agg: Aggregator):
+    def macro_analysis(agg: 'Aggregator') -> tuple[Any, Any]:
         import pandas as pd
 
         from kwdagger.utils import result_analysis, util_pandas
@@ -645,8 +649,8 @@ class AggregatorAnalysisMixin:
         return analysis, table
 
     def varied_param_counts(
-        agg: Aggregator, min_variations: int = 2, dropna: bool = False
-    ):
+        agg: 'Aggregator', min_variations: int = 2, dropna: bool = False
+    ) -> Any:
         from kwdagger.utils import util_pandas
 
         params = util_pandas.DataFrame(agg.resolved_params)
@@ -659,7 +663,7 @@ class AggregatorAnalysisMixin:
         varied_counts = ub.udict(varied_counts).sorted_values(key=len)
         return varied_counts
 
-    def dump_varied_parameter_report(agg: Aggregator):
+    def dump_varied_parameter_report(agg: 'Aggregator') -> None:
         """
         Write the varied parameter report to disk
         """
@@ -678,14 +682,16 @@ class AggregatorAnalysisMixin:
             # not sure why ruamel.yaml will cause an error here
             yaml_text = kwutil.Yaml.dumps(fixed_report, backend='pyyaml')
 
-        agg.output_dpath.ensuredir()  # ty: ignore[unresolved-attribute]
-        report_fpath = agg.output_dpath / 'varied_param_report.yaml'  # ty: ignore[unsupported-operator]
+        agg.output_dpath.ensuredir()
+        report_fpath = agg.output_dpath / 'varied_param_report.yaml'
         rich.print(f'Write varied parameter report to: {report_fpath}')
         report_fpath.write_text(yaml_text)
 
     def varied_parameter_report(
-        agg: Aggregator, concise: bool = True, concise_value_char_threshold: int = 80
-    ):
+        agg: 'Aggregator',
+        concise: bool = True,
+        concise_value_char_threshold: int = 80,
+    ) -> dict[str, Any]:
         """
         Dump a machine and human readable varied parameter report.
 
@@ -756,7 +762,10 @@ class AggregatorAnalysisMixin:
         report['column_summary'] = column_summary
         return report
 
-    def analyze(agg: Aggregator, metrics_of_interest=None):
+    def analyze(
+        agg: 'Aggregator',
+        metrics_of_interest: Sequence[str] | None = None,
+    ) -> Any:
         """
         Does a stats analysis on each varied parameter. Note this makes
         independence assumptions that may not hold in general.
@@ -793,7 +802,7 @@ class AggregatorAnalysisMixin:
         analysis.analysis()
 
     def report_best(
-        agg: Aggregator,
+        agg: 'Aggregator',
         top_k: int = 100,
         shorten: bool = True,
         per_group=None,
@@ -955,7 +964,8 @@ class AggregatorAnalysisMixin:
                 # Print out information on how much was filtered per region
                 for region_id in agg.region_to_tables.keys():  # ty: ignore[unresolved-attribute]
                     old_table = agg.region_to_tables[region_id]  # ty: ignore[not-subscriptable]
-                    new_table = _agg.region_to_tables[region_id]
+                    new_region_tables = cast(dict[Any, Any], _agg.region_to_tables)
+                    new_table = new_region_tables[region_id]
                     print(
                         f'Filter reduces {region_id} to {len(new_table)} / {len(old_table)}'
                     )
@@ -1369,7 +1379,7 @@ class AggregatorAnalysisMixin:
         report = TopResultsReport(region_id_to_summary, top_param_lut)
         return report
 
-    def resource_summary_table(agg: Aggregator):
+    def resource_summary_table(agg: 'Aggregator') -> Any:
         """
         Sumarize resource usage of the pipeline
         """
@@ -1451,7 +1461,7 @@ class AggregatorAnalysisMixin:
         resource_summary_df = pd.DataFrame(resource_summary)
         return resource_summary_df
 
-    def resource_summary_table_friendly(agg: Aggregator):
+    def resource_summary_table_friendly(agg: 'Aggregator') -> Any:
         resource_summary_df = agg.resource_summary_table()
         # TODO: nicer report
         import kwutil
@@ -1507,7 +1517,7 @@ class AggregatorAnalysisMixin:
         )
         return friendly
 
-    def report_resources(agg: Aggregator):
+    def report_resources(agg: 'Aggregator') -> None:
         import rich
 
         resource_summary_df = agg.resource_summary_table()
@@ -1520,7 +1530,7 @@ class AggregatorAnalysisMixin:
 
         rich.print(resource_summary_df.to_string())
 
-    def make_summary_analysis(subagg: Aggregator, config):
+    def make_summary_analysis(subagg: 'Aggregator', config: Any) -> Any:
         output_dpath = ub.Path(config['output_dpath']) / 'aggregate'
         agg_group_dpath = output_dpath / ('agg_summary_params2_v3')
         agg_group_dpath = agg_group_dpath.ensuredir()
@@ -1544,7 +1554,7 @@ class AggregatorAnalysisMixin:
             f'agg_group_dpath: [link={agg_group_dpath}]{agg_group_dpath}[/link]'
         )
 
-    def make_result_node_symlinks(agg: Aggregator):
+    def make_result_node_symlinks(agg: 'Aggregator') -> None:
         """
         Builds symlinks to results node paths based on region and param
         hashids.
@@ -1592,7 +1602,9 @@ class AggregatorAnalysisMixin:
 
         rich.print(f'Made Param Links: [link={base_dpath}]{base_dpath}[/link]')
 
-    def build_plotter(agg: Aggregator, rois=None, plot_config=None):
+    def build_plotter(
+        agg: 'Aggregator', rois: Any = None, plot_config: Any = None
+    ) -> Any:
         if rois is None:
             ...
         if plot_config is None:
@@ -1606,11 +1618,13 @@ class AggregatorAnalysisMixin:
         plotter = aggregate_plots.build_plotter(agg, rois, plot_config)
         return plotter
 
-    def plot_all(agg: Aggregator, rois=None, plot_config=None):
+    def plot_all(
+        agg: 'Aggregator', rois: Any = None, plot_config: Any = None
+    ) -> None:
         plotter = agg.build_plotter(rois, plot_config)
         plotter.plot_requested()
 
-    def _wip_build_per_region_variance_tables(agg: Aggregator):
+    def _wip_build_per_region_variance_tables(agg: 'Aggregator') -> Any:
         from kwdagger.utils import util_pandas
 
         table = util_pandas.DataFrame(agg.table)
@@ -1773,13 +1787,13 @@ class Aggregator(
 
     def __init__(
         agg,
-        table,
-        output_dpath=None,
-        node_type=None,
-        primary_metric_cols='auto',
-        display_metric_cols='auto',
-        dag=None,
-    ):
+        table: Any,
+        output_dpath: Any = None,
+        node_type: str | None = None,
+        primary_metric_cols: Any = 'auto',
+        display_metric_cols: Any = 'auto',
+        dag: Any = None,
+    ) -> None:
         """
         Args:
             table (pandas.DataFrame):
@@ -1839,7 +1853,9 @@ class Aggregator(
         agg.macro_compatible = None
 
     @classmethod
-    def demo(cls, num=10, rng=None, include_unhashable=False):
+    def demo(
+        cls, num: int = 10, rng: Any = None, include_unhashable: bool = False
+    ) -> 'Aggregator':
         """
         Construct a demo aggregator for testing.
 
@@ -1996,7 +2012,7 @@ class Aggregator(
         )
         return agg
 
-    def build(agg):
+    def build(agg) -> 'Aggregator | None':
         """
         Inspect the aggregator's table and build supporting information
 
@@ -2086,7 +2102,7 @@ class Aggregator(
         agg.macro_compatible = agg.find_macro_comparable()
         return agg
 
-    def _build_metrics_column_preferences(agg: Any):
+    def _build_metrics_column_preferences(agg: Any) -> None:
         """
         Builds a table indexed by column name for the metrics columns.
 
@@ -2154,10 +2170,10 @@ class Aggregator(
 
         # print(f'agg._metric_info = {ub.urepr(agg._metric_info, nl=2)}')
 
-    def __nice__(self):
+    def __nice__(self) -> str:
         return f'{cast(Any, self).node_type}, n={len(self)}'
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.table)
 
     @property
@@ -2172,8 +2188,12 @@ class Aggregator(
         return key
 
     def filterto(
-        agg: Any, index=None, models=None, param_hashids=None, query=None
-    ):
+        agg: Any,
+        index: Any = None,
+        models: Any = None,
+        param_hashids: Any = None,
+        query: str | None = None,
+    ) -> 'Aggregator':
         """
         Build a new aggregator with a subset of rows from this one.
 
@@ -2273,7 +2293,7 @@ class Aggregator(
 
         return new_agg
 
-    def compress(agg: Any, flags):
+    def compress(agg: Any, flags: Any) -> 'Aggregator':
         new_table = agg.table[flags].copy()
         new_agg = Aggregator(
             new_table,
@@ -2286,37 +2306,37 @@ class Aggregator(
         return new_agg
 
     @property
-    def metrics(self):
+    def metrics(self) -> Any:
         subtables = cast(dict[str, Any], cast(Any, self).subtables)
         return subtables['metrics']
 
     @property
-    def resources(self):
+    def resources(self) -> Any:
         subtables = cast(dict[str, Any], cast(Any, self).subtables)
         return subtables['resources']
 
     @property
-    def index(self):
+    def index(self) -> Any:
         subtables = cast(dict[str, Any], cast(Any, self).subtables)
         return subtables['index']
 
     @property
-    def requested_params(self):
+    def requested_params(self) -> Any:
         subtables = cast(dict[str, Any], cast(Any, self).subtables)
         return subtables['params']
 
     @property
-    def specified_params(self):
+    def specified_params(self) -> Any:
         subtables = cast(dict[str, Any], cast(Any, self).subtables)
         return subtables['specified']
 
     @property
-    def resolved_params(self):
+    def resolved_params(self) -> Any:
         subtables = cast(dict[str, Any], cast(Any, self).subtables)
         return subtables['resolved_params']
 
     @property
-    def default_vantage_points(self):
+    def default_vantage_points(self) -> Any:
         try:
             assert self.node_type is not None
             if self.dag is not None:
@@ -2326,7 +2346,7 @@ class Aggregator(
             vantage_points = []
         return vantage_points
 
-    def build_effective_params(self):
+    def build_effective_params(self) -> None:
         """
         Consolodate / cleanup / expand information
 
@@ -2358,7 +2378,7 @@ class Aggregator(
         model_cols = cast(list[Any], self.model_cols or [])
         test_dset_cols = cast(list[Any], self.test_dset_cols or [])
 
-        mappings: Dict[str, Dict[Any, str]] = {}
+        mappings: dict[str, dict[Any, str]] = {}
         path_colnames = model_cols + test_dset_cols
         existing_path_colnames = requested_params.columns.intersection(
             path_colnames
@@ -2492,7 +2512,7 @@ class Aggregator(
         self.mappings = mappings
         self.effective_params = effective_params
 
-    def find_macro_comparable(agg: Any, verbose=0):
+    def find_macro_comparable(agg: Any, verbose: int = 0) -> Any:
         """
         Search for groups that have the same parameters over multiple regions.
 
@@ -2554,7 +2574,9 @@ class Aggregator(
             )
         return macro_compatible
 
-    def gather_macro_compatable_groups(agg: Any, regions_of_interest):
+    def gather_macro_compatable_groups(
+        agg: Any, regions_of_interest: Any
+    ) -> list[Any]:
         """
         Given a set of ROIs, find groups in the comparable regions that contain
         all of the requested ROIs.
@@ -2573,7 +2595,7 @@ class Aggregator(
                     comparable_groups.append(group[flags])
         return comparable_groups
 
-    def _coerce_rois(agg, rois=None):
+    def _coerce_rois(agg, rois: Any = None) -> Any:
         if rois is None:
             rois = 'max'
         if isinstance(rois, str):
@@ -2589,7 +2611,7 @@ class Aggregator(
             regions_of_interest = rois
         return regions_of_interest
 
-    def build_macro_tables(agg: Any, rois=None, **kwargs):
+    def build_macro_tables(agg: Any, rois: Any = None, **kwargs: Any) -> Any:
         """
         Builds one or more macro tables
         """
@@ -2606,7 +2628,9 @@ class Aggregator(
             print(f'Building a single macro table: rois={rois!r}')
             agg.build_single_macro_table(rois, **kwargs)
 
-    def build_single_macro_table(agg, rois, average='mean'):
+    def build_single_macro_table(
+        agg, rois: Any, average: str = 'mean'
+    ) -> Any:
         """
         Builds a single macro table for a choice of regions.
 
@@ -2762,7 +2786,9 @@ class Aggregator(
             return macro_table
 
 
-def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
+def inspect_node(
+    subagg: Any, id: Any, row: Any, group_agg: Any, agg_group_dpath: Any
+):
     # FIXME: SMART specific
     # eval_fpath = group_agg.fpaths[id]
     eval_fpath = ub.Path(group_agg.table['fpath'].loc[id])
@@ -2776,8 +2802,11 @@ def inspect_node(subagg, id, row, group_agg, agg_group_dpath):
 
 
 def aggregate_param_cols(
-    df, aggregator=None, hash_cols=None, allow_nonuniform=False
-):
+    df: Any,
+    aggregator: Mapping[str, Any] | None = None,
+    hash_cols: Sequence[str] | None = None,
+    allow_nonuniform: bool = False,
+) -> dict[str, Any]:
     """
     Aggregates parameter columns. Specified hash_cols should be
     dataset-specific columns to be hashed. All other columns should
@@ -2890,7 +2919,7 @@ def aggregate_param_cols(
     return agg_row
 
 
-def find_uniform_columns(df_comparable):
+def find_uniform_columns(df_comparable: Any) -> Any:
     """
     Return a boolean Series indicating which columns are uniform, treating NaN==NaN.
     Works fast for numeric, and falls back for non-numeric safely.
@@ -3167,7 +3196,7 @@ def macro_aggregate(agg, group, aggregator, average='mean'):
     return macro_row
 
 
-def hash_param(row, version=1):
+def hash_param(row: Any, version: int = 1) -> str:
     """
     Rule of thumb for probability of a collision:
 
@@ -3191,7 +3220,7 @@ def hash_param(row, version=1):
     return param_hashid
 
 
-def hash_regions(rois):
+def hash_regions(rois: Any) -> str:
     try:
         suffix = ub.hash_data(sorted(rois), base=cast(Any, 36))[0:6]
     except Exception:
@@ -3203,7 +3232,7 @@ def hash_regions(rois):
     return macro_key
 
 
-def nan_eq(a, b):
+def nan_eq(a: Any, b: Any) -> bool:
     if (
         isinstance(a, float)
         and isinstance(b, float)
@@ -3215,7 +3244,10 @@ def nan_eq(a, b):
         return a == b
 
 
-def _coerce_grouptop(grouptop, aliases=None):
+def _coerce_grouptop(
+    grouptop: Any,
+    aliases: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Given a user input for "grouptop", coerce it into dictionary form. This is
     a helper for :func:`Aggregator.report_best`
@@ -3293,7 +3325,7 @@ def _coerce_grouptop(grouptop, aliases=None):
     return new_grouptop
 
 
-def _build_metrics_info_table(agg, node):
+def _build_metrics_info_table(agg: Any, node: Any) -> None:
     """
     Still need to simplify this function
     """
@@ -3395,7 +3427,7 @@ def _build_metrics_info_table(agg, node):
                 agg.display_metric_cols = _display_metrics
 
 
-def pandas_condense_paths(colvals):
+def pandas_condense_paths(colvals: Any) -> tuple[Any, dict[Any, Any]]:
     """
     Condense a column of paths to keep only the shortest distinguishing
     suffixes
