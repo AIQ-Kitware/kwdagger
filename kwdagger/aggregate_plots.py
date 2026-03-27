@@ -12,7 +12,7 @@ from typing import Any, cast
 import ubelt as ub
 
 
-def build_plotter(agg, rois, plot_config):
+def build_plotter(agg: Any, rois: Any, plot_config: Any) -> Any:
     """
     Used by :class:`Aggregator`, which will generally immediately call
     :func:`ParamPlotter.plot_requested`.
@@ -31,7 +31,7 @@ def build_plotter(agg, rois, plot_config):
 
     modifier = util_kwplot.LabelModifier()
 
-    def _humanize_label(text):
+    def _humanize_label(text: Any) -> Any:
         text = text.replace('params.', '')
         text = text.replace('metrics.', '')
         text = text.replace('fit.', 'fit.')
@@ -42,15 +42,13 @@ def build_plotter(agg, rois, plot_config):
     config_label_mappings = plot_config.get('label_mappings', {})
     modifier.update(config_label_mappings)
 
+    param_to_palette: dict[str, Any] = {}
     if rois is not None:
         agg.build_macro_tables(rois)
         macro_table = agg.region_to_tables[agg.primary_macro_region].copy()
         macro_table = preprocess_table_for_seaborn(agg, macro_table)
-
-        param_to_palette = {}
     else:
         macro_table = None
-        param_to_palette = {}
 
     plot_dpath = plot_config.get('plot_dpath', None)
     if plot_dpath is None:
@@ -97,8 +95,8 @@ def build_plotter(agg, rois, plot_config):
     )
 
     # The modifier is for remapping parameter names
-    plotter.modifier = modifier
-    plotter.label_modifier = modifier
+    plotter.modifier = cast(Any, modifier)
+    plotter.label_modifier = cast(Any, modifier)
 
     # The main data
     plotter.macro_table = macro_table
@@ -110,7 +108,7 @@ def build_plotter(agg, rois, plot_config):
     return plotter
 
 
-def build_all_param_plots(agg, rois, plot_config) -> None:
+def build_all_param_plots(agg: Any, rois: Any, plot_config: Any) -> None:
     """
     Main entry point for plotting results from an :class:`Aggregator`.
     """
@@ -118,7 +116,7 @@ def build_all_param_plots(agg, rois, plot_config) -> None:
     plotter.plot_requested()
 
 
-def build_special_columns(agg) -> None:
+def build_special_columns(agg: Any) -> None:
     from kwdagger.utils import util_pandas
 
     resolved_params = util_pandas.DotDictDataFrame(agg.resolved_params)
@@ -156,7 +154,7 @@ def build_special_columns(agg) -> None:
     # agg.table['normalized_params.bas_pxl_fit.initializer.init']
 
 
-def preprocess_table_for_seaborn(agg, table):
+def preprocess_table_for_seaborn(agg: Any, table: Any) -> Any:
     fillna_cols = table.columns.intersection(
         agg.resolved_params.columns.union(agg.resolved_params.columns)
     )
@@ -195,18 +193,18 @@ class ParamPlotter:
     Working on cleaning this up
     """
 
-    def __init__(plotter, agg, vantage_points=None):
+    def __init__(plotter: Any, agg: Any, vantage_points: Any = None) -> None:
         plotter.agg = agg
         plotter.plot_dpath = None
         plotter.macro_plot_dpath = None
-        plotter.param_to_palette = {}
-        plotter.param_to_valmap = {}
-        plotter.modifier = None
-        plotter.label_modifier = None
+        plotter.param_to_palette = cast(dict[str, Any], {})
+        plotter.param_to_valmap = cast(dict[str, Any], {})
+        plotter.modifier = cast(Any, None)
+        plotter.label_modifier = cast(Any, None)
         plotter.macro_table = None
         plotter.single_table = None
         plotter.rois = None
-        plotter.plot_config = {}
+        plotter.plot_config = cast(dict[str, Any], {})
         plotter.roi_attr = 'region_id'
 
         # We will conduct analysis under serveral different vantage points
@@ -329,7 +327,7 @@ class ParamPlotter:
             f'Dpath: [link={plotter.macro_plot_dpath}]{plotter.macro_plot_dpath}[/link]'
         )
 
-    def plot_vantage_per_region_overview(plotter: Any, vantage):
+    def plot_vantage_per_region_overview(plotter: Any, vantage: Any) -> None:
         """
         Draw scatter plots and box plots that that distinguish each region with
         respect to a vantage point.
@@ -375,7 +373,7 @@ class ParamPlotter:
         )
         fig = kwplot.figure(fnum=2, doclf=True)
 
-        snskw = {}
+        snskw: dict[str, Any] = {}
         if roi_attr in plotter.param_to_palette:
             roi_to_color = util_kwplot.Palette.coerce(
                 plotter.param_to_palette[roi_attr]
@@ -398,7 +396,7 @@ class ParamPlotter:
             if 'sv_poly_eval' in x.split('.'):
                 plotter._add_sv_hack_lines(ax, single_table, x, y)
         if 'delivered_params' in single_table:
-            val_to_color = {}
+            val_to_color: dict[Any, Any] = {}
             if 0:
                 kwplot.imshow(
                     kwplot.make_legend_img(val_to_color, mode='star', dpi=300)
@@ -463,7 +461,7 @@ class ParamPlotter:
         kwimage.imwrite(roi_legend_fpath, roi_legend)
         rich.print('[green] made roi_legend.png')
 
-    def plot_vantage_macro_overview(plotter: Any, vantage):
+    def plot_vantage_macro_overview(plotter: Any, vantage: Any) -> None:
         """
         Draw a scatter plot that gives an overview of the requested macro table
         wrt to a metric vantage point.
@@ -513,7 +511,7 @@ class ParamPlotter:
         palette = {macro_region_id: kwimage.Color('kitware_darkgray').as01()}
 
         s = plotter.plot_config.get('scatter.markersize', None)
-        snskw = {}
+        snskw: dict[str, Any] = {}
         scatterkw = snskw.copy()
         if s is not None:
             scatterkw['s'] = s
@@ -537,7 +535,7 @@ class ParamPlotter:
         if 'delivered_params' in macro_table:
             import kwimage
 
-            val_to_color = {}
+            val_to_color: dict[Any, Any] = {}
             if 0:
                 kwplot.imshow(
                     kwplot.make_legend_img(val_to_color, mode='star', dpi=300)
@@ -571,8 +569,8 @@ class ParamPlotter:
         rich.print('[green] made overview-macro_results-{name}.png')
 
     def plot_vantage_params(
-        plotter: Any, vantage, pman=None, params_of_interest=None
-    ):
+        plotter: Any, vantage: Any, pman: Any = None, params_of_interest: Any = None
+    ) -> list[Any]:
         """
         The main parameter inspection plots.
 
@@ -621,7 +619,7 @@ class ParamPlotter:
         main_objective = vantage['objective1']
         metric_objectives = {main_metric: main_objective}
 
-        blocklist = {}
+        blocklist: set[str] = set()
 
         resolved_params = util_pandas.DotDictDataFrame(
             macro_table
@@ -708,7 +706,7 @@ class ParamPlotter:
 
         owns_pman = 0
 
-        results = []
+        drawn_results: list[Any] = []
         if pman is None:
             pman = ProgressManager()
             pman.__enter__()
@@ -730,7 +728,7 @@ class ParamPlotter:
                         params_of_interest,
                         param_name_to_stats,
                     )
-                    results.append(drawn_rows)
+                    drawn_results.append(drawn_rows)
                 except SkipPlot:
                     continue
 
@@ -741,17 +739,17 @@ class ParamPlotter:
         finally:
             if owns_pman:
                 pman.__exit__()
-        return results
+        return drawn_results
 
     def _plot_single_vantage_param(
         plotter: Any,
-        rank,
-        macro_table,
-        param_name,
-        vantage,
-        params_of_interest,
-        param_name_to_stats,
-    ):
+        rank: Any,
+        macro_table: Any,
+        param_name: Any,
+        vantage: Any,
+        params_of_interest: Any,
+        param_name_to_stats: Any,
+    ) -> list[Any]:
         """
         Inner loop for :func:`ParamPlotter.plot_vantage_params`,
         todo: reduce arguments
@@ -888,7 +886,7 @@ class ParamPlotter:
                     macro_table[param_name].unique()
                 )
 
-        snskw = {}
+        snskw: dict[str, Any] = {}
         if param_name in param_to_palette:
             snskw['palette'] = param_to_palette[param_name]
 
@@ -1171,16 +1169,18 @@ class ParamPlotter:
         # ub.symlink(real_path=param_fpath, link_path=vantage_fpath, overwrite=True)
         return drawn_rows
 
-    def _add_sv_hack_lines(plotter, ax, table, x, y):
+    def _add_sv_hack_lines(
+        plotter: Any, ax: Any, table: Any, x: Any, y: Any
+    ) -> None:
         import matplotlib as mpl
 
         def add_arrows_to_lines(
-            line_collection,
-            position=None,
-            direction='right',
-            size=15,
-            color=None,
-        ):
+            line_collection: Any,
+            position: Any = None,
+            direction: str = 'right',
+            size: int = 15,
+            color: Any = None,
+        ) -> None:
             """
             add an arrow to a line.
 
@@ -1205,8 +1205,7 @@ class ParamPlotter:
                 # find closest index
                 import numpy as np
 
-                start_ind = np.argmin(np.absolute(xdata - position))
-                start_ind = 0
+                start_ind: int = 0
                 if direction == 'right':
                     end_ind = start_ind + 1
                 else:
@@ -1260,7 +1259,7 @@ class ParamPlotter:
             # ax.plot(*zip(*pts2), 'bo', label='after SV')
 
 
-def edit_distance(string1, string2):
+def edit_distance(string1: Any, string2: Any) -> Any:
     """
     Edit distance algorithm. String1 and string2 can be either
     strings or lists of strings
@@ -1306,7 +1305,7 @@ def edit_distance(string1, string2):
     return distmat
 
 
-def suggest_did_you_mean(invalid_options, valid_choices):
+def suggest_did_you_mean(invalid_options: Any, valid_choices: Any) -> None:
     """
     Args:
         missing (List[str]): the invalid options the user chose
@@ -1332,7 +1331,9 @@ def suggest_did_you_mean(invalid_options, valid_choices):
         rich.print('[yellow] Warning: unable to suggest existing alternatives')
 
 
-def shrink_param_names(param_name, param_values, text_len_thresh=20):
+def shrink_param_names(
+    param_name: Any, param_values: Any, text_len_thresh: int = 20
+) -> tuple[dict[str, str], bool]:
     param_labels = [str(p) for p in param_values]
     text_label_size = len(''.join(param_labels))
     if text_label_size > text_len_thresh:
@@ -1361,23 +1362,23 @@ class Vantage2(dict):
     """
 
     @property
-    def name(self):
+    def name(self) -> Any:
         return self['name']
 
     @property
-    def metric1(self):
+    def metric1(self) -> Any:
         return self['metric1']
 
     @property
-    def metric2(self):
+    def metric2(self) -> Any:
         return self['metric2']
 
     @property
-    def scale1(self):
+    def scale1(self) -> Any:
         return self.get('scale1', 'linear')
 
     @property
-    def scale2(self):
+    def scale2(self) -> Any:
         return self.get('scale2', 'linear')
 
 
@@ -1404,8 +1405,8 @@ class Vantage:
     objective2: str = 'maximize'
     name: str | None = None
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Any:
         return getattr(self, key)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: Any, value: Any) -> None:
         return setattr(self, key, value)

@@ -132,7 +132,7 @@ class ReverseHashTable:
 
 
 def condense_config(
-    params, type: str, human_opts=None, register: bool = True
+    params: Any, type: str, human_opts: Any = None, register: bool = True
 ) -> str:
     """
     Given a dictionary of parameters and a type, makes a hash of the params

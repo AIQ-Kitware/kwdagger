@@ -42,34 +42,34 @@ class TitleBuilder:
         Part 3
     """
 
-    def __init__(self):
-        self._row = []
-        self.title_rows = [self._row]
+    def __init__(self) -> None:
+        self._row: list[str] = []
+        self.title_rows: list[list[str]] = [self._row]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.finalize()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return repr(self.title_rows)
 
-    def add_part(self, part: str):
+    def add_part(self, part: str) -> None:
         self._row.append(part)
 
-    def newline(self):
+    def newline(self) -> None:
         self._row = []
         self.title_rows.append(self._row)
 
-    def ensure_newline(self):
+    def ensure_newline(self) -> None:
         if len(self._row):
             self.newline()
 
-    def finalize(self):
+    def finalize(self) -> str:
         lines = [', '.join(r) for r in self.title_rows]
         text = '\n'.join(lines)
         return text
 
 
-def cropwhite_ondisk(fpath) -> None:
+def cropwhite_ondisk(fpath: Any) -> None:
     import kwimage
     from kwplot.mpl_make import crop_border_by_color
 
@@ -79,13 +79,13 @@ def cropwhite_ondisk(fpath) -> None:
 
 
 def dataframe_table(
-    table,
-    fpath,
-    title=None,
+    table: Any,
+    fpath: Any,
+    title: Any = None,
     fontsize: int = 12,
     table_conversion: str = 'auto',
-    dpi=None,
-    fnum=None,
+    dpi: Any = None,
+    fnum: Any = None,
     show: bool | str = False,
 ) -> None:
     """
@@ -153,7 +153,11 @@ def dataframe_table(
 
 
 def humanize_dataframe(
-    df, col_formats=None, human_labels=None, index_format=None, title=None
+    df: Any,
+    col_formats: Any = None,
+    human_labels: Any = None,
+    index_format: Any = None,
+    title: Any = None,
 ) -> Any:
     import humanize
 
@@ -195,7 +199,7 @@ def humanize_dataframe(
 
     if index_format == 'capcase':
 
-        def capcase(x):
+        def capcase(x: Any) -> Any:
             if '_' in x or x.islower():
                 return ' '.join([w.capitalize() for w in x.split('_')])
             return x
@@ -213,16 +217,16 @@ def humanize_dataframe(
 
 
 def scatterplot_highlight(
-    data,
-    x,
-    y,
-    highlight,
+    data: Any,
+    x: Any,
+    y: Any,
+    highlight: Any,
     size: int = 10,
     color: str = 'orange',
     marker: str = '*',
-    val_to_color=None,
-    ax=None,
-    linewidths=None,
+    val_to_color: Any = None,
+    ax: Any = None,
+    linewidths: Any = None,
 ) -> None:
     if ax is None:
         import kwplot
@@ -262,10 +266,10 @@ def scatterplot_highlight(
             )
 
 
-def humanize_labels(): ...
+def humanize_labels() -> None: ...
 
 
-def relabel_xticks(mapping, ax=None) -> None:
+def relabel_xticks(mapping: Any, ax: Any = None) -> None:
     """
     Change the tick labels on the x-axis.
 
@@ -331,19 +335,19 @@ class LabelModifier:
         >>> fig.canvas.draw()
     """
 
-    def __init__(self, mapping=None):
-        self._dict_mapper = {}
-        self._func_mappers = []
+    def __init__(self, mapping: Any = None) -> None:
+        self._dict_mapper: dict[Any, Any] = {}
+        self._func_mappers: list[Any] = []
         self.add_mapping(mapping)
 
-    def copy(self):
+    def copy(self) -> Any:
         new = self.__class__()
         new.add_mapping(self._dict_mapper.copy())
         for m in self._func_mappers:
             new.add_mapping(m)
         return new
 
-    def add_mapping(self, mapping):
+    def add_mapping(self, mapping: Any) -> Any:
         if mapping is not None:
             if callable(mapping):
                 self._func_mappers.append(mapping)
@@ -352,12 +356,12 @@ class LabelModifier:
                 self._dict_mapper.update(ub.udict(mapping).map_keys(str))
         return self
 
-    def update(self, dict_mapping):  # type: ignore
+    def update(self, dict_mapping: Any) -> Any:  # type: ignore
         self._dict_mapper.update(dict_mapping)
         self._dict_mapper.update(ub.udict(dict_mapping).map_keys(str))
         return self
 
-    def _modify_text(self, text: str):
+    def _modify_text(self, text: str) -> Any:
         # Handles strings, which we call text by convention, but that is
         # confusing here.
         new_text = text
@@ -368,14 +372,14 @@ class LabelModifier:
             new_text = mapper(new_text)
         return new_text
 
-    def _modify_labels(self, label: mpl.text.Text):
+    def _modify_labels(self, label: mpl.text.Text) -> mpl.text.Text:
         # Handles labels, which are mpl Text objects
         text = label.get_text()
         new_text = self._modify_text(text)
         label.set_text(new_text)
         return label
 
-    def _modify_legend(self, legend):
+    def _modify_legend(self, legend: Any) -> None:
         leg_title = legend.get_title()
         if isinstance(leg_title, str):
             new_leg_title = self._modify_text(leg_title)
@@ -385,7 +389,7 @@ class LabelModifier:
         for label in legend.texts:
             self._modify_labels(label)
 
-    def relabel_yticks(self, ax: Any = None):
+    def relabel_yticks(self, ax: Any = None) -> None:
         old_ytick_labels = ax.get_yticklabels()
         new_yticklabels = [
             self._modify_labels(label) for label in old_ytick_labels
@@ -393,7 +397,7 @@ class LabelModifier:
         ax.set_yticks(ax.get_yticks())
         ax.set_yticklabels(new_yticklabels)
 
-    def relabel_xticks(self, ax: Any = None):
+    def relabel_xticks(self, ax: Any = None) -> None:
         # Set xticks and yticks first before setting tick labels
         # https://stackoverflow.com/questions/63723514/userwarning-fixedformatter-should-only-be-used-together-with-fixedlocator
         # print(f'new_xlabel={new_xlabel}')
@@ -412,7 +416,7 @@ class LabelModifier:
         ax.set_xticks(ax.get_xticks())
         ax.set_xticklabels(new_xticklabels)
 
-    def relabel_axes_labels(self, ax: Any = None):
+    def relabel_axes_labels(self, ax: Any = None) -> None:
         old_xlabel = ax.get_xlabel()
         old_ylabel = ax.get_ylabel()
         old_title = ax.get_title()
@@ -425,7 +429,7 @@ class LabelModifier:
         ax.set_ylabel(new_ylabel)
         ax.set_title(new_title)
 
-    def relabel_legend(self, ax: Any = None):
+    def relabel_legend(self, ax: Any = None) -> None:
         if ax.legend_ is not None:
             self._modify_legend(ax.legend_)
 
@@ -435,7 +439,7 @@ class LabelModifier:
         ticks: bool = True,
         axes_labels: bool = True,
         legend: bool = True,
-    ):
+    ) -> None:
         if axes_labels:
             self.relabel_axes_labels(ax)
         if ticks:
@@ -444,7 +448,7 @@ class LabelModifier:
         if legend:
             self.relabel_legend(ax)
 
-    def __call__(self, ax: Any = None):
+    def __call__(self, ax: Any = None) -> None:
         self.relabel(ax)
 
 
@@ -477,13 +481,13 @@ class FigureFinalizer(ub.NiceRepr):
 
     def __init__(
         self,
-        dpath='.',
-        size_inches=None,
-        cropwhite=True,
-        tight_layout=True,
-        verbose=0,
-        **kwargs,
-    ):
+        dpath: Any = '.',
+        size_inches: Any = None,
+        cropwhite: bool = True,
+        tight_layout: bool = True,
+        verbose: int = 0,
+        **kwargs: Any,
+    ) -> None:
         self.verbose = verbose
         self.dpath = dpath
         self.size_inches = size_inches
@@ -494,23 +498,23 @@ class FigureFinalizer(ub.NiceRepr):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-    def __nice__(self):
-        return ub.urepr(self.__dict__)
+    def __nice__(self) -> str:
+        return str(ub.urepr(self.__dict__))
 
-    def copy(self):
+    def copy(self) -> Any:
         """
         Create a copy of this object.
         """
         new = self.__class__(**self.__dict__)
         return new
 
-    def update(self, *args, **kwargs):
+    def update(self, *args: Any, **kwargs: Any) -> None:
         """
         Modify this config
         """
         self.__dict__.update(*args, **kwargs)
 
-    def finalize(self, fig, fpath, **kwargs):
+    def finalize(self, fig: Any, fpath: Any, **kwargs: Any) -> Any:
         """
         Sets the figure properties, like size, tight layout, etc, writes to
         disk, and then crops the whitespace out.
@@ -542,14 +546,14 @@ class FigureFinalizer(ub.NiceRepr):
             cropwhite_ondisk(final_fpath)
         return final_fpath
 
-    def __call__(self, fig, fpath, **kwargs):
+    def __call__(self, fig: Any, fpath: Any, **kwargs: Any) -> Any:
         """
         Alias for finalize
         """
         return self.finalize(fig, fpath, **kwargs)
 
 
-def extract_legend(ax):
+def extract_legend(ax: Any) -> Any:
     """
     Creates a new figure that contains the original legend.
     """
@@ -640,10 +644,10 @@ class ArtistManager:
         >>> ax.autoscale_view()
     """
 
-    def __init__(self):
-        self.group_to_line_segments = ub.ddict(list)
-        self.group_to_patches = ub.ddict(lambda: ub.ddict(list))
-        self.group_to_ellipse_markers = ub.ddict(
+    def __init__(self) -> None:
+        self.group_to_line_segments: dict[str, list[Any]] = ub.ddict(list)
+        self.group_to_patches: dict[str, Any] = ub.ddict(lambda: ub.ddict(list))
+        self.group_to_ellipse_markers: dict[str, Any] = ub.ddict(
             lambda: {
                 'xy': [],
                 'rx': [],
@@ -651,9 +655,9 @@ class ArtistManager:
                 'angle': [],
             }
         )
-        self.group_to_attrs = {}
+        self.group_to_attrs: dict[str, Any] = {}
 
-    def _normalize_attrs(self, attrs):
+    def _normalize_attrs(self, attrs: Any) -> tuple[str, Any]:
         import kwimage
 
         attrs = ub.udict(attrs)
@@ -664,7 +668,7 @@ class ArtistManager:
         hashid = ub.hash_data(sorted(attrs.items()))[0:8]
         return hashid, attrs
 
-    def plot(self, xs, ys, **attrs):
+    def plot(self, xs: Any, ys: Any, **attrs: Any) -> None:
         """
         Alternative way to add lines
         """
@@ -679,7 +683,7 @@ class ArtistManager:
         points = np.array(list(zip(xs, ys)))
         self.add_linestring(points, **attrs)
 
-    def add_linestring(self, points, **attrs):
+    def add_linestring(self, points: Any, **attrs: Any) -> None:
         """
         Args:
             points (List[Tuple[float, float]] | ndarray):
@@ -692,7 +696,7 @@ class ArtistManager:
         self.group_to_line_segments[hashid].append(points)
         self.group_to_attrs[hashid] = attrs
 
-    def add_ellipse(self, xy, rx, ry, angle=0, **attrs):
+    def add_ellipse(self, xy: Any, rx: Any, ry: Any, angle: Any = 0, **attrs: Any) -> None:
         """
         Real ellipses in dataspace
         """
@@ -701,7 +705,7 @@ class ArtistManager:
         self.group_to_patches[hashid]['ellipse'].append(ell)
         self.group_to_attrs[hashid] = attrs
 
-    def add_circle(self, xy, r, **attrs):
+    def add_circle(self, xy: Any, r: Any, **attrs: Any) -> None:
         """
         Real ellipses in dataspace
         """
@@ -711,8 +715,14 @@ class ArtistManager:
         self.group_to_attrs[hashid] = attrs
 
     def add_ellipse_marker(
-        self, xy, rx, ry, angle: float | Sized = 0, color=None, **attrs
-    ):
+        self,
+        xy: Any,
+        rx: Any,
+        ry: Any,
+        angle: float | Sized = 0,
+        color: Any = None,
+        **attrs: Any,
+    ) -> None:
         """
         Args:
             xy : center
@@ -766,7 +776,7 @@ class ArtistManager:
         cols['angle'].append(angle_)
         self.group_to_attrs[hashid] = attrs
 
-    def add_circle_marker(self, xy, r, **attrs):
+    def add_circle_marker(self, xy: Any, r: Any, **attrs: Any) -> None:
         """
         Args:
             xy (List[Tuple[float, float]] | ndarray):
@@ -776,21 +786,23 @@ class ArtistManager:
         """
         self.add_ellipse_marker(xy, rx=r, ry=r, angle=0, **attrs)
 
-    def build_collections(self, ax=None):
-        import matploblib.collections  # NOQA
+    def build_collections(self, ax: Any = None) -> list[Any]:
+        import matplotlib.collections  # NOQA
         import numpy as np
 
-        collections = []
+        collections: list[Any] = []
         for hashid, segments in self.group_to_line_segments.items():
             attrs = self.group_to_attrs[hashid]
-            collection = mpl.collections.LineCollection(segments, **attrs)
-            collections.append(collection)
+            line_collection = mpl.collections.LineCollection(segments, **attrs)
+            collections.append(line_collection)
 
         for hashid, type_to_patches in self.group_to_patches.items():
             attrs = self.group_to_attrs[hashid]
             for ptype, patches in type_to_patches.items():
-                collection = mpl.collections.PatchCollection(patches, **attrs)
-                collections.append(collection)
+                patch_collection = mpl.collections.PatchCollection(
+                    patches, **attrs
+                )
+                collections.append(patch_collection)
 
         for hashid, cols in self.group_to_ellipse_markers.items():
             attrs = self.group_to_attrs[hashid] - {'hashid'}
@@ -798,7 +810,7 @@ class ArtistManager:
             rx = np.concatenate(cols['rx'], axis=0)
             ry = np.concatenate(cols['ry'], axis=0)
             angles = np.concatenate(cols['angle'], axis=0)
-            collection = mpl.collections.EllipseCollection(
+            ellipse_collection = mpl.collections.EllipseCollection(
                 widths=rx,
                 heights=ry,
                 offsets=xy,
@@ -810,11 +822,11 @@ class ArtistManager:
                 **attrs,
             )
             # collection.set_transOffset(ax.transData)
-            collections.append(collection)
+            collections.append(ellipse_collection)
 
         return collections
 
-    def add_to_axes(self, ax=None):
+    def add_to_axes(self, ax: Any = None) -> None:
         import kwplot
 
         if ax is None:
@@ -825,7 +837,7 @@ class ArtistManager:
         for collection in collections:
             ax.add_collection(collection)
 
-    def bounds(self):
+    def bounds(self) -> tuple[float, float, float, float]:
         import numpy as np
 
         all_lines = []
@@ -850,7 +862,7 @@ class ArtistManager:
         ltrb = minx, miny, maxx, maxy
         return ltrb
 
-    def setlims(self, ax=None):
+    def setlims(self, ax: Any = None) -> None:
         import kwplot
 
         if ax is None:
@@ -893,18 +905,20 @@ class Palette(ub.udict):
     """
 
     @classmethod
-    def coerce(cls, data):
+    def coerce(cls, data: Any) -> Any:
         self = cls()
         self.update(data)
         return self
 
-    def update(self, other):  # type: ignore
+    def update(self, other: Any) -> None:  # type: ignore
         if isinstance(other, dict):
             self.add_labels(label_to_color=other)
         else:
             self.add_labels(labels=other)
 
-    def add_labels(self, label_to_color=None, labels=None):
+    def add_labels(
+        self, label_to_color: Any = None, labels: Any = None
+    ) -> None:
         """
         Forces particular labels to take a specific color and then chooses
         colors for any other unspecified label.
@@ -943,16 +957,18 @@ class Palette(ub.udict):
             new_label_to_color = dict(zip(new_labels, new_colors))
             super().update(new_label_to_color)
 
-    def make_legend_img(self, dpi=300, **kwargs):
+    def make_legend_img(self, dpi: int = 300, **kwargs: Any) -> Any:
         import kwplot
 
         legend = kwplot.make_legend_img(self, dpi=dpi, **kwargs)
         return legend
 
-    def sorted_keys(self):  # ty: ignore[invalid-method-override]
-        return self.__class__(super().sorted_keys())
+    def sorted_keys(
+        self, key: Any = None, reverse: bool = False
+    ) -> Any:
+        return self.__class__(super().sorted_keys(key=key, reverse=reverse))
 
-    def reorder(self, head=None, tail=None):
+    def reorder(self, head: Any = None, tail: Any = None) -> Any:
         if head is None:
             head = []
         if tail is None:
@@ -985,34 +1001,34 @@ class PaletteManager:
     self.update_params('region_id', {'region1': 'red'})
     """
 
-    def __init__(self):
-        self.param_to_palette = {}
+    def __init__(self) -> None:
+        self.param_to_palette: dict[str, Any] = {}
 
 
 class FigureManager:
-    def __init__(figman, **kwargs):
+    def __init__(figman: Any, **kwargs: Any) -> None:
         figman.finalizer = FigureFinalizer(**kwargs)
         figman.labels = LabelModifier()
         figman.fig = None
 
-    def figure(figman, *args, **kwargs):
+    def figure(figman, *args: Any, **kwargs: Any) -> Any:
         import kwplot
 
         fig = kwplot.figure(*args, **kwargs)
         figman.fig = fig
         return fig
 
-    def finalize(self, fpath, **kwargs):
+    def finalize(self, fpath: Any, **kwargs: Any) -> Any:
         final_fpath = self.finalizer.finalize(self.fig, fpath, **kwargs)
         return final_fpath
 
-    def set_figtitle(self, *args, **kwargs):
+    def set_figtitle(self, *args: Any, **kwargs: Any) -> None:
         import kwplot
 
         kwplot.set_figtitle(*args, **kwargs, fig=self.fig)
 
 
-def fix_seaborn_palette_issue(x, snskw) -> None:
+def fix_seaborn_palette_issue(x: Any, snskw: Any) -> None:
     """
     Modifies the sns keyword arguments to fix a warning
 

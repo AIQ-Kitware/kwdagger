@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import ubelt as ub
 
@@ -100,7 +100,7 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
     proc_rows = _query_nvidia_smi(mode, fields)
 
     # Coerce into the old-style format for backwards compatibility
-    gpus = {}
+    gpus: dict[int, dict[str, Any]] = {}
     for row in gpu_rows:
         gpu: dict[str, Any] = dict(row)
         num = int(gpu['index'])
@@ -111,11 +111,13 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
         gpu['procs'] = []
         gpus[num] = gpu
 
-    gpu_uuid_to_num = {gpu['gpu_uuid']: gpu['num'] for gpu in gpus.values()}
+    gpu_uuid_to_num: dict[str, int] = {
+        cast(str, gpu['gpu_uuid']): cast(int, gpu['num']) for gpu in gpus.values()
+    }
 
     for row in proc_rows:
         # Give each GPU info on which processes are using it
-        proc = row.copy()
+        proc: dict[str, Any] = row.copy()
         proc['type'] = 'C'
         proc['gpu_num'] = gpu_uuid_to_num[proc['gpu_uuid']]
         num = proc['gpu_num']
@@ -171,11 +173,11 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
         # Respect CUDA_VISIBLE_DEVICES, nvidia-smi does not respect this by
         # default so remap to gain the appropriate effect.
         val = os.environ.get('CUDA_VISIBLE_DEVICES', '')
-        parts = (p.strip() for p in val.split(','))
+        parts = [p.strip() for p in val.split(',')]
         visible_devices = [int(p) for p in parts if p]
 
         if visible_devices:
-            remapped = {}
+            remapped: dict[int, dict[str, Any]] = {}
             for visible_idx, real_idx in enumerate(visible_devices):
                 gpu = remapped[visible_idx] = gpus[real_idx]
                 gpu['index'] = str(visible_idx)
@@ -186,7 +188,7 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
     return gpus
 
 
-def _query_nvidia_smi(mode: str, fields: list[str]) -> list[dict[str, str]]:
+def _query_nvidia_smi(mode: str, fields: list[str]) -> list[dict[str, Any]]:
     """
     Runs nvidia smi in query mode
 
@@ -206,7 +208,7 @@ def _query_nvidia_smi(mode: str, fields: list[str]) -> list[dict[str, str]]:
         raise NvidiaSMIError(
             'unable to call nvidia-smi: ret={}'.format(info['ret'])
         )
-    rows = []
+    rows: list[dict[str, Any]] = []
     for line in info['out'].split('\n'):
         line = line.strip()
         if line:

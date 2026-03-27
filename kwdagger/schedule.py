@@ -21,7 +21,7 @@ import scriptconfig as scfg
 import ubelt as ub
 from cmd_queue.cli_boilerplate import CMDQueueConfig
 
-from kwdagger.pipeline import coerce_slurm_options
+from kwdagger.pipeline import coerce_slurm_options as pipeline_coerce_slurm_options
 from kwdagger.utils import util_pandas
 
 
@@ -100,7 +100,7 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
         'auto', isflag=True, help='print the varied parameters'
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__post_init__()
         if self.queue_name is None:
             self.queue_name = 'schedule-eval'
@@ -109,7 +109,7 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
                 'The queue_size argument to schedule evaluation has been removed. Use the tmux_workers argument instead'
             )
             # self.tmux_workers = self.queue_size
-        self.slurm_options = coerce_slurm_options(self.slurm_options)
+        self.slurm_options = pipeline_coerce_slurm_options(self.slurm_options)
 
         devices = self.devices
         if devices == 'auto':
@@ -118,14 +118,15 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
             GPUS = None if devices is None else ensure_iterable(devices)
         self.devices = GPUS
 
-    def main(argv: bool | list[str] = True, **kwargs: Any):
+    @staticmethod
+    def main(argv: bool | list[str] = True, **kwargs: Any) -> None:
         config = ScheduleEvaluationConfig.cli(
             argv=argv, data=kwargs, strict=True, verbose='auto'
         )
         build_schedule(config)
 
 
-def build_schedule(config) -> tuple[Any, Any]:
+def build_schedule(config: Any) -> tuple[Any, Any]:
     r"""
     First ensure that models have been copied to the DVC repo in the
     appropriate path. (as noted by model_dpath)
@@ -148,7 +149,7 @@ def build_schedule(config) -> tuple[Any, Any]:
     if config['params'] is not None:
         param_arg = kwutil.Yaml.coerce(config['params']) or {}
         if isinstance(param_arg, dict):
-            param_slurm_options = coerce_slurm_options(
+            param_slurm_options = pipeline_coerce_slurm_options(
                 param_arg.pop('slurm_options', None)
             )
         pipeline = param_arg.pop('pipeline', config.pipeline)
@@ -266,7 +267,7 @@ def build_schedule(config) -> tuple[Any, Any]:
     return dag, queue
 
 
-def ensure_iterable(inputs):
+def ensure_iterable(inputs: Any) -> list[Any]:
     return inputs if ub.iterable(inputs) else [inputs]
 
 
@@ -275,12 +276,12 @@ def _auto_gpus() -> list[int]:
 
     # TODO: liberate the needed code from netharn
     # Use all unused devices
-    GPUS = []
-    gpu_info = nvidia_smi()
-    for gpu_idx, gpu_info in gpu_info.items():
+    gpus: list[int] = []
+    gpu_info_by_idx = nvidia_smi()
+    for gpu_idx, gpu_info in gpu_info_by_idx.items():
         if len(gpu_info['procs']) == 0:
-            GPUS.append(gpu_idx)
-    return GPUS
+            gpus.append(gpu_idx)
+    return gpus
 
 
 __cli__ = ScheduleEvaluationConfig

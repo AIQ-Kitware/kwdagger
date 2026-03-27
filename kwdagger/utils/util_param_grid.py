@@ -55,12 +55,12 @@ def coerce_list_of_action_matrices(
     return action_matrices
 
 
-def prevalidate_param_grid(arg) -> None:
+def prevalidate_param_grid(arg: Any) -> None:
     """
     Determine if something may go wrong
     """
 
-    def validate_pathlike(p):
+    def validate_pathlike(p: Any) -> bool:
         if isinstance(p, str):
             p = ub.Path(p)
         else:
@@ -83,7 +83,7 @@ def prevalidate_param_grid(arg) -> None:
 
     logs = []
 
-    def log_issue(k, p, msg):
+    def log_issue(k: Any, p: Any, msg: Any) -> None:
         logs.append((k, p, msg))
         print(f'Key {k} with {p=} {msg}')
 
@@ -98,7 +98,9 @@ def prevalidate_param_grid(arg) -> None:
                         log_issue(k, p, 'might not be a valid path')
 
 
-def expand_param_grid(arg, max_configs: int | None = None):
+def expand_param_grid(
+    arg: Any, max_configs: int | None = None
+) -> Any:
     """
     Our own method for specifying many combinations. Uses the github actions
     method under the hood with our own
@@ -207,7 +209,7 @@ def expand_param_grid(arg, max_configs: int | None = None):
                     return
 
 
-def github_action_matrix(arg):
+def github_action_matrix(arg: Any) -> Any:
     """
     Implements the github action matrix strategy exactly as described.
 
@@ -324,7 +326,7 @@ def github_action_matrix(arg):
     orig_keys = set(matrix.keys())
     include_idx_to_nvariants = {idx: 0 for idx in range(len(include))}
 
-    def include_modifiers(mat_item):
+    def include_modifiers(mat_item: Any) -> Any:
         """
         For each object in the include list, the key:value pairs in the object
         will be added to each of the matrix combinations if none of the
@@ -343,7 +345,7 @@ def github_action_matrix(arg):
                 grid_item = grid_item | include_item
         return grid_item
 
-    def is_excluded(grid_item):
+    def is_excluded(grid_item: Any) -> bool:
         """
         An excluded configuration only has to be a partial match for it to be
         excluded. For example, the following workflow will run nine jobs: one
@@ -357,6 +359,7 @@ def github_action_matrix(arg):
                 common2 = grid_item & exclude_item
                 if common1 == common2 == exclude_item:
                     return True
+        return False
 
     for mat_item in map(ub.udict, ub.named_product(matrix_)):
         grid_item = include_modifiers(mat_item)
@@ -369,7 +372,7 @@ def github_action_matrix(arg):
             yield grid_item
 
 
-def extended_github_action_matrix(arg):
+def extended_github_action_matrix(arg: Any) -> Any:
     """
     A variant of the github action matrix for our mlops framework that
     overcomes some of the former limitations.
@@ -586,7 +589,7 @@ def extended_github_action_matrix(arg):
     include = list(map(ub.udict, include))
     exclude = list(map(ub.udict, exclude))
 
-    def coerce_matrix_value(v):
+    def coerce_matrix_value(v: Any) -> list[Any]:
         """
         Normalize values in the param grid / submatrices.
 
@@ -692,7 +695,7 @@ def extended_github_action_matrix(arg):
     orig_keys = set(matrix.keys())
     include_idx_to_nvariants = {idx: 0 for idx in range(len(include))}
 
-    def include_modifiers(mat_item):
+    def include_modifiers(mat_item: Any) -> Any:
         """
         For each object in the include list, the key:value pairs in the object
         will be added to each of the matrix combinations if none of the
@@ -711,7 +714,9 @@ def extended_github_action_matrix(arg):
                 grid_item = grid_item | include_item
         return grid_item
 
-    def multisubmatrix_variants(mat_item, multi_submatrices_):
+    def multisubmatrix_variants(
+        mat_item: Any, multi_submatrices_: Any
+    ) -> Any:
         # New version: every group of submatrices has the opportunity to
         # modify the item before yielding.
         curr_items = [mat_item]
@@ -719,11 +724,11 @@ def extended_github_action_matrix(arg):
             curr_items = _submatrix_variants_loop(curr_items, submatrices_)
         yield from curr_items
 
-    def _submatrix_variants_loop(mat_items, submatrices_):
+    def _submatrix_variants_loop(mat_items: Any, submatrices_: Any) -> Any:
         for item in mat_items:
             yield from submatrix_variants(item, submatrices_)
 
-    def submatrix_variants(mat_item, submatrices_):
+    def submatrix_variants(mat_item: Any, submatrices_: Any) -> Any:
         grid_item = ub.udict(mat_item)
         any_modified = False
         for submat_item in submatrices_:
@@ -736,7 +741,7 @@ def extended_github_action_matrix(arg):
         if not any_modified:
             yield grid_item
 
-    def is_excluded(grid_item):
+    def is_excluded(grid_item: Any) -> bool:
         """
         An excluded configuration only has to be a partial match for it to be
         excluded. For example, the following workflow will run nine jobs: one
@@ -750,6 +755,7 @@ def extended_github_action_matrix(arg):
                 common2 = grid_item & exclude_item
                 if common1 == common2 == exclude_item:
                     return True
+        return False
 
     for mat_item in map(ub.udict, ub.named_product(matrix_)):
         if MULTI_SUBMATRICES:

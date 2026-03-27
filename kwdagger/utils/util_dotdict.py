@@ -59,14 +59,14 @@ class DotDict(ub.UDict):
         >>> assert recon == self
     """
 
-    def __init__(self, /, *args, **kwargs):
+    def __init__(self, /, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Tries work well with prefix stuff, but they may be too complex for
         # what we really need to do here.
-        self._trie_cache = {}
+        self._trie_cache: dict[str, Any] = {}
 
     @classmethod
-    def from_nested(cls, data: dict[str, Any]):
+    def from_nested(cls: type[DotDict], data: dict[str, Any]) -> DotDict:
         """
         Args:
             data (Dict):
@@ -81,7 +81,7 @@ class DotDict(ub.UDict):
                 flat[key] = value
         return flat
 
-    def to_nested(self):
+    def to_nested(self) -> Any:
         """
         Converts this flat DotDict into a nested representation.  I.e. keys are
         broken using the "." separtor, with each separator becoming a new
@@ -115,7 +115,7 @@ class DotDict(ub.UDict):
             walker[path] = v
         return auto.to_dict()
 
-    def to_nested_keys(self):
+    def to_nested_keys(self) -> Any:
         """
         Converts this flat DotDict into a nested key representation.
         The difference between this and to_nested is that the leafs are
@@ -150,7 +150,7 @@ class DotDict(ub.UDict):
         return auto.to_dict()
 
     @property
-    def _prefix_trie(self):
+    def _prefix_trie(self) -> Any:
         if self._trie_cache.get('prefix_trie', None) is None:
             _trie_data = ub.dzip(self.keys(), self.keys())
             _trie = pygtrie.StringTrie(_trie_data, separator='.')
@@ -158,7 +158,7 @@ class DotDict(ub.UDict):
         return self._trie_cache['prefix_trie']
 
     @property
-    def _suffix_trie(self):
+    def _suffix_trie(self) -> Any:
         if 'suffix_trie' not in self._trie_cache:
             reversed_keys = {
                 '.'.join(reversed(k.split('.'))): k for k in self.keys()
@@ -168,8 +168,8 @@ class DotDict(ub.UDict):
         return self._trie_cache['suffix_trie']
 
     def suffix_get(
-        self, suffix: str, default=ub.NoParam, backend: str = 'trie'
-    ):
+        self, suffix: str, default: Any = ub.NoParam, backend: str = 'trie'
+    ) -> Any:
         """
         Retrieve all key-value pairs whose keys end with a given dot-suffix.
 
@@ -216,7 +216,7 @@ class DotDict(ub.UDict):
             return default
         return matches
 
-    def prefix_get(self, key: str, default=ub.NoParam):
+    def prefix_get(self, key: str, default: Any = ub.NoParam) -> Any:
         """
         Example:
             >>> from kwdagger.utils.util_dotdict import *  # NOQA
@@ -243,7 +243,7 @@ class DotDict(ub.UDict):
                 suffix_dict[sub_key] = self[full_key]
             return suffix_dict
 
-    def suffix_subdict(self, suffixes, backend: str = 'trie'):
+    def suffix_subdict(self, suffixes: Any, backend: str = 'trie') -> Any:
         """
         Filter DotDict to only contain keys ending with any given suffixes.
 
@@ -292,7 +292,7 @@ class DotDict(ub.UDict):
             raise ValueError(f'Unknown backend={backend}')
         return self.__class__(result)
 
-    def prefix_subdict(self, prefixes, backend='trie'):
+    def prefix_subdict(self, prefixes: Any, backend: str = 'trie') -> Any:
         """
         Filter DotDict to only contain keys starting with any given prefixes.
 
@@ -342,14 +342,14 @@ class DotDict(ub.UDict):
             raise ValueError(f'Unknown backend={backend}')
         return self.__class__(result)
 
-    def add_prefix(self, prefix):
+    def add_prefix(self, prefix: str) -> DotDict:
         """
         Adds a prefix to all items
         """
         new = self.__class__([(prefix + '.' + k, v) for k, v in self.items()])
         return new
 
-    def insert_prefix(self, prefix, index):
+    def insert_prefix(self, prefix: str, index: Any) -> DotDict:
         """
         Adds a prefix to all items
 
@@ -372,7 +372,7 @@ class DotDict(ub.UDict):
             >>> print('new = {}'.format(ub.urepr(new, nl=1)))
         """
 
-        def _generate_new_items():
+        def _generate_new_items() -> Any:
             sep = '.'
             for k, v in self.items():
                 path = k.split(sep)
@@ -383,7 +383,7 @@ class DotDict(ub.UDict):
         new = self.__class__(_generate_new_items())
         return new
 
-    def query_keys(self, col):
+    def query_keys(self, col: Any) -> Any:
         """
         Finds columns where one level has this key
 
@@ -407,7 +407,7 @@ class DotDict(ub.UDict):
             if col in set(key.split('.')):
                 yield key
 
-    def print_graph(self):
+    def print_graph(self) -> None:
         explore_nested_dict(self)
 
     # def __contains__(self, key):
@@ -436,11 +436,11 @@ class DotDict(ub.UDict):
     #         return self.__class__([(k, self[k]) for k in subkeys])
 
 
-def dotdict_to_nested(d):
+def dotdict_to_nested(d: Any) -> Any:
     return DotDict.to_nested(d)
 
 
-def dotkeys_to_nested(keys):
+def dotkeys_to_nested(keys: Any) -> Any:
     """
     Args:
         keys (List[str]): a list of dotted key names
@@ -449,7 +449,7 @@ def dotkeys_to_nested(keys):
     return DotDict.to_nested_keys(keys)
 
 
-def indexable_to_graph(data):
+def indexable_to_graph(data: Any) -> Any:
     import networkx as nx
 
     graph = nx.DiGraph()
@@ -475,7 +475,7 @@ def indexable_to_graph(data):
     return graph
 
 
-def explore_nested_dict(data):
+def explore_nested_dict(data: Any) -> Any:
     """
     TODO: some sort of textual interface
     """

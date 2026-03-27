@@ -95,16 +95,16 @@ class Pipeline:
     def __init__(
         self, nodes: Any = None, config: Any = None, root_dpath: Any = None
     ) -> None:
-        self.proc_graph = None
-        self.io_graph = None
+        self.proc_graph: nx.DiGraph = nx.DiGraph()
+        self.io_graph: nx.DiGraph = nx.DiGraph()
         if nodes is None:
             nodes = []
         self.nodes = nodes
-        self.config = None
-        self.__slurm_options__ = {}
+        self.config: Any = None
+        self.__slurm_options__: dict[str, Any] = {}
 
         self._dirty = True
-        self._unique_hanes = set()
+        self._unique_hanes: set[str] = set()
 
         if self.nodes:
             self.build_nx_graphs()
@@ -223,7 +223,7 @@ class Pipeline:
         #     n for n in self.io_graph if self.io_graph.in_degree[n] == 0
         # }
 
-        rows = []
+        rows: list[dict[str, Any]] = []
         assert isinstance(self.io_graph, nx.DiGraph)
         for node in self.node_dict.values():
             # Build up information about each node option
@@ -283,7 +283,7 @@ class Pipeline:
         )
         rich.print(df.to_string())
 
-        default = {}
+        default: dict[str, Any] = {}
         for _, row in df[df['maybe_required']].iterrows():
             default[row['node'] + '.' + row['key']] = None
         rich.print(util_yaml.Yaml.dumps(default))
@@ -688,7 +688,7 @@ def bash_printf_literal_string(text: str, escape_newlines: bool = True) -> str:
     return f"'{inside_text}'"
 
 
-def glob_templated_path(template) -> list[Any]:
+def glob_templated_path(template: Any) -> list[Any]:
     """
     Given an unformated templated path, replace the format parts with "*" and
     return a glob.
@@ -712,7 +712,7 @@ def glob_templated_path(template) -> list[Any]:
 
 
 @ub.memoize
-def _has_jq():
+def _has_jq() -> Any:
     return ub.find_exe('jq')
 
 
@@ -723,13 +723,13 @@ class Node(ub.NiceRepr):
 
     __node_type__ = 'abstract'  # used to workaround IPython isinstance issues
 
-    def __nice__(self):
+    def __nice__(self) -> Any:
         return f'{self.name!r}, pred={[n.name for n in self.pred]}, succ={[n.name for n in self.succ]}'
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: Any) -> None:
         self.name = name
-        self.pred = []
-        self.succ = []
+        self.pred: list[Any] = []
+        self.succ: list[Any] = []
 
     def _connect_single(self, other: Any, src_map: Mapping[str, str], dst_map: Mapping[str, str]) -> None:
         """
@@ -819,7 +819,7 @@ class Node(ub.NiceRepr):
         return self
 
     @property
-    def key(self):
+    def key(self) -> str:
         return self.name
 
 
@@ -863,7 +863,7 @@ class InputNode(IONode): ...
 
 
 class OutputNode(IONode):
-    @property
+    @property  # type: ignore[misc]
     def final_value(self) -> Any:
         # return self.parent._finalize_templates()['out_paths'][self.name]
         return self.parent.final_out_paths[self.name]
@@ -872,7 +872,7 @@ class OutputNode(IONode):
     def template_value(self) -> Any:
         return self.parent.template_out_paths[self.name]
 
-    def matching_fpaths(self):
+    def matching_fpaths(self) -> list[Any]:
         """
         Find all paths for this node.
         """
@@ -880,7 +880,7 @@ class OutputNode(IONode):
         return glob_templated_path(out_template)
 
 
-def _classvar_init(self, args, fallbacks):
+def _classvar_init(self: Any, args: Any, fallbacks: Any) -> None:
     """
     Helps initialize class instance variables from class variable defaults.
 
@@ -906,6 +906,8 @@ def _classvar_init(self, args, fallbacks):
     # get in the locals() of their `__init__` method. Workaround this by not
     # processing any '_'-prefixed name.
     cls = self.__class__
+    args = cast(dict[str, Any], args)
+    fallbacks = cast(dict[str, Any], fallbacks)
     for key, value in list(args.items()):
         if value is self or key.startswith('_'):
             continue
@@ -923,14 +925,14 @@ class memoize_configured_method(object):
     ubelt memoize_method but uses a special cache name
     """
 
-    def __init__(self, func):
+    def __init__(self, func: Any) -> None:
         self._func = func
         self._cache_name = '_cache__' + func.__name__
         # Mimic attributes of a bound method
         self.__func__ = func
         functools.update_wrapper(self, func)
 
-    def __get__(self, instance, cls=None):
+    def __get__(self, instance: Any, cls: Any = None) -> Any:
         """
         Descriptor get method. Called when the decorated method is accessed
         from an object instance.
@@ -942,7 +944,7 @@ class memoize_configured_method(object):
         self._instance = instance
         return self
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """
         The wrapped function call
         """
@@ -959,7 +961,7 @@ class memoize_configured_method(object):
             return value
 
 
-def memoize_configured_property(fget):
+def memoize_configured_property(fget: Any) -> Any:
     """
     ubelt memoize_property but uses a special cache name
     """
@@ -970,7 +972,7 @@ def memoize_configured_property(fget):
     attr_name = '_' + fget.__name__
 
     @functools.wraps(fget)
-    def fget_memoized(self):
+    def fget_memoized(self: Any) -> Any:
         cache = self._configured_cache
         if attr_name not in cache:
             cache[attr_name] = fget(self)
@@ -1183,7 +1185,8 @@ class ProcessNode(Node):
 
     # Optional scriptconfig schema for deriving path/param groups. This is the
     # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
-    params = None
+    params: Any = None
+    root_dpath: Any = None
 
     def __init__(
         self,
@@ -1240,7 +1243,7 @@ class ProcessNode(Node):
                 )  # ub.hash_data(executable)[0:8]
 
         args = locals()
-        fallbacks = {
+        fallbacks: dict[str, Any] = {
             # 'resources': {
             #     'cpus': 2,
             #     'gpus': 0,
@@ -1256,7 +1259,7 @@ class ProcessNode(Node):
         _classvar_init(self, args, fallbacks)
         super().__init__(args['name'])
 
-        self._configured_cache = {}
+        self._configured_cache: dict[str, Any] = {}
         # Preserve the baseline slurm options so repeated configure calls start
         # from the class / instance defaults.
         self._base_slurm_options = coerce_slurm_options(self.slurm_options)
@@ -1312,9 +1315,10 @@ class ProcessNode(Node):
         if self.group is None:
             self.group = '.'
 
-        if self.root_dpath is None:
-            self.root_dpath = '.'
-        self.root_dpath = ub.Path(self.root_dpath)
+        root_dpath_: Any = self.root_dpath
+        if root_dpath_ is None:
+            root_dpath_ = '.'
+        self.root_dpath = ub.Path(root_dpath_)
 
         self.templates = None
 
@@ -1334,7 +1338,7 @@ class ProcessNode(Node):
         # This is just a list of nodes that must be run before us, but we don't
         # have an explicit connection between the inputs / outputs.
         # This is currently used as a workaround, but we should support it
-        self._pred_nodes_without_io_connection = []
+        self._pred_nodes_without_io_connection: list[Any] = []
 
         self.configure(self.config)
 
@@ -1352,7 +1356,7 @@ class ProcessNode(Node):
                 )
 
     @classmethod
-    def _from_scriptconfig(cls, config_cls, **kwargs):
+    def _from_scriptconfig(cls, config_cls: Any, **kwargs: Any) -> Any:
         """
         EXPERIMENTAL
 
@@ -1443,7 +1447,7 @@ class ProcessNode(Node):
             True
         """
         derived = cls._derive_groups_from_params_spec(config_cls)
-        path_kwargs = {
+        path_kwargs: dict[str, Any] = {
             'in_paths': derived[0],
             'out_paths': derived[1],
             'algo_params': derived[2],
@@ -1466,7 +1470,7 @@ class ProcessNode(Node):
         return self
 
     @staticmethod
-    def _derive_groups_from_params_spec(params_spec):
+    def _derive_groups_from_params_spec(params_spec: Any) -> tuple[Any, Any, Any, Any, Any]:
         tag_to_group = {
             'in_path': 'in_paths',
             'in': 'in_paths',
@@ -1477,7 +1481,7 @@ class ProcessNode(Node):
             'perf_param': 'perf_params',
             'perf': 'perf_params',
         }
-        path_kwargs = {
+        path_kwargs: dict[str, Any] = {
             'in_paths': set(),
             'out_paths': {},
             'perf_params': {},
@@ -1498,7 +1502,7 @@ class ProcessNode(Node):
         if isinstance(params_spec, dict):
             items = params_spec.items()
         elif hasattr(params_spec, '__default__'):
-            config_cls = (
+            config_cls: Any = (
                 params_spec
                 if isinstance(params_spec, type)
                 else params_spec.__class__
@@ -1564,7 +1568,9 @@ class ProcessNode(Node):
             primary_out_key,
         )
 
-    def configure(self, config=None, cache=True, enabled=True):
+    def configure(
+        self, config: Any = None, cache: bool = True, enabled: bool = True
+    ) -> None:
         """
         Update the node configuration.
 
@@ -1610,7 +1616,7 @@ class ProcessNode(Node):
         self._finalize_templates()
 
     @memoize_configured_property
-    def condensed(self):
+    def condensed(self) -> Any:
         """
         This is the dictionary that supplies the templated strings with the
         values we will finalize them with. We may want to change the name.
@@ -1628,7 +1634,7 @@ class ProcessNode(Node):
         return condensed
 
     @memoize_configured_method
-    def _build_templates(self):
+    def _build_templates(self) -> dict[str, Any]:
         templates = {}
         templates['root_dpath'] = str(self.template_root_dpath)
         templates['node_dpath'] = str(self.template_node_dpath)
@@ -1637,7 +1643,7 @@ class ProcessNode(Node):
         return self.templates
 
     @memoize_configured_method
-    def _finalize_templates(self):
+    def _finalize_templates(self) -> dict[str, Any]:
         templates = self.templates
         condensed = self.condensed
         final = {}
@@ -1655,7 +1661,7 @@ class ProcessNode(Node):
         return self.final
 
     @memoize_configured_property
-    def final_config(self):
+    def final_config(self) -> Any:
         """
         This is not really "final" in the aggregate sense.
         It is more of a "finalized" requested config.
@@ -1672,7 +1678,7 @@ class ProcessNode(Node):
         final_config.update(self.final_algo_config)
         return final_config
 
-    def _depends_config(self):
+    def _depends_config(self) -> Any:
         """
         The dag config that specifies the parameters this node depends on.
         This is what we write to "job_config.json". Note: this output must be
@@ -1686,7 +1692,7 @@ class ProcessNode(Node):
         return depends_config
 
     @memoize_configured_property
-    def final_perf_config(self):
+    def final_perf_config(self) -> Any:
         assert self.perf_params is not None
         final_perf_config = self.config & set(self.perf_params)  # type: ignore
         if isinstance(self.perf_params, dict):
@@ -1696,7 +1702,7 @@ class ProcessNode(Node):
         return final_perf_config
 
     @memoize_configured_property
-    def final_algo_config(self):
+    def final_algo_config(self) -> Any:
         # TODO: Any node that does not have its inputs connected have to
         # include the configured input paths - or ideally the hash of their
         # contents - in the algo config.
@@ -1751,7 +1757,7 @@ class ProcessNode(Node):
         return final_algo_config
 
     @memoize_configured_property
-    def final_in_paths(self):
+    def final_in_paths(self) -> Any:
         in_paths = self.in_paths
         final_in_paths: dict[str, Any]
         if in_paths is None:
@@ -1766,7 +1772,7 @@ class ProcessNode(Node):
         return final_in_paths
 
     @memoize_configured_property
-    def template_out_paths(self):
+    def template_out_paths(self) -> Any:
         """
         Note: template out paths are not impacted by out path config overrides,
         but the final out paths are.
@@ -1788,7 +1794,7 @@ class ProcessNode(Node):
         return template_out_paths
 
     @memoize_configured_property
-    def final_out_paths(self):
+    def final_out_paths(self) -> Any:
         """
         These are the locations each output will actually be written to.
 
@@ -1808,18 +1814,18 @@ class ProcessNode(Node):
         return final_out_paths
 
     @memoize_configured_property
-    def final_node_dpath(self):
+    def final_node_dpath(self) -> Any:
         """
         The configured directory where all outputs are relative to.
         """
         return ub.Path(str(self.template_node_dpath).format(**self.condensed))
 
     @memoize_configured_property
-    def final_root_dpath(self):
+    def final_root_dpath(self) -> Any:
         return ub.Path(str(self.template_root_dpath).format(**self.condensed))
 
     @property
-    def template_group_dpath(self):
+    def template_group_dpath(self) -> Any:
         """
         The template for the directory where the configured node dpath will be placed.
 
@@ -1837,7 +1843,7 @@ class ProcessNode(Node):
             return self.root_dpath / self.group / self.name
 
     @memoize_configured_property
-    def template_node_dpath(self):
+    def template_node_dpath(self) -> Any:
         """
         The template for the configured directory where all outputs are relative to.
         """
@@ -1848,7 +1854,7 @@ class ProcessNode(Node):
         return self.template_group_dpath / ('{' + key + '}')
 
     @memoize_configured_property
-    def template_root_dpath(self):
+    def template_root_dpath(self) -> Any:
         """
         Alias for root dpath
 
@@ -1859,7 +1865,7 @@ class ProcessNode(Node):
         return self.root_dpath
 
     @memoize_configured_method
-    def predecessor_process_nodes(self):
+    def predecessor_process_nodes(self) -> Any:
         """
         Process nodes that this one depends on.
         """
@@ -1869,7 +1875,7 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    def successor_process_nodes(self):
+    def successor_process_nodes(self) -> Any:
         """
         Process nodes that depend on this one.
         """
@@ -1879,7 +1885,7 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    def ancestor_process_nodes(self):
+    def ancestor_process_nodes(self) -> Any:
         """
         Example:
             >>> from kwdagger.pipeline import *  # NOQA
@@ -1902,7 +1908,7 @@ class ProcessNode(Node):
         ancestors = list(seen.values())
         return ancestors
 
-    def _uncached_ancestor_process_nodes(self):
+    def _uncached_ancestor_process_nodes(self) -> Any:
         # Not sure why the cached version of this is not working
         # in prepare-ta2-dataset. Hack around it for now.
         # TODO: we need to ensure that this returns a consistent order
@@ -1925,7 +1931,7 @@ class ProcessNode(Node):
         return ancestors
 
     @memoize_configured_property
-    def depends(self):
+    def depends(self) -> Any:
         """
         The mapping from ancestor and self node names to their algorithm ids
         Should probably rename.
@@ -1974,7 +1980,7 @@ class ProcessNode(Node):
         return proc_id
 
     @staticmethod
-    def _make_argstr(config):
+    def _make_argstr(config: Any) -> str:
         # parts = [f'    --{k}="{v}" \\' for k, v in config.items()]
         parts = []
         import shlex
@@ -2052,7 +2058,7 @@ class ProcessNode(Node):
             command = self.executable
         return command
 
-    def test_is_computed_command(self):
+    def test_is_computed_command(self) -> str | None:
         r"""
         Generate a bash command that will test if all output paths exist
 
@@ -2152,14 +2158,14 @@ class ProcessNode(Node):
         """
         return self.does_exist
 
-    def _raw_command(self):
+    def _raw_command(self) -> Any:
         command = self.command
         if not isinstance(command, str):
             assert callable(command)
             command = command()
         return command
 
-    def final_command(self):
+    def final_command(self) -> Any:
         """
         Wraps ``self.command`` with optional checks to prevent the command from
         executing if its outputs already exist.
@@ -2182,7 +2188,7 @@ class ProcessNode(Node):
         else:
             return base_command
 
-    def find_template_outputs(self, workers=8):
+    def find_template_outputs(self, workers: int = 8) -> list[Any]:
         """
         Look in the DAG root path for output paths that are complete or
         unfinished
@@ -2238,7 +2244,9 @@ class ProcessNode(Node):
         return rows
 
 
-def _labelize_graph(graph, shrink_labels, show_types, color_procs: int = 0):
+def _labelize_graph(
+    graph: Any, shrink_labels: Any, show_types: Any, color_procs: int = 0
+) -> None:
     """
     Add a label to a networkx graph with rich colors specific to this use-case.
     """
@@ -2293,18 +2301,18 @@ def _labelize_graph(graph, shrink_labels, show_types, color_procs: int = 0):
                 data['label'] = f'[{color}]{label}[/{color}]'
 
 
-def _load_json(fpath):
+def _load_json(fpath: Any) -> Any:
     import json
 
     with open(fpath, 'r') as file:
         return json.load(file)
 
 
-def _add_prefix(prefix: str, dict_):
+def _add_prefix(prefix: str, dict_: Any) -> dict[str, Any]:
     return {prefix + k: v for k, v in dict_.items()}
 
 
-def _fixup_config_serializability(config):
+def _fixup_config_serializability(config: Any) -> dict[str, Any]:
     # Do minor chanes to make the config json serializable.
     fixed_config = {}
     for k, v in config.items():
@@ -2315,7 +2323,7 @@ def _fixup_config_serializability(config):
     return fixed_config
 
 
-def demodata_pipeline():
+def demodata_pipeline() -> Pipeline:
     """
     A simple test pipeline.
 
@@ -2474,7 +2482,7 @@ def demodata_pipeline():
     return dag
 
 
-def demo_pipeline_run():
+def demo_pipeline_run() -> None:
     """
     A simple test pipeline.
 
@@ -2508,7 +2516,7 @@ def demo_pipeline_run():
     queue.run()
 
 
-def coerce_pipeline(pipeline):
+def coerce_pipeline(pipeline: Any) -> Pipeline:
     """
     Attempts to resolve a concise expression (typically from the command line) into a pre-defined pipeline.
 
@@ -2531,7 +2539,7 @@ def coerce_pipeline(pipeline):
     return dag
 
 
-def _resolve_pipeline(pipeline):
+def _resolve_pipeline(pipeline: Any) -> Any:
     """
     Users need to be able to build and specify their own pipelines here
     (similar to how kwiver pipelines work). This is initial support.
@@ -2595,7 +2603,7 @@ def _resolve_pipeline(pipeline):
         raise ValueError(pipeline)
 
 
-def _coerce_modpath(modpath_or_name):
+def _coerce_modpath(modpath_or_name: Any) -> str:
     import os
     import types
 
