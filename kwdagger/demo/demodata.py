@@ -136,6 +136,7 @@ from typing import Any
 import kwutil
 import scriptconfig as scfg
 import ubelt as ub
+from kwdagger.utils import util_dotdict
 
 from kwdagger.pipeline import Pipeline, ProcessNode
 
@@ -298,12 +299,10 @@ class Stage1_Predict(ProcessNode):
         'workers': 0,
     }
 
-    def load_result(self, node_dpath: Any) -> Any:
+    def load_result(self, node_dpath: Any) -> util_dotdict.DotDict:
         import json
 
         from kwdagger.aggregate_loader import new_process_context_parser
-        from kwdagger.utils import util_dotdict
-
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
@@ -336,7 +335,7 @@ class Stage1_Evaluate(ProcessNode):
         'workers': 0,
     }
 
-    def load_result(self, node_dpath: Any) -> Any:
+    def load_result(self, node_dpath: Any) -> util_dotdict.DotDict:
         """
         The specific implementation uses convinience functions that rely on how
         the script implemention stores results, but any manual implementation
@@ -349,8 +348,6 @@ class Stage1_Evaluate(ProcessNode):
         import json
 
         from kwdagger.aggregate_loader import new_process_context_parser
-        from kwdagger.utils import util_dotdict
-
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]

@@ -468,7 +468,7 @@ def load_result_resolved(
     return flat_resolved
 
 
-def out_node_matching_fpaths(out_node: Any) -> list[Any]:
+def out_node_matching_fpaths(out_node: Any) -> list[str]:
     out_template = out_node.template_value
     parser = parse.Parser(str(out_template))
     patterns = {n: '*' for n in parser.named_fields}

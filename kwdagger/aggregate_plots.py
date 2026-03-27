@@ -12,7 +12,7 @@ from typing import Any, cast
 import ubelt as ub
 
 
-def build_plotter(agg: Any, rois: Any, plot_config: Any) -> Any:
+def build_plotter(agg: Any, rois: Any, plot_config: Any) -> ParamPlotter:
     """
     Used by :class:`Aggregator`, which will generally immediately call
     :func:`ParamPlotter.plot_requested`.
@@ -1259,7 +1259,9 @@ class ParamPlotter:
             # ax.plot(*zip(*pts2), 'bo', label='after SV')
 
 
-def edit_distance(string1: Any, string2: Any) -> Any:
+def edit_distance(
+    string1: Any, string2: Any
+) -> float | list[float] | list[list[float]]:
     """
     Edit distance algorithm. String1 and string2 can be either
     strings or lists of strings
@@ -1362,23 +1364,23 @@ class Vantage2(dict):
     """
 
     @property
-    def name(self) -> Any:
+    def name(self) -> str:
         return self['name']
 
     @property
-    def metric1(self) -> Any:
+    def metric1(self) -> str:
         return self['metric1']
 
     @property
-    def metric2(self) -> Any:
+    def metric2(self) -> str:
         return self['metric2']
 
     @property
-    def scale1(self) -> Any:
+    def scale1(self) -> str:
         return self.get('scale1', 'linear')
 
     @property
-    def scale2(self) -> Any:
+    def scale2(self) -> str:
         return self.get('scale2', 'linear')
 
 

@@ -25,6 +25,7 @@ import os
 import typing
 import warnings
 from functools import cached_property
+from concurrent.futures import Future
 from typing import Any, Mapping, Sequence, cast
 
 import kwutil
@@ -688,7 +689,7 @@ def bash_printf_literal_string(text: str, escape_newlines: bool = True) -> str:
     return f"'{inside_text}'"
 
 
-def glob_templated_path(template: Any) -> list[Any]:
+def glob_templated_path(template: str | os.PathLike[str]) -> list[str]:
     """
     Given an unformated templated path, replace the format parts with "*" and
     return a glob.
@@ -712,7 +713,7 @@ def glob_templated_path(template: Any) -> list[Any]:
 
 
 @ub.memoize
-def _has_jq() -> Any:
+def _has_jq() -> str | list[str] | None:
     return ub.find_exe('jq')
 
 
@@ -723,7 +724,7 @@ class Node(ub.NiceRepr):
 
     __node_type__ = 'abstract'  # used to workaround IPython isinstance issues
 
-    def __nice__(self) -> Any:
+    def __nice__(self) -> str:
         return f'{self.name!r}, pred={[n.name for n in self.pred]}, succ={[n.name for n in self.succ]}'
 
     def __init__(self, name: Any) -> None:
@@ -872,7 +873,7 @@ class OutputNode(IONode):
     def template_value(self) -> Any:
         return self.parent.template_out_paths[self.name]
 
-    def matching_fpaths(self) -> list[Any]:
+    def matching_fpaths(self) -> list[str]:
         """
         Find all paths for this node.
         """
@@ -2194,12 +2195,12 @@ class ProcessNode(Node):
         unfinished
         """
         template = self.template_node_dpath
-        existing_dpaths = list(glob_templated_path(template))
+        existing_dpaths = [ub.Path(p) for p in glob_templated_path(template)]
         # Figure out which ones are finished / unfinished
 
         json_jobs = ub.Executor(mode='thread', max_workers=workers)
 
-        rows = []
+        rows: list[dict[str, Any]] = []
         assert self.out_paths is not None
         assert isinstance(self.out_paths, dict)
         for dpath in ub.ProgIter(existing_dpaths, desc='parsing templates'):
@@ -2212,7 +2213,7 @@ class ProcessNode(Node):
             config_fpath = dpath / 'job_config.json'
             has_config = config_fpath.exists()
             if has_config:
-                job = json_jobs.submit(_load_json, config_fpath)
+                job: Future[Any] | None = json_jobs.submit(_load_json, config_fpath)
             else:
                 job = None
                 request_config = {}
@@ -2227,7 +2228,7 @@ class ProcessNode(Node):
             )
 
         for row in ub.ProgIter(rows, desc='finalize templates'):
-            job = row.pop('job')
+            job = cast(Future[Any] | None, row.pop('job'))
             if job is not None:
                 request_config = job.result()
                 request_config = util_dotdict.DotDict(
@@ -2235,8 +2236,8 @@ class ProcessNode(Node):
                 ).add_prefix('request')
                 row.update(request_config)
 
-        num_configured = sum([r['has_config'] for r in rows])
-        num_finished = sum([r['has_config'] for r in rows])
+        num_configured = sum(1 for r in rows if cast(bool, r['has_config']))
+        num_finished = sum(1 for r in rows if cast(bool, r['has_config']))
         num_started = len(rows)
         print(f'num_configured={num_configured}')
         print(f'num_finished={num_finished}')

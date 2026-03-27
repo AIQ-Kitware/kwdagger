@@ -201,13 +201,13 @@ class Result(ub.NiceRepr):
         row = ub.dict_union({'name': self.name}, self.metrics, self.params)
         return row
 
-    def __nice__(self) -> Any:
+    def __nice__(self) -> str:
         row = self.to_dict()
-        text = ub.urepr(row, compact=True, precision=2, sort=0)
+        text = cast(str, ub.urepr(row, compact=True, precision=2, sort=0))
         return text
 
     @classmethod
-    def demo(cls, mode: str = 'null', rng: Any = None) -> Any:
+    def demo(cls, mode: str = 'null', rng: Any = None) -> Result:
         import string
 
         import kwarray
@@ -274,7 +274,7 @@ class ResultTable:
         return len(self.params)
 
     @property
-    def table(self) -> Any:
+    def table(self) -> pd.DataFrame:
         if 'table' not in self._cache:
             self._cache['table'] = pd.concat(
                 [self.params, self.metrics], axis=1
@@ -282,7 +282,7 @@ class ResultTable:
         return self._cache['table']
 
     @property
-    def result_list(self) -> Any:
+    def result_list(self) -> list[Result]:
         if 'result_list' not in self._cache:
             new_results = [
                 Result(name=f'expt_{idx:04d}', metrics=metrics, params=params)
@@ -297,7 +297,7 @@ class ResultTable:
         return self._cache['result_list']
 
     @classmethod
-    def demo(cls, num: int = 10, mode: str = 'null', rng: Any = None) -> Any:
+    def demo(cls, num: int = 10, mode: str = 'null', rng: Any = None) -> ResultTable:
         import kwarray
 
         rng = kwarray.ensure_rng(rng)
@@ -308,8 +308,8 @@ class ResultTable:
     @classmethod
     def coerce(
         cls, data: Any, param_cols: Any = None, metric_cols: Any = None
-    ) -> Any:
-        _cache = {}
+    ) -> ResultTable:
+        _cache: dict[str, Any] = {}
         if isinstance(data, cls):
             return data
         elif isinstance(data, list):
@@ -511,11 +511,13 @@ class ResultAnalysis(ub.NiceRepr):
         self.stats_table: Any = None
         self.metrics_of_interest: Any = None
 
-    def __nice__(self) -> Any:
-        return ub.urepr(self._description, si=1, sv=1)
+    def __nice__(self) -> str:
+        return cast(str, ub.urepr(self._description, si=1, sv=1))
 
     @classmethod
-    def demo(cls, num: int = 10, mode: str = 'null', rng: Any = None) -> Any:
+    def demo(
+        cls, num: int = 10, mode: str = 'null', rng: Any = None
+    ) -> ResultAnalysis:
         import kwarray
 
         rng = kwarray.ensure_rng(rng)
@@ -537,14 +539,14 @@ class ResultAnalysis(ub.NiceRepr):
         self.report()
 
     @property
-    def table(self) -> Any:
+    def table(self) -> pd.DataFrame:
         return self.result_table.table
 
-    def metric_table(self) -> Any:
+    def metric_table(self) -> pd.DataFrame:
         return self.result_table.metrics
 
     @ub.memoize_property
-    def varied(self) -> Any:
+    def varied(self) -> dict[str, dict[Any, int]]:
         return self.result_table.varied
 
     def abaltion_groups(self, param_group: Any, k: int = 2) -> list[Any]:
