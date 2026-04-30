@@ -255,9 +255,12 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
         displayable = util_pandas.compat_applymap(relevant, pandas_preformat)
         rich.print(displayable.to_string())
 
-    for job in queue.jobs:
-        # TODO: should be able to set this as a queue param.
-        job.log = False
+    # NOTE: a previous version of this code unconditionally reset
+    # ``job.log = False`` on every queued job here, with a TODO that
+    # said this should be a queue param. The ``--log`` config option
+    # plumbed through ``submit_jobs(log=config['log'])`` is that queue
+    # param. The forced reset is removed; ``BashJob.log`` now reflects
+    # the configured value as set during submission.
 
     if config.run:
         ub.Path(dag.root_dpath).ensuredir()
