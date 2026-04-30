@@ -88,6 +88,19 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
             'if true, each a test is appened to each job to skip itself if its output exists'
         ),
     )
+    log = scfg.Value(
+        True,
+        isflag=True,
+        help=ub.paragraph(
+            """
+            If true (the default), every job's stdout/stderr is teed to a
+            log file under the job's ``info_dpath/status/`` directory,
+            so failures can be diagnosed after the queue runs. Set to
+            false to skip the tee (the underlying subprocess output
+            still streams to the parent terminal in serial mode).
+            """
+        ),
+    )
 
     max_configs = scfg.Value(
         None,
@@ -207,6 +220,7 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
                 queue=queue,
                 skip_existing=config['skip_existing'],
                 enable_links=config['enable_links'],
+                log=config['log'],
             )
             configured_stats.append(summary)
 

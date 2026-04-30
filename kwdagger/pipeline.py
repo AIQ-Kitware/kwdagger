@@ -406,12 +406,21 @@ class Pipeline:
         enable_links: bool = True,
         write_invocations: bool = True,
         write_configs: bool = True,
+        log: bool = True,
     ) -> dict[str, Any]:
         """
         Submits the jobs to an existing command queue or creates a new one.
 
         Also takes care of adding special bookkeeping jobs that add helper
         files and symlinks to node output paths.
+
+        Args:
+            log (bool):
+                If True (default), each per-node job is submitted with
+                ``log=True`` so cmd_queue tees the job's stdout/stderr
+                to ``info_dpath/status/<pathid>.logs``. This makes
+                post-mortem diagnosis of failed runs much easier. Set
+                to False to skip the tee.
         """
         # import shlex
         import json
@@ -496,7 +505,11 @@ class Pipeline:
                     # Submit a primary queue process
                     node_command = node.final_command()
 
-                    extra_submitkw = {}
+                    extra_submitkw: dict[str, Any] = {}
+                    # Forward the log flag so cmd_queue tees stdout/stderr
+                    # to info_dpath/status/<pathid>.logs for post-mortem
+                    # diagnosis of node failures.
+                    extra_submitkw['log'] = log
                     if 'slurm' in queue.__class__.__name__.lower():
                         # Global slurm options apply to every job.
                         extra_submitkw.update(
