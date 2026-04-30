@@ -101,3 +101,31 @@ maintainers: enough context for someone to pick up where you left off.
 - Must include: what you were working on, a substantive entry about your state of mind / reflections, uncertainties/risks, tradeoffs, what might break, what you're confident about.
 - May include: what happened, rationale, testing notes, next steps, open questions.
 - Rules: Prefer append-only. You may edit only the most recent entry *during the same session* (use timestamp + context to judge); never modify the timestamp line; once a new session starts, create a new entry. Never modify older entries. Avoid large diffs; reference files/modules/issues instead.
+
+
+### Lessons Learned
+
+Maintain `dev/lessons/lessons.md` for confirmed, reusable lessons only.
+
+Add a lesson only when you have confirmed a generic, non-obvious behavior, or
+when the lesson required a longer investigation to establish. Not every bug,
+decision, or observation deserves a lesson.
+
+Each lesson must cite solid evidence:
+- an external reference, such as a file, test, issue, commit, doc, or journal
+  entry; or
+- an MWE created under `dev/lessons/mwe/`.
+
+Keep entries short and scoped.
+
+Format:
+
+- **Lesson:** reusable takeaway.
+- **Evidence / MWE:** supporting reference.
+- **Applies when:** conditions where this lesson is relevant.
+
+Rules: no speculation; prefer append-only; supersede incorrect lessons with a
+new entry; keep diffs small.
+
+If a lesson seems important, but a MWE is not possible, label the lesson as
+SPECULATIVE.
