@@ -90,12 +90,12 @@ class ReverseHashTable:
             if info['status'] != 'exists':
                 # Convinience
                 if FULL_TEXT:
-                    full_text = cast(str, ub.urepr(full_shelf, nl=3))
+                    full_text = ub.urepr(full_shelf, nl=3)
                     self.text_fpath.write_text(full_text)
 
                 if DPATH_TEXT:
                     fpath = self.file_dpath / key
-                    datas_text = cast(str, ub.urepr(datas, nl=3))
+                    datas_text = ub.urepr(datas, nl=3)
                     fpath.write_text(datas_text)
         return info
 
@@ -150,7 +150,7 @@ def condense_config(
     human_opts = params & human_opts
     other_opts = params - human_opts
     if len(human_opts):
-        human_part = cast(str, ub.urepr(human_opts, compact=1)) + '_'
+        human_part = ub.urepr(human_opts, compact=True) + '_'
     else:
         human_part = ''
     # This hash convention was modified wrt to the old geowatch version

@@ -558,7 +558,7 @@ class ParamPlotter:
         if [r for r in rois if r]:
             title_builder.ensure_newline()
             title_builder.add_part(
-                f'Macro Analysis over {ub.urepr(rois, sv=1, nl=0)}'
+                f'Macro Analysis over {ub.urepr(rois, sv=True, nl=0)}'
             )
         ax.set_title(title_builder.finalize())
         ax.set_xscale(xscale)
@@ -902,7 +902,7 @@ class ParamPlotter:
         if [r for r in rois if r]:
             title_builder.ensure_newline()
             title_builder.add_part(
-                f'Macro Analysis over {ub.urepr(rois, sv=1, nl=0)}'
+                f'Macro Analysis over {ub.urepr(rois, sv=True, nl=0)}'
             )
         if anova_rank_p is not None:
             title_builder.ensure_newline()

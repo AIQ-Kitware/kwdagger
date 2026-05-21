@@ -203,7 +203,7 @@ class Result(ub.NiceRepr):
 
     def __nice__(self) -> str:
         row = self.to_dict()
-        text = cast(str, ub.urepr(row, compact=True, precision=2, sort=0))
+        text = ub.urepr(row, compact=True, precision=2, sort=False)
         return text
 
     @classmethod
@@ -512,7 +512,7 @@ class ResultAnalysis(ub.NiceRepr):
         self.metrics_of_interest: Any = None
 
     def __nice__(self) -> str:
-        return cast(str, ub.urepr(self._description, si=1, sv=1))
+        return ub.urepr(self._description, si=True, sv=True)
 
     @classmethod
     def demo(
@@ -1227,7 +1227,7 @@ class ResultAnalysis(ub.NiceRepr):
             if len(labels):
                 new_col = []
                 for row in data[labels].to_dict('records'):
-                    item = ub.urepr(row, compact=1, si=1)
+                    item = ub.urepr(row, compact=True, si=True)
                     new_col.append(item)
                 gkey = gname + '_key'
                 data[gkey] = new_col

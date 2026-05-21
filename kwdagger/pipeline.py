@@ -1668,8 +1668,8 @@ class ProcessNode(Node):
             final['in_paths'] = self.final_in_paths
         except KeyError as ex:
             print('ERROR: {}'.format(ub.urepr(ex, nl=1)))
-            print('condensed = {}'.format(ub.urepr(condensed, nl=1, sort=0)))
-            print('templates = {}'.format(ub.urepr(templates, nl=1, sort=0)))
+            print('condensed = {}'.format(ub.urepr(condensed, nl=1, sort=False)))
+            print('templates = {}'.format(ub.urepr(templates, nl=1, sort=False)))
             raise
         self.final = final
         return self.final

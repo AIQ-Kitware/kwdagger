@@ -73,7 +73,7 @@ class DotDict(ub.UDict):
                 nested data
         """
         flat = cls()
-        walker = ub.IndexableWalker(data, list_cls=tuple())
+        walker: Any = ub.IndexableWalker(data, list_cls=tuple())
         for path, value in walker:
             if not isinstance(value, dict):
                 spath = list(map(str, path))
@@ -453,7 +453,7 @@ def indexable_to_graph(data: Any) -> Any:
     import networkx as nx
 
     graph = nx.DiGraph()
-    walker = ub.IndexableWalker(data)
+    walker: Any = ub.IndexableWalker(data)
     for path, value in walker:
         spath = list(map(str, path))
         key = '.'.join(spath)
