@@ -17,7 +17,7 @@ TODO:
 from __future__ import annotations
 
 import typing
-from typing import Any, Sized, cast
+from typing import Any, Literal, Sized, cast
 
 import matplotlib as mpl
 import matplotlib.text  # NOQA
@@ -83,7 +83,9 @@ def dataframe_table(
     fpath: Any,
     title: Any = None,
     fontsize: int = 12,
-    table_conversion: str = 'auto',
+    table_conversion: Literal[
+        'auto', 'chrome', 'matplotlib', 'html2image', 'playwright', 'selenium'
+    ] = 'auto',
     dpi: Any = None,
     fnum: Any = None,
     show: bool | str = False,

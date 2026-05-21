@@ -1261,7 +1261,7 @@ class ParamPlotter:
 
 def edit_distance(
     string1: Any, string2: Any
-) -> float | list[float] | list[list[float]]:
+) -> int | float | list[int | float] | list[list[int | float]]:
     """
     Edit distance algorithm. String1 and string2 can be either
     strings or lists of strings
@@ -1296,15 +1296,17 @@ def edit_distance(
     isiter2 = ub.iterable(string2)
     strs1 = string1 if isiter1 else [string1]
     strs2 = string2 if isiter2 else [string2]
-    distmat = [
+    distmat: list[list[int | float]] = [
         [Levenshtein.distance(str1, str2) for str2 in strs2] for str1 in strs1
     ]
     # broadcast
-    if not isiter2:
-        distmat = [row[0] for row in distmat]
-    if not isiter1:
-        distmat = distmat[0]
-    return distmat
+    if isiter1 and isiter2:
+        return distmat
+    if isiter1:
+        return [row[0] for row in distmat]
+    if isiter2:
+        return distmat[0]
+    return distmat[0][0]
 
 
 def suggest_did_you_mean(invalid_options: Any, valid_choices: Any) -> None:
