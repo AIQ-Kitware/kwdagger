@@ -667,7 +667,7 @@ class Pipeline:
                         if node_job is not None:
                             if node_job.depends is None:
                                 node_job.depends = []
-                            node_job.depends.append(_job)
+                            cast(list, node_job.depends).append(_job)
 
         # print(f'queue={queue}')
         return summary
