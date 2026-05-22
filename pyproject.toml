@@ -1,8 +1,8 @@
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = [
-  "setuptools>=41.0.1",
   "setuptools>=77",
+  "wheel>=0.37.1",
 ]
 
 [project]
@@ -28,6 +28,7 @@ classifiers = [
 dynamic = [
   "dependencies",
   "optional-dependencies",
+  "readme",
   "version",
 ]
 urls.Homepage = "https://gitlab.kitware.com/computer-vision/kwdagger"
@@ -40,15 +41,6 @@ dynamic.dependencies.file = [
 ]
 dynamic.optional-dependencies.docs.file = [
   "requirements/docs.txt",
-]
-dynamic.optional-dependencies.gdal.file = [
-  "requirements/gdal.txt",
-]
-dynamic.optional-dependencies.graphics.file = [
-  "requirements/graphics.txt",
-]
-dynamic.optional-dependencies.headless.file = [
-  "requirements/headless.txt",
 ]
 dynamic.optional-dependencies.linting.file = [
   "requirements/linting.txt",
