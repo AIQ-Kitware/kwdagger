@@ -118,3 +118,4 @@ Command line entry points
     :target: https://gitlab.kitware.com/computer-vision/kwdagger/-/jobs
 .. |GitlabCICoverage| image:: https://gitlab.kitware.com/computer-vision/kwdagger/badges/main/coverage.svg
     :target: https://gitlab.kitware.com/computer-vision/kwdagger/commits/main
+

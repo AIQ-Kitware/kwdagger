@@ -665,7 +665,9 @@ class Pipeline:
                             tags=['boilerplate'],
                         )
                         if node_job is not None:
-                            node_job.depends.append(_job)
+                            if node_job.depends is None:
+                                node_job.depends = []
+                            cast(list, node_job.depends).append(_job)
 
         # print(f'queue={queue}')
         return summary
