@@ -1184,7 +1184,7 @@ class AggregatorAnalysisMixin:
                     if submacro:
                         print(
                             'Macro Regions LUT: '
-                            + cast(str, ub.urepr(submacro, nl=1))
+                            + ub.urepr(submacro, nl=1)
                         )
                 _justone = util_pandas.DataFrame(justone)
                 if concise:
