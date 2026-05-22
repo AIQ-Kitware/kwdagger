@@ -1,40 +1,36 @@
 #!/usr/bin/env python3
 r"""
 Demonstrates the ``monitor`` kwarg on the tmux backend through a kwdagger
-pipeline, mirroring the ``cmd_queue/examples/tmux_example.py`` use-case.
+pipeline by calling ``ScheduleEvaluationConfig.main`` directly.  This
+exercises the same code path as ``python -m kwdagger.schedule`` and
+exposes whether the four cmd_queue monitor modes are properly supported.
 
-Four monitor modes are illustrated:
+Four monitor modes are available (set via ``--monitor``):
 
-    * ``monitor='hybrid'`` (default) — the live status table renders in
-      the current shell *and* a detached ``cmd_queue monitor`` tmux
-      session is spawned alongside. Press ``[a]`` from the inline UI to
-      attach, ``[q]`` to stop watching.
+    * ``hybrid``   — inline status table in this shell *and* a detached
+                     ``cmd_queue monitor`` tmux session. Press ``[a]``
+                     to attach, ``[q]`` to stop watching.
 
-    * ``monitor='inline'`` — only the in-shell live UI; no tmux session
-      is spawned.
+    * ``inline``   — only the in-shell live UI (the kwdagger default).
 
-    * ``monitor='tmux'`` — only the detached tmux session, no inline UI.
-      Useful when you want the visible status table to survive the
-      calling shell closing.
+    * ``tmux``     — only a detached tmux session; no inline view.
 
-    * ``monitor='none'`` — no live UI; ``run()`` headless-blocks until
-      jobs finish. Useful in non-interactive scripts. The reattach hint
-      is still printed so a human can reattach via ``cmd_queue monitor``.
+    * ``none``     — headless; reattach hint is still printed so you can
+                     reconnect via ``cmd_queue monitor``.
 
-The kwdagger pipeline has four logical levels:
+The pipeline has four logical levels:
 
-    Level 1 (prep):    prep_a  prep_b  prep_c  prep_d   (parallel, 5-8s)
-    Level 2 (proc):    proc_a  proc_b  proc_c  proc_d   (each after one prep, 3-5s)
-    Level 3 (merge):   merge_x (after proc_a + proc_b)
-                       merge_y (after proc_c + proc_d)  (parallel, 3-4s)
-    Level 4 (final):   final   (after both merges, 2s)
+    Level 1 (prep):   prep_a  prep_b  prep_c  prep_d   (parallel, 5-8s)
+    Level 2 (proc):   proc_a  proc_b  proc_c  proc_d   (each after one prep)
+    Level 3 (merge):  merge_x (after proc_a + proc_b)
+                      merge_y (after proc_c + proc_d)
+    Level 4 (final):  final   (after both merges)
 
-By default proc_a is forced to fail so the failure summary (and
-dependency-skip cascade) is visible. Pass ``--failures=0`` for a clean
-run.
+By default one proc job is forced to fail so the failure summary and
+dependency-skip cascade are visible.  Pass ``--failures=0`` for a clean run.
 
-The file is also the executable itself — the ``SleepJobCLI`` sub-command
-is what kwdagger dispatches as each individual job.
+The file is also its own executable: the ``sleep_job`` sub-command is what
+kwdagger dispatches as each individual queue job.
 
 CommandLine:
     # Default (hybrid): inline monitor + attachable tmux session
@@ -43,13 +39,13 @@ CommandLine:
     # Inline-only, no side tmux session
     python ~/code/kwdagger/examples/tmux_example.py --monitor=inline
 
-    # Spawn the monitor only in a tmux session (no inline view)
+    # Monitor lives only in a tmux session
     python ~/code/kwdagger/examples/tmux_example.py --monitor=tmux
 
-    # Run silently, reattach manually with `cmd_queue monitor <name>`
+    # Headless; reattach manually with `cmd_queue monitor <name>`
     python ~/code/kwdagger/examples/tmux_example.py --monitor=none
 
-    # Force a clean run (no injected failures)
+    # Clean run (no injected failures)
     python ~/code/kwdagger/examples/tmux_example.py --failures=0
 
     # Print commands only, do not run
@@ -70,11 +66,9 @@ import ubelt as ub
 
 class SleepJobCLI(scfg.DataConfig):
     """
-    A self-contained job that sleeps for ``delay`` seconds, then either
-    writes a small JSON output or exits with failure.
-
-    This is dispatched by kwdagger as the executable for every ProcessNode
-    in this example.
+    A self-contained job that sleeps for ``delay`` seconds then either
+    writes a small JSON output or exits non-zero.  Dispatched by kwdagger
+    as the executable for every ProcessNode in this example.
     """
 
     __command__ = 'sleep_job'
@@ -83,7 +77,7 @@ class SleepJobCLI(scfg.DataConfig):
     delay = scfg.Value(1, type=float, help='seconds to sleep')
     fail = scfg.Value(False, isflag=True, help='if True, exit non-zero')
     out_fpath = scfg.Value(None, type=str, help='path to write the output JSON')
-    # Optional inputs forwarded by kwdagger; not used by this CLI.
+    # Optional inputs forwarded by kwdagger; ignored by this CLI.
     in_fpath = scfg.Value(None, type=str)
     in_fpath_a = scfg.Value(None, type=str)
     in_fpath_b = scfg.Value(None, type=str)
@@ -96,8 +90,7 @@ class SleepJobCLI(scfg.DataConfig):
         config = cls.cli(argv=argv, data=kwargs, strict=True)
         label = config.label or 'job'
 
-        # Coerce fail robustly — scriptconfig + ProcessNode may produce a
-        # string like "False" when the value is passed through --fail=False.
+        # Coerce fail robustly — ProcessNode may pass --fail=False as a string.
         fail = config.fail
         if isinstance(fail, str):
             fail = fail.strip().lower() not in ('false', '0', 'no', '')
@@ -137,7 +130,7 @@ _EXECUTABLE = f'python {_THIS_FILE} sleep_job'
 
 
 class _SleepNode(ProcessNode):
-    """Base class: runs SleepJobCLI, writes a single JSON output."""
+    """Base class: runs SleepJobCLI and writes a single JSON output."""
 
     executable = _EXECUTABLE
     algo_params = {'label': '?', 'delay': 1, 'fail': False}
@@ -225,7 +218,7 @@ def make_pipeline() -> Pipeline:
     Build the four-level DAG pipeline.
 
     Example:
-        >>> from kwdagger.examples.tmux_example import make_pipeline
+        >>> from examples.tmux_example import make_pipeline
         >>> dag = make_pipeline()
         >>> dag.print_graphs()
     """
@@ -243,19 +236,19 @@ def make_pipeline() -> Pipeline:
         'final': Final(),
     }
 
-    # Wire prep → proc (each proc depends on exactly one prep)
+    # Wire prep → proc
     nodes['prep_a'].outputs['out_fpath'].connect(nodes['proc_a'].inputs['in_fpath'])
     nodes['prep_b'].outputs['out_fpath'].connect(nodes['proc_b'].inputs['in_fpath'])
     nodes['prep_c'].outputs['out_fpath'].connect(nodes['proc_c'].inputs['in_fpath'])
     nodes['prep_d'].outputs['out_fpath'].connect(nodes['proc_d'].inputs['in_fpath'])
 
-    # Wire proc → merge (each merge waits on two proc nodes)
+    # Wire proc → merge
     nodes['proc_a'].outputs['out_fpath'].connect(nodes['merge_x'].inputs['in_fpath_a'])
     nodes['proc_b'].outputs['out_fpath'].connect(nodes['merge_x'].inputs['in_fpath_b'])
     nodes['proc_c'].outputs['out_fpath'].connect(nodes['merge_y'].inputs['in_fpath_a'])
     nodes['proc_d'].outputs['out_fpath'].connect(nodes['merge_y'].inputs['in_fpath_b'])
 
-    # Wire merge → final (the whole pipeline converges here)
+    # Wire merge → final
     nodes['merge_x'].outputs['out_fpath'].connect(nodes['final'].inputs['in_fpath_a'])
     nodes['merge_y'].outputs['out_fpath'].connect(nodes['final'].inputs['in_fpath_b'])
 
@@ -268,126 +261,76 @@ def make_pipeline() -> Pipeline:
 # Main example config and entry point
 # ---------------------------------------------------------------------------
 
-from cmd_queue.cli_boilerplate import CMDQueueConfig  # noqa: E402
 
-
-class TmuxExampleConfig(CMDQueueConfig):
+class TmuxExampleConfig(scfg.DataConfig):
     """
     Run the kwdagger tmux-monitor example.
 
-    Uses the tmux backend with a four-level pipeline DAG. The ``--monitor``
-    flag controls which of the four monitor UIs is shown while jobs run.
-    Pass ``--failures=0`` for a fully-green run.
+    Calls ``ScheduleEvaluationConfig.main`` directly to exercise the
+    standard kwdagger scheduling path and verify that the four cmd_queue
+    monitor modes are properly exposed through it.
     """
 
-    # Override run to default True so the example actually runs out of the box.
-    run = scfg.Value(
-        True,
-        isflag=True,
-        help='if False, only print commands; if True, execute them',
-        group='cmd-queue',
-    )
-
-    # Override backend default to tmux for this example.
-    backend = scfg.Value('tmux', help='queue backend', group='cmd-queue')
-
-    # Override monitor to expose all four modes (CMDQueueConfig only has 2).
     monitor = scfg.Value(
         'hybrid',
         choices=['hybrid', 'inline', 'tmux', 'none'],
-        help=(
-            "Where the live status UI runs. "
-            "'hybrid' = inline + attachable tmux session; "
-            "'inline' = inline only; "
-            "'tmux' = detached tmux session only; "
-            "'none' = headless (reattach hint still printed)."
-        ),
-        group='cmd-queue',
-    )
-
-    # Override other_session_handler to auto for convenience.
-    other_session_handler = scfg.Value(
-        'auto',
-        help='how to handle conflicting tmux sessions',
-        group='cmd-queue',
-    )
-
-    name = scfg.Value(
-        'kwdagger-tmux-example',
-        help='queue name; also the lookup key for `cmd_queue monitor <name>`',
+        help='monitor mode passed through to cmd_queue',
     )
     workers = scfg.Value(4, type=int, help='number of parallel tmux workers')
     failures = scfg.Value(
         1,
         type=int,
-        help=ub.paragraph(
-            """
-            Number of proc-* nodes to force into failure (0-4). Failures
-            cascade: dependent merge/final jobs are skipped.
-            """
-        ),
+        help='number of proc-* nodes to force into failure (0-4)',
     )
     root_dpath = scfg.Value(
         None,
-        help='output root directory. Defaults to a per-user app-dir temp location.',
+        help='output root directory (defaults to a per-user app-cache location)',
     )
-    logs = scfg.Value(
+    run = scfg.Value(
         True,
         isflag=True,
-        help='enable per-job log capture (pass log=True to submit_jobs)',
+        help='if False, only print commands without executing them',
     )
-
-    def __post_init__(self):
-        super().__post_init__()
-        if self.queue_name is None:
-            self.queue_name = self.name
-        self.tmux_workers = self.workers
+    logs = scfg.Value(True, isflag=True, help='enable per-job log capture')
 
     @staticmethod
     def main(argv=True, **kwargs):
+        import json
+
+        from kwdagger.schedule import ScheduleEvaluationConfig
+
         config = TmuxExampleConfig.cli(argv=argv, data=kwargs, strict=True)
 
-        root_dpath = config.root_dpath
-        if root_dpath is None:
-            root_dpath = ub.Path.appdir('kwdagger/tmux-example').ensuredir()
-        root_dpath = ub.Path(root_dpath).ensuredir()
+        root_dpath = ub.Path(
+            config.root_dpath or ub.Path.appdir('kwdagger/tmux-example')
+        ).ensuredir()
 
-        dag = make_pipeline()
-        dag.print_graphs()
+        # Reference the pipeline function defined in this file.
+        pipeline_ref = f'{ub.Path(__file__).absolute()}::make_pipeline()'
 
-        # Determine which proc nodes should fail.
+        # Build a single-row matrix that sets the fail flag for the chosen nodes.
         proc_names = ['proc_a', 'proc_b', 'proc_c', 'proc_d']
         fail_names = set(proc_names[: max(0, min(int(config.failures), 4))])
-        overrides = {f'{n}.fail': True for n in fail_names}
-
-        dag.configure(config=overrides, root_dpath=root_dpath, cache=True)
-
-        queue = config.create_queue()
+        matrix = {f'{n}.fail': [n in fail_names] for n in proc_names}
 
         print(
             f'\nLaunching with monitor={config.monitor!r}, '
             f'workers={config.workers}, '
-            f'failures={config.failures}, '
-            f'logs={config.logs}\n'
+            f'failures={config.failures}\n'
         )
 
-        if config.run and not queue.is_available():
-            raise SystemExit('tmux backend not available on this machine')
-
-        dag.submit_jobs(queue, log=bool(config.logs))
-
-        print_kwargs = {
-            'style': 'colors',
-            'with_locks': 0,
-            'with_status': 0,
-            'exclude_tags': ['boilerplate'],
-        }
-        config.run_queue(
-            queue,
-            print_kwargs=print_kwargs,
-            block=True,
-            onfail='kill',
-            system=True,
+        ScheduleEvaluationConfig.main(
+            argv=False,
+            pipeline=pipeline_ref,
+            params=json.dumps({'matrix': matrix}),
+            root_dpath=str(root_dpath),
+            backend='tmux',
+            tmux_workers=int(config.workers),
+            monitor=config.monitor,
+            run=bool(config.run),
+            log=bool(config.logs),
+            skip_existing=False,
+            other_session_handler='auto',
         )
 
 
