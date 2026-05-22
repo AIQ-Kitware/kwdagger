@@ -1,66 +1,167 @@
 [build-system]
-requires = [ "setuptools>=41.0.1",]
 build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools>=41.0.1",
+  "setuptools>=77",
+]
+
+[project]
+name = "kwdagger"
+description = "The kwdagger module"
+license = "Apache-2.0"
+license-files = [
+  "LICENSE",
+]
+authors = [ { name = "Jon Crall", email = "jon.crall@kitware.com" } ]
+requires-python = ">=3.10"
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Utilities",
+]
+dynamic = [
+  "dependencies",
+  "optional-dependencies",
+  "version",
+]
+urls.Homepage = "https://gitlab.kitware.com/computer-vision/kwdagger"
+scripts.kwdagger = "kwdagger.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+dynamic.dependencies.file = [
+  "requirements/runtime.txt",
+]
+dynamic.optional-dependencies.docs.file = [
+  "requirements/docs.txt",
+]
+dynamic.optional-dependencies.gdal.file = [
+  "requirements/gdal.txt",
+]
+dynamic.optional-dependencies.graphics.file = [
+  "requirements/graphics.txt",
+]
+dynamic.optional-dependencies.headless.file = [
+  "requirements/headless.txt",
+]
+dynamic.optional-dependencies.linting.file = [
+  "requirements/linting.txt",
+]
+dynamic.optional-dependencies.optional.file = [
+  "requirements/optional.txt",
+]
+dynamic.optional-dependencies.tests.file = [
+  "requirements/tests.txt",
+]
+dynamic.readme.file = [
+  "README.rst",
+]
+dynamic.readme.content-type = "text/x-rst"
+dynamic.version.attr = "kwdagger.__version__"
+package-data."*" = [
+  "requirements/*.txt",
+]
+packages.find.where = [
+  ".",
+]
+packages.find.include = [
+  "kwdagger*",
+]
+
+[tool.uv]
+exclude-newer = "2026-05-21"
+
+[tool.ruff]
+target-version = "py38"
+line-length = 80
+format.indent-style = "space"
+format.quote-style = "single"
+format.line-ending = "auto"
+format.skip-magic-trailing-comma = false
+format.docstring-code-format = false
+lint.select = [
+  "E",
+  "F",
+  "I",
+]
+lint.ignore = [
+  "E402",
+  "E501",
+]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.ty]
+rules.unused-type-ignore-comment = "ignore"
+rules.unresolved-import = "ignore"
+rules.possibly-missing-submodule = "ignore"
+
+[tool.pytest]
+ini_options.addopts = "-p no:doctest --xdoctest --xdoctest-style=google --ignore-glob=setup.py --ignore-glob=dev --ignore-glob=docs"
+ini_options.norecursedirs = ".git ignore build __pycache__ dev _skbuild docs"
+ini_options.filterwarnings = [
+  "default",
+  "ignore:.*No cfgstr given in Cacher constructor or call.*:Warning",
+  "ignore:.*Define the __nice__ method for.*:Warning",
+  "ignore:.*private pytest class or function.*:Warning",
+]
+
+[tool.coverage]
+run.branch = true
+report.exclude_lines = [
+  ".*  # nocover",
+  ".*  # pragma: no cover",
+  ".*if six.PY2:",
+  "^ *pass *$",
+  "^ *raise",
+  "def __repr__",
+  "if __name__ == .__main__.:",
+  "if _debug:",
+  "if 0:",
+  "if trace is not None",
+  "pragma: no cover",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "verbose = .*",
+]
+report.omit = [
+  "*/setup.py",
+  "kwdagger/__main__.py",
+]
 
 [tool.xcookie]
-tags = [ "kitware", "gitlab", "purepy"]
+tags = [
+  "kitware",
+  "gitlab",
+  "purepy",
+]
 mod_name = "kwdagger"
 repo_name = "kwdagger"
 pkg_name = "kwdagger"
 rel_mod_parent_dpath = "."
-os = [ "linux", "osx", "win",]
+os = [
+  "linux",
+  "osx",
+  "win",
+]
 min_python = "3.10"
 author = "Jon Crall"
 author_email = "jon.crall@kitware.com"
 description = "The kwdagger module"
 license = "Apache 2"
 dev_status = "planning"
-remote_host = "https://gitlab.kitware.com"
+remote_host = "gitlab.kitware.com"
 remote_group = "computer-vision"
-
-[tool.xcookie.entry_points]
-# the console_scripts entry point creates the xdoctest executable
-console_scripts = [
-    "kwdagger = kwdagger.__main__:main",
+url = "https://gitlab.kitware.com/computer-vision/kwdagger"
+use_setup_py = false
+use_pyproject_requirements = false
+entry_points.console_scripts = [
+  "kwdagger = kwdagger.__main__:main",
 ]
-
-[tool.pytest.ini_options]
-addopts = "-p no:doctest --xdoctest --xdoctest-style=google --ignore-glob=setup.py --ignore-glob=dev --ignore-glob=docs"
-norecursedirs = ".git ignore build __pycache__ dev _skbuild docs"
-filterwarnings = [ "default", "ignore:.*No cfgstr given in Cacher constructor or call.*:Warning", "ignore:.*Define the __nice__ method for.*:Warning", "ignore:.*private pytest class or function.*:Warning",]
-
-[tool.coverage.run]
-branch = true
-
-[tool.coverage.report]
-exclude_lines = [ "pragma: no cover", ".*  # pragma: no cover", ".*  # nocover", "def __repr__", "raise AssertionError", "raise NotImplementedError", "if 0:", "if trace is not None", "verbose = .*", "^ *raise", "^ *pass *$", "if _debug:", "if __name__ == .__main__.:", ".*if six.PY2:",]
-omit = [ "kwdagger/__main__.py", "*/setup.py",]
-
-[tool.mypy]
-ignore_missing_imports = true
-#ignore_errors = true
-
-[tool.ty.rules]
-unused-type-ignore-comment = "ignore"
-unresolved-import = "ignore"
-possibly-missing-submodule = "ignore"
-
-[tool.ruff]
-line-length = 80
-target-version = "py38"
-
-[tool.ruff.lint]
-# Enable Flake8 (E, F) and isort (I) rules.
-select = ["E", "F", "I"]
-# Ignore specific rules, for example, E501 (line too long) as it's handled by the formatter.
-ignore = [
-    "E501",  # line too long
-    "E402",  # Module level import not at top of file
-]
-
-[tool.ruff.format]
-quote-style = "single"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
-docstring-code-format = false
