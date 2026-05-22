@@ -8,7 +8,7 @@ Notes:
 
     pip install sphinx sphinx-autobuild sphinx_rtd_theme sphinxcontrib-napoleon
 
-    cd /home/joncrall/code/kwdagger
+    cd ~/code/kwdagger
     mkdir -p docs
     cd docs
 
@@ -17,9 +17,9 @@ Notes:
     # need to edit the conf.py
 
     # Remove any old auto docs folder and regenerate it.
-    rm -rf /home/joncrall/code/kwdagger/docs/source/auto
-    cd /home/joncrall/code/kwdagger/docs
-    sphinx-apidoc --private --separate --force --output-dir /home/joncrall/code/kwdagger/docs/source/auto /home/joncrall/code/kwdagger/kwdagger
+    rm -rf ~/code/kwdagger/docs/source/auto
+    cd ~/code/kwdagger/docs
+    sphinx-apidoc --private --separate --force --output-dir ~/code/kwdagger/docs/source/auto ~/code/kwdagger/kwdagger
     git add source/auto/*.rst
 
     # Note: the module should importable before running this
