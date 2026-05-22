@@ -17,7 +17,11 @@ from kwdagger.utils import util_dotdict
 
 
 def build_tables(
-    root_dpath, dag, io_workers, eval_nodes, cache_resolved_results
+    root_dpath: Any,
+    dag: Any,
+    io_workers: Any,
+    eval_nodes: Any,
+    cache_resolved_results: Any,
 ) -> dict[str, dict[str, Any]]:
     import pandas as pd
     from kwutil import util_progress
@@ -109,7 +113,7 @@ def build_tables(
 
             # Pattern match
             # node.template_out_paths[out_node.name]
-            cols = {
+            cols: dict[str, list[Any]] = {
                 'index': [],
                 'metrics': [],
                 'requested_params': [],
@@ -178,7 +182,11 @@ def build_tables(
 
 
 def load_result_worker(
-    fpath, node_name, node=None, dag=None, use_cache: bool = True
+    fpath: Any,
+    node_name: Any,
+    node: Any = None,
+    dag: Any = None,
+    use_cache: bool = True,
 ) -> dict[str, Any]:
     """
     Main driver for loading results
@@ -347,7 +355,9 @@ def load_result_worker(
     return result
 
 
-def load_result_resolved(node_dpath, node=None, dag=None) -> dict[str, Any]:
+def load_result_resolved(
+    node_dpath: Any, node: Any = None, dag: Any = None
+) -> dict[str, Any]:
     """
     Recurse through the DAG filesytem structure and load resolved
     configurations from each step.
@@ -458,7 +468,7 @@ def load_result_resolved(node_dpath, node=None, dag=None) -> dict[str, Any]:
     return flat_resolved
 
 
-def out_node_matching_fpaths(out_node) -> list[Any]:
+def out_node_matching_fpaths(out_node: Any) -> list[str]:
     out_template = out_node.template_value
     parser = parse.Parser(str(out_template))
     patterns = {n: '*' for n in parser.named_fields}
@@ -468,7 +478,7 @@ def out_node_matching_fpaths(out_node) -> list[Any]:
     return fpaths
 
 
-def new_process_context_parser(proc_item) -> dict[str, Any]:
+def new_process_context_parser(proc_item: Any) -> dict[str, Any]:
     """
     Load parameters out of data saved by a ProcessContext object
     """
@@ -504,7 +514,7 @@ if 1:
     if np.bool_ is not bool:
         # Hack for a ubelt issue
         @ub.hash_data.register(np.bool_)  # type: ignore
-        def _hashnp_bool(data):
+        def _hashnp_bool(data: Any) -> tuple[bytes, bytes]:
             from ubelt.util_hash import _int_to_bytes
 
             # warnings.warn('Hashing ints is slow, numpy is preferred')

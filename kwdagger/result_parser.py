@@ -67,7 +67,7 @@ def parse_resource_item(
 ) -> dict[str, Any]:
     import kwutil
 
-    resources = {}
+    resources: dict[str, Any] = {}
     ureg = kwutil.util_units.unit_registry()
     pred_prop = item['properties']
 
@@ -99,7 +99,7 @@ def parse_resource_item(
     hardware_parts = []
 
     if 'machine' in pred_prop:
-        cpu_name = pred_prop['machine']['cpu_brand']
+        cpu_name: Any = pred_prop['machine']['cpu_brand']
         if cpu_name is not None:
             cpu_name = re.sub('.*Gen Intel.R. Core.TM. ', '', cpu_name)
         else:
@@ -108,7 +108,7 @@ def parse_resource_item(
         hardware_parts.append(cpu_name)
 
     try:
-        gpu_name = pred_prop['device_info']['device_name']
+        gpu_name: Any = pred_prop['device_info']['device_name']
         resources['gpu_name'] = gpu_name
         hardware_parts.append(gpu_name)
     except KeyError:
@@ -131,7 +131,7 @@ def parse_resource_item(
 
 
 # @ub.memoize
-def _load_json(fpath) -> Any:
+def _load_json(fpath: Any) -> Any:
     # memo hack for development
     with open(fpath, 'r') as file:
         data = json.load(file)

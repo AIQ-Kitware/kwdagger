@@ -210,23 +210,25 @@ class QueryPlan:
 
         if data is None:
             # Raw string → __all__ AND group
-            plan = {'__all__': [('and', [str(cli_arg)])]}
-            return QueryPlan(plan=plan, strict=strict)  # type: ignore
+            raw_plan: Dict[str, List[Group]] = {
+                '__all__': [('and', [str(cli_arg)])]
+            }
+            return QueryPlan(plan=raw_plan, strict=strict)
 
         # YAML scalar -> same as raw string
         if isinstance(data, str):
-            plan = {'__all__': [('and', [data])]}
-            return QueryPlan(plan=plan, strict=strict)  # type: ignore
+            scalar_plan: Dict[str, List[Group]] = {'__all__': [('and', [data])]}
+            return QueryPlan(plan=scalar_plan, strict=strict)
 
         # YAML list -> __all__ AND chain
         if isinstance(data, list):
             exprs = [str(x) for x in data]
-            plan = {'__all__': [('and', exprs)]}
-            return QueryPlan(plan=plan, strict=strict)  # type: ignore
+            list_plan: Dict[str, List[Group]] = {'__all__': [('and', exprs)]}
+            return QueryPlan(plan=list_plan, strict=strict)
 
         # YAML mapping -> per-node
         if isinstance(data, dict):
-            plan: Dict[str, List[Group]] = {}
+            map_plan: Dict[str, List[Group]] = {}
             for key, val in data.items():
                 if key == 'options':
                     # currently ignored; you can extend (e.g., strict/error modes) here
@@ -234,8 +236,8 @@ class QueryPlan:
                 node = str(key)
                 groups: List[Group] = _coerce_value_to_groups(val)
                 if groups:
-                    plan[node] = groups
-            return QueryPlan(plan=plan, strict=strict)
+                    map_plan[node] = groups
+            return QueryPlan(plan=map_plan, strict=strict)
 
         raise TypeError(f'Unsupported --query type: {type(data).__name__}')
 
@@ -448,7 +450,7 @@ class QueryPlan:
             # Highlight df['col'] / df["col"]
             pattern = r"""df\[\s*(['"])(?P<col>.+?)\1\s*\]"""
 
-            def repl(m):
+            def repl(m: re.Match[str]) -> str:
                 col = m.group('col')
                 return f"df['**{col}**']"
 
@@ -501,12 +503,12 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
     """
     groups: List[Group] = []
 
-    def add_and(exprs: Sequence[str]):
+    def add_and(exprs: Sequence[str]) -> None:
         exprs = [str(e) for e in exprs if str(e).strip()]
         if exprs:
             groups.append(('and', list(exprs)))
 
-    def add_or(exprs: Sequence[str]):
+    def add_or(exprs: Sequence[str]) -> None:
         exprs = [str(e) for e in exprs if str(e).strip()]
         if exprs:
             groups.append(('or', list(exprs)))

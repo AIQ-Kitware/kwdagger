@@ -136,6 +136,7 @@ from typing import Any
 import kwutil
 import scriptconfig as scfg
 import ubelt as ub
+from kwdagger.utils import util_dotdict
 
 from kwdagger.pipeline import Pipeline, ProcessNode
 
@@ -157,7 +158,9 @@ class Stage1PredictCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(cls, argv: int | bool | list[str] = 1, **kwargs):
+    def main(
+        cls, argv: int | bool | list[str] = 1, **kwargs: Any
+    ) -> None:
         config = cls.cli(  # type: ignore
             argv=argv,   # type: ignore
             data=kwargs,
@@ -165,7 +168,7 @@ class Stage1PredictCLI(scfg.DataConfig):
             verbose='auto',
         )
 
-        data = {'info': [], 'result': None}
+        data: dict[str, Any] = {'info': [], 'result': None}
 
         proc_context = kwutil.ProcessContext(
             name='stage1_predict',
@@ -204,7 +207,9 @@ class Stage1EvaluateCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(cls, argv: int | bool | list[str] = 1, **kwargs):
+    def main(
+        cls, argv: int | bool | list[str] = 1, **kwargs: Any
+    ) -> None:
         config = cls.cli(  # type: ignore
             argv=argv,   # type: ignore
             data=kwargs,
@@ -294,12 +299,10 @@ class Stage1_Predict(ProcessNode):
         'workers': 0,
     }
 
-    def load_result(self, node_dpath):
+    def load_result(self, node_dpath: Any) -> util_dotdict.DotDict:
         import json
 
         from kwdagger.aggregate_loader import new_process_context_parser
-        from kwdagger.utils import util_dotdict
-
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
@@ -332,7 +335,7 @@ class Stage1_Evaluate(ProcessNode):
         'workers': 0,
     }
 
-    def load_result(self, node_dpath):
+    def load_result(self, node_dpath: Any) -> util_dotdict.DotDict:
         """
         The specific implementation uses convinience functions that rely on how
         the script implemention stores results, but any manual implementation
@@ -345,8 +348,6 @@ class Stage1_Evaluate(ProcessNode):
         import json
 
         from kwdagger.aggregate_loader import new_process_context_parser
-        from kwdagger.utils import util_dotdict
-
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
@@ -356,7 +357,7 @@ class Stage1_Evaluate(ProcessNode):
         flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
         return flat_resolved
 
-    def default_metrics(self):
+    def default_metrics(self) -> list[dict[str, Any]]:
         """
         Returns:
             List[Dict]: containing information on how to interpret and
@@ -379,7 +380,7 @@ class Stage1_Evaluate(ProcessNode):
         return metric_infos
 
     @property
-    def default_vantage_points(self):
+    def default_vantage_points(self) -> list[dict[str, Any]]:
         vantage_points = [
             {
                 'metric1': 'metrics.stage1_evaluate.accuracy',
@@ -409,7 +410,7 @@ def my_demo_pipeline() -> Pipeline:
         xdev.startfile('proc_graph.png')
     """
     # Define the nodes as stages in the pipeline
-    nodes = {}
+    nodes: dict[str, Any] = {}
     nodes['stage1_predict'] = Stage1_Predict()
     nodes['stage1_evaluate'] = Stage1_Evaluate()
 
@@ -478,7 +479,7 @@ def run_demo_schedule() -> dict[str, Any]:
     return info
 
 
-def run_demo_aggregate() -> object:
+def run_demo_aggregate() -> None:
     # TODO: use these in doctests in a useful way where
     # the doctest has some control
     # Also load the results
@@ -509,6 +510,7 @@ def run_demo_aggregate() -> object:
     aggregate_config['target'] = [eval_dpath]
     aggregate_config['output_dpath'] = eval_dpath / 'full_aggregate'
     aggregate.__cli__.main(argv=False, **aggregate_config)
+    return None
 
 
 if __name__ == '__main__':

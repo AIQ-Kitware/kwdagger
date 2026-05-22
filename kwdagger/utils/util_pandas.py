@@ -5,12 +5,13 @@ Heavilly modified / simplified subset of data frame extensions ported from geowa
 from __future__ import annotations
 
 import math
+from typing import Any, cast
 
 import pandas as pd
 import ubelt as ub
 
 
-def compat_applymap(df, func):
+def compat_applymap(df: Any, func: Any) -> Any:
     """Apply ``func`` elementwise without triggering pandas 3 deprecations."""
     if hasattr(df, 'map'):
         return df.map(func)
@@ -35,11 +36,13 @@ class DataFrame(pd.DataFrame):
     """
 
     @property
-    def _constructor(self):
+    def _constructor(self) -> type[DataFrame]:
         return DataFrame
 
     @classmethod
-    def random(cls, rows=10, columns='abcde', rng=None):
+    def random(
+        cls: type[DataFrame], rows: Any = 10, columns: Any = 'abcde', rng: Any = None
+    ) -> DataFrame:
         """
         Create a random data frame for testing.
         """
@@ -47,7 +50,7 @@ class DataFrame(pd.DataFrame):
 
         rng = kwarray.ensure_rng(rng)
 
-        def coerce_index(data):
+        def coerce_index(data: Any) -> list[Any]:
             if isinstance(data, int):
                 return list(range(data))
             else:
@@ -57,11 +60,13 @@ class DataFrame(pd.DataFrame):
         index = coerce_index(rows)
         rand = getattr(rng, 'rand', None) or getattr(rng, 'random')
         random_data = [{c: rand() for c in columns} for r in index]
-        self = cls(random_data, index=index, columns=columns)
+        self = cast(Any, cls)(
+            cast(Any, random_data), index=cast(Any, index), columns=cast(Any, columns)
+        )
         return self
 
     @classmethod
-    def coerce(cls, data):
+    def coerce(cls: type[DataFrame], data: Any) -> DataFrame:
         """
         Ensures that the input is an instance of our extended DataFrame.
 
@@ -104,7 +109,7 @@ class DataFrame(pd.DataFrame):
         else:
             return cls(data)
 
-    def safe_drop(self, labels, axis=0):
+    def safe_drop(self, labels: Any, axis: int = 0) -> DataFrame:
         """
         Like :func:`self.drop`, but does not error if the specified labels do
         not exist.
@@ -122,17 +127,17 @@ class DataFrame(pd.DataFrame):
         """
         existing = self.axes[axis]
         labels = existing.intersection(labels)
-        return self.drop(labels, axis=axis)
+        return cast(DataFrame, self.drop(labels, axis=axis))
 
     def reorder(
         self,
-        head=None,
-        tail=None,
-        axis=0,
-        missing='error',
-        fill_value=float('nan'),
-        **kwargs,
-    ):
+        head: Any = None,
+        tail: Any = None,
+        axis: int = 0,
+        missing: str = 'error',
+        fill_value: Any = float('nan'),
+        **kwargs: Any,
+    ) -> DataFrame:
         """
         Change the order of the row or column index. Unspecified labels will
         keep their existing order after the specified labels.
@@ -228,9 +233,12 @@ class DataFrame(pd.DataFrame):
             raise KeyError(missing)
         remain = existing.difference(resolved_head).difference(resolved_tail)
         new_labels = list(resolved_head) + list(remain) + list(resolved_tail)
-        return self.reindex(labels=new_labels, axis=axis, fill_value=fill_value)
+        return cast(
+            DataFrame,
+            self.reindex(labels=new_labels, axis=axis, fill_value=fill_value),
+        )
 
-    def match_columns(self, pat, hint='glob'):
+    def match_columns(self, pat: Any, hint: str = 'glob') -> list[Any]:
         """
         Find matching columns in O(N)
         """
@@ -240,7 +248,7 @@ class DataFrame(pd.DataFrame):
         found = [c for c in self.columns if pat.match(c)]
         return found
 
-    def search_columns(self, pat, hint='glob'):
+    def search_columns(self, pat: Any, hint: str = 'glob') -> list[Any]:
         """
         Find matching columns in O(N)
         """
@@ -252,12 +260,12 @@ class DataFrame(pd.DataFrame):
 
     def varied_values(
         self,
-        min_variations=0,
-        max_variations=None,
-        default=ub.NoParam,
-        dropna=False,
-        on_error='raise',
-    ):
+        min_variations: int = 0,
+        max_variations: int | None = None,
+        default: Any = ub.NoParam,
+        dropna: bool = False,
+        on_error: str = 'raise',
+    ) -> dict[Any, Any]:
         """
         Summarize how which values are varied within each column
 
@@ -298,7 +306,7 @@ class DataFrame(pd.DataFrame):
         )
         return varied
 
-    def varied_value_counts(self, **kwargs):
+    def varied_value_counts(self, **kwargs: Any) -> dict[Any, Any]:
         """
         Summarize how many times values are varied within each column
 
@@ -324,7 +332,9 @@ class DataFrame(pd.DataFrame):
         varied_counts = varied_value_counts(self, **kwargs)
         return varied_counts
 
-    def shorten_columns(self, return_mapping=False, min_length=0):
+    def shorten_columns(
+        self, return_mapping: bool = False, min_length: int = 0
+    ) -> Any:
         """
         Shorten column names by separating unique suffixes based on the "."
         separator.
@@ -394,7 +404,9 @@ class DataFrame(pd.DataFrame):
         else:
             return new
 
-    def argextrema(self, columns, objective='maximize', k=1):
+    def argextrema(
+        self, columns: Any, objective: Any = 'maximize', k: int = 1
+    ) -> Any:
         """
         Finds the top K indexes (locs) for given columns.
 
@@ -430,9 +442,9 @@ class DataFrame(pd.DataFrame):
             >>> assert len(top_indexes) == k
             >>> print(self.loc[top_indexes])
         """
-        ascending = None
+        ascending: Any = None
 
-        def rectify_ascending(objective_str):
+        def rectify_ascending(objective_str: str) -> Any:
             if objective_str in {'max', 'maximize'}:
                 ascending = False
             elif objective_str in {'min', 'minimize'}:
@@ -444,12 +456,14 @@ class DataFrame(pd.DataFrame):
         if isinstance(objective, str):
             ascending = rectify_ascending(objective)
         else:
-            ascending = [rectify_ascending(o) for o in objective]
+            ascending_list = [rectify_ascending(o) for o in objective]
+            ascending = ascending_list
 
         ranked_data = self.sort_values(columns, ascending=ascending)
+        k2: int | None = k
         if isinstance(k, float) and math.isinf(k):
-            k = None
-        top_locs = ranked_data.index[0:k]
+            k2 = None
+        top_locs = ranked_data.index[0:k2]
         return top_locs
 
 
@@ -496,13 +510,15 @@ class DotDictDataFrame(DataFrame):
     """
 
     @property
-    def _constructor(self):
+    def _constructor(self) -> type[DotDictDataFrame]:
         return DotDictDataFrame
 
-    def __init__(self, *args, **kw):
+    def __init__(self, *args: Any, **kw: Any) -> None:
         super().__init__(*args, **kw)
 
-    def _prefix_columns(self, prefix, with_mapping=False):
+    def _prefix_columns(
+        self, prefix: Any, with_mapping: bool = False
+    ) -> tuple[list[Any], dict[Any, Any] | None]:
         if isinstance(prefix, str):
             prefix_set = {prefix}
             prefixes = (prefix + '.',)
@@ -521,7 +537,7 @@ class DotDictDataFrame(DataFrame):
                         mapping[c] = c[len(p) + 1 :]
         return cols, mapping
 
-    def _suffix_columns(self, suffix):
+    def _suffix_columns(self, suffix: Any) -> list[Any]:
         if isinstance(suffix, str):
             suffix_set = {suffix}
             suffixes = ('.' + suffix,)
@@ -533,7 +549,9 @@ class DotDictDataFrame(DataFrame):
         ]
         return cols
 
-    def prefix_subframe(self, prefix, drop_prefix=False):
+    def prefix_subframe(
+        self, prefix: Any, drop_prefix: bool = False
+    ) -> DotDictDataFrame:
         """
         Get a subset of columns by prefix
 
@@ -569,9 +587,9 @@ class DotDictDataFrame(DataFrame):
         new = self.loc[:, cols]
         if drop_prefix:
             new.rename(mapping, inplace=True, axis=1)
-        return new
+        return cast(DotDictDataFrame, new)
 
-    def suffix_subframe(self, suffix):
+    def suffix_subframe(self, suffix: Any) -> DotDictDataFrame:
         """
         Get a subset of columns by suffix
 
@@ -584,10 +602,10 @@ class DotDictDataFrame(DataFrame):
         """
         cols = self._suffix_columns(suffix)
         new = self.loc[:, cols]
-        return new
+        return cast(DotDictDataFrame, new)
 
     @property
-    def prefix(self):
+    def prefix(self) -> Any:
         """
         Allows for self.prefix[text] syntax
 
@@ -612,7 +630,7 @@ class DotDictDataFrame(DataFrame):
         return _PrefixLocIndexer(self)
 
     @property
-    def suffix(self):
+    def suffix(self) -> Any:
         """
         Allows for self.suffix[text] syntax
 
@@ -636,7 +654,7 @@ class DotDictDataFrame(DataFrame):
         """
         return _SuffixLocIndexer(self)
 
-    def insert_prefix(self, prefix):
+    def insert_prefix(self, prefix: str) -> DotDictDataFrame:
         """
         Args:
             prefix (str): prefix to insert in all columns with a dot separator
@@ -656,20 +674,20 @@ class DotDictDataFrame(DataFrame):
         assert not prefix.endswith('.'), 'dont include the dot'
         mapper = {c: prefix + '.' + c for c in self.columns}
         new = self.rename(mapper, axis=1)
-        return new
+        return cast(DotDictDataFrame, new)
 
 
 class _PrefixLocIndexer:
-    def __init__(self, parent):
+    def __init__(self, parent: Any) -> None:
         self.parent = parent
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: Any) -> Any:
         return self.parent.prefix_subframe(index)
 
 
 class _SuffixLocIndexer:
-    def __init__(self, parent):
+    def __init__(self, parent: Any) -> None:
         self.parent = parent
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: Any) -> Any:
         return self.parent.suffix_subframe(index)

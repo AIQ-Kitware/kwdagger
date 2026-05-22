@@ -4,7 +4,7 @@ pip install pygtrie
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 import numpy as np  # NOQA
 
@@ -144,7 +144,7 @@ def shortest_unique_prefixes(
     return unique
 
 
-def _trie_iternodes(self):
+def _trie_iternodes(self: Any) -> Any:
     """
     Generates all nodes in the trie
 
@@ -178,7 +178,7 @@ def _trie_iternodes(self):
                 stack.append([v for k, v in node.children.iteritems()])
 
 
-def _trie_iteritems(self):
+def _trie_iteritems(self: Any) -> Any:
     """
     Generates all nodes in the trie
 

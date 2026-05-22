@@ -5,6 +5,7 @@ Common table helpers (i.e. List[Dict])
 from __future__ import annotations
 
 import math
+from typing import Any, cast
 
 import ubelt as ub
 
@@ -12,7 +13,7 @@ import ubelt as ub
 class UnhashablePlaceholder(str): ...
 
 
-def _ensure_longform(longform):
+def _ensure_longform(longform: Any) -> Any:
     if hasattr(longform, 'to_dicts'):
         # Handle polars
         longform = longform.to_dicts()
@@ -23,13 +24,13 @@ def _ensure_longform(longform):
 
 
 def varied_values(
-    longform,
+    longform: Any,
     min_variations: int = 0,
     max_variations: int | None = None,
-    default=ub.NoParam,
+    default: Any = ub.NoParam,
     dropna: bool = False,
     on_error: str = 'raise',
-):
+) -> dict[Any, set[Any]]:
     """
     Given a list of dictionaries, find the values that differ between them.
 
@@ -93,7 +94,7 @@ def varied_values(
 
     longform = _ensure_longform(longform)
 
-    columns = set()
+    columns: set[Any] = set()
     for row in longform:
         if default is ub.NoParam and len(row) != len(columns) and len(columns):
             missing = set(columns).symmetric_difference(set(row))
@@ -107,7 +108,7 @@ def varied_values(
     cannonical_nan = float('nan')
 
     # Build up the set of unique values for each column
-    varied = ub.ddict(set)
+    varied: dict[Any, set[Any]] = ub.ddict(set)
     for row in longform:
         for key in columns:
             value = row.get(key, default)
@@ -116,7 +117,7 @@ def varied_values(
             if (
                 isinstance(value, numbers.Number)
                 and not isinstance(value, tuple)
-                and math.isnan(float(value))
+                and math.isnan(float(cast(float, value)))
             ):
                 if dropna:
                     continue
@@ -160,13 +161,13 @@ def varied_values(
 
 
 def varied_value_counts(
-    longform,
+    longform: Any,
     min_variations: int = 0,
     max_variations: int | None = None,
-    default=ub.NoParam,
+    default: Any = ub.NoParam,
     dropna: bool = False,
     on_error: str = 'raise',
-):
+) -> dict[Any, Any]:
     """
     Given a list of dictionaries, find the values that differ between them.
 
@@ -231,7 +232,7 @@ def varied_value_counts(
 
     longform = _ensure_longform(longform)
 
-    columns = set()
+    columns: set[Any] = set()
     for row in longform:
         if default is ub.NoParam and len(row) != len(columns) and len(columns):
             missing = set(columns).symmetric_difference(set(row))
@@ -247,7 +248,7 @@ def varied_value_counts(
     # Build up the set of unique values for each column
     from collections import Counter
 
-    varied_counts = ub.ddict(Counter)
+    varied_counts: dict[Any, Counter[Any]] = ub.ddict(Counter)
     for row in longform:
         for key in columns:
             value = row.get(key, default)
@@ -257,7 +258,7 @@ def varied_value_counts(
             if (
                 isinstance(value, numbers.Number)
                 and not isinstance(value, tuple)
-                and math.isnan(float(value))
+                and math.isnan(float(cast(float, value)))
             ):
                 if dropna:
                     continue
