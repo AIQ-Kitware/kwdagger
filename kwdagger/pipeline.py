@@ -117,6 +117,22 @@ class Pipeline:
     def demo(cls) -> 'Pipeline':
         return demodata_pipeline()
 
+    def to_yaml_spec(self) -> dict[str, Any]:
+        """
+        Serialize this pipeline to the declarative dict form.
+
+        This is the inverse of :func:`kwdagger.load_yaml_pipeline`: the returned
+        mapping can be fed back through :func:`coerce_pipeline` to reconstruct an
+        equivalent pipeline. Custom :class:`ProcessNode` subclasses are emitted
+        as ``class`` references (their behavior lives in code, not data).
+
+        Returns:
+            dict: a ``{'nodes': ..., 'edges': ...}`` mapping.
+        """
+        from kwdagger.yaml_pipeline import dump_yaml_pipeline
+
+        return dump_yaml_pipeline(self)
+
     def _ensure_clean(self) -> None:
         if self._dirty:
             self.build_nx_graphs()
@@ -2537,22 +2553,51 @@ def coerce_pipeline(pipeline: Any) -> Pipeline:
     Attempts to resolve a concise expression (typically from the command line) into a pre-defined pipeline.
 
     Args:
-        pipeline (str): a pre-registered name, or evaluatable code to construct a pipeline.
+        pipeline (str | dict | PathLike | Pipeline):
+            One of:
+
+            * a :class:`Pipeline` instance (returned as-is),
+            * a declarative mapping with ``nodes`` / ``edges`` keys, or a path to
+              a ``.yaml`` / ``.yml`` / ``.json`` file containing one (the
+              hardened, code-free form -- see
+              :func:`kwdagger.yaml_pipeline.load_yaml_pipeline`),
+            * a pre-registered name, or evaluatable code, e.g.
+              ``"module.func()"`` or ``"file.py::func()"``.
 
     Returns:
         Pipeline
     """
-    if isinstance(pipeline, str):
-        # New experimental pipelines
-        dag = _resolve_pipeline(pipeline)
-    else:
-        if isinstance(pipeline, Pipeline):
-            return pipeline
-        else:
-            raise TypeError(
-                'Unknown coerce technique for {type(pipeline)} with value {pipeline}'
-            )
-    return dag
+    import os
+
+    if isinstance(pipeline, Pipeline):
+        return pipeline
+
+    if isinstance(pipeline, dict):
+        # Declarative (pure-data) pipeline, no code execution.
+        from kwdagger.yaml_pipeline import load_yaml_pipeline
+
+        return load_yaml_pipeline(pipeline)
+
+    if isinstance(pipeline, (str, os.PathLike)):
+        pipeline_str = os.fspath(pipeline)
+        # A path to a YAML/JSON pipeline file is the hardened variant. The
+        # ``::`` form is reserved for executable Python files, so skip those.
+        if '::' not in pipeline_str:
+            suffix = pipeline_str.rsplit('.', 1)[-1].lower()
+            if suffix in {'yaml', 'yml', 'json'}:
+                if not os.path.exists(pipeline_str):
+                    raise FileNotFoundError(
+                        f'YAML pipeline file does not exist: {pipeline_str}'
+                    )
+                from kwdagger.yaml_pipeline import load_yaml_pipeline
+
+                return load_yaml_pipeline(pipeline_str)
+        # Fall back to the (code-executing) module/expression resolver.
+        return _resolve_pipeline(pipeline_str)
+
+    raise TypeError(
+        f'Unknown coerce technique for {type(pipeline)} with value {pipeline}'
+    )
 
 
 def _resolve_pipeline(pipeline: Any) -> Any:

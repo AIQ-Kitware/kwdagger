@@ -1,0 +1,89 @@
+# Declarative (pure-YAML) version of heatmap_example/pipelines.py.
+#
+# This is the interesting case: a real four-node pipeline whose two scoring
+# nodes call external kwcoco CLIs and parse their bespoke output formats. The
+# topology, parameters, and metric metadata are pure data and live here. The two
+# scoring nodes opt into a Python result loader via ``load_result``, which points
+# at the very same methods the Python pipeline already defines -- the YAML node
+# is passed as ``self`` (it has the same name/out_paths), so there is a single
+# source of truth for how results are parsed.
+#
+# Run with PYTHONPATH=. so heatmap_example is importable:
+#
+#     PYTHONPATH=. kwdagger schedule --pipeline ./pipeline.yaml --params "
+#         matrix:
+#             predict_heatmap.coco_fpath: [$DEMO_COCO_FPATH]
+#             predict_heatmap.sigma: [1.0, 7.0]
+#             extract_boxes.threshold: [0.25, 0.3]
+#             score_boxes.iou_thresh: [0.1, 0.5]
+#     " --root_dpath ./results --backend tmux --run 1
+
+nodes:
+  predict_heatmap:
+    executable: "python -m heatmap_example.cli.predict_heatmap"
+    in_paths: [coco_fpath]
+    out_paths:
+      dst_coco_fpath: heatmap.kwcoco.json
+      asset_dpath: assets/heatmaps
+    primary_out_key: dst_coco_fpath
+    algo_params:
+      sigma: 7.0
+      thresh: 0.0
+      heatmap_channel: salient
+
+  extract_boxes:
+    executable: "python -m heatmap_example.cli.extract_boxes"
+    in_paths: [coco_fpath]
+    out_paths:
+      dst_coco_fpath: pred_boxes.kwcoco.json
+    primary_out_key: dst_coco_fpath
+    algo_params:
+      threshold: 0.5
+      min_area: 4
+      heatmap_channel: salient
+
+  score_heatmap:
+    executable: "python -m kwcoco.metrics.segmentation_metrics"
+    in_paths: [true_dataset, pred_dataset]
+    out_paths:
+      eval_dpath: heatmap_eval
+      eval_fpath: heatmap_metrics.json
+    primary_out_key: eval_fpath
+    algo_params:
+      salient_channel: salient
+    perf_params:
+      workers: auto
+    # The kwcoco metrics JSON is custom; reuse the Python parser for this node.
+    load_result: "heatmap_example.pipelines.ScoreHeatmap.load_result"
+    metrics:
+      - {metric: ap,  objective: maximize, primary: true}
+      - {metric: auc, objective: maximize, primary: true}
+
+  score_boxes:
+    executable: "python -m kwcoco evaluate_detections"
+    in_paths: [true_dataset, pred_dataset]
+    out_paths:
+      out_dpath: detection_eval
+      out_fpath: box_metrics.json
+    primary_out_key: out_fpath
+    algo_params:
+      compat: all
+      iou_thresh: 0.1
+    load_result: "heatmap_example.pipelines.ScoreBoxes.load_result"
+    metrics:
+      - {metric: ap,        objective: maximize, primary: true}
+      - {metric: auc,       objective: maximize, primary: true}
+      - {metric: f1,        objective: maximize, display: true}
+      - {metric: precision, objective: maximize, display: true}
+      - {metric: recall,    objective: maximize, display: true}
+      - {metric: thresh,    objective: maximize, display: true}
+
+edges:
+  # Predict -> extract boxes
+  - predict_heatmap.dst_coco_fpath -> extract_boxes.coco_fpath
+  # Predict -> score heatmap (prediction as pred, original input as truth)
+  - predict_heatmap.dst_coco_fpath -> score_heatmap.pred_dataset
+  - predict_heatmap.coco_fpath -> score_heatmap.true_dataset
+  # Extract boxes -> score boxes (boxes as pred, original input as truth)
+  - extract_boxes.dst_coco_fpath -> score_boxes.pred_dataset
+  - predict_heatmap.coco_fpath -> score_boxes.true_dataset

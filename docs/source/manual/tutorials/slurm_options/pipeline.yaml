@@ -1,0 +1,47 @@
+# Declarative (pure-YAML) version of example_user_module/pipelines.py.
+#
+# Per-node SLURM defaults are plain data, so they live right on the node under
+# ``slurm_options``. This is the YAML equivalent of setting ``slurm_options`` as
+# a class attribute on the Torch node in pipelines.py. The three-layer override
+# behavior described in the README is unchanged: global ``slurm_options`` and
+# per-node ``<node>.__slurm_options__`` from the matrix still merge on top of
+# these defaults.
+#
+# Dry-run example (no SLURM needed):
+#
+#     PYTHONPATH=. kwdagger schedule \
+#         --pipeline ./pipeline.yaml \
+#         --backend slurm --root_dpath "$PWD/results_gpu" \
+#         --params "
+#             slurm_options: {partition: debug}
+#             matrix:
+#                 cpu_prepare.src_fpath: [data/input1.json, data/input2.json]
+#                 torch_infer.__slurm_options__: {gres: 'gpu:1', time: '00:10:00'}
+#         " \
+#         --run 0
+
+nodes:
+  cpu_prepare:
+    executable: "python -m example_user_module.cli.cpu_prepare"
+    in_paths: [src_fpath]
+    out_paths:
+      prepared_fpath: prepared.json
+    primary_out_key: prepared_fpath
+    algo_params:
+      case: upper
+
+  torch_infer:
+    executable: "python -m example_user_module.cli.torch_infer"
+    in_paths: [input_fpath]
+    out_paths:
+      summary_fpath: summary.json
+    primary_out_key: summary_fpath
+    algo_params:
+      device: auto
+    # Per-node SLURM defaults; YAML matrix overrides still win.
+    slurm_options:
+      gres: "gpu:1"
+      time: "00:15:00"
+
+edges:
+  - cpu_prepare.prepared_fpath -> torch_infer.input_fpath

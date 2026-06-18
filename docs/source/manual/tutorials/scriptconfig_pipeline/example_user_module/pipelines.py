@@ -20,7 +20,7 @@ try:
 except NameError:
     # for developer convenience
     EXAMPLE_DPATH = ub.Path(
-        '~/code/kwdagger/docs/source/manual/tutorials/twostage_pipeline/example_user_module'
+        '~/code/kwdagger/docs/source/manual/tutorials/scriptconfig_pipeline/example_user_module'
     ).expanduser()
 
 

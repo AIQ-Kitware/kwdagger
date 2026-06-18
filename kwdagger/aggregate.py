@@ -95,13 +95,17 @@ class AggregateLoader(DataConfig):
     )
 
     pipeline = Value(
-        'joint_bas_sc',
+        'auto',
         help=ub.paragraph(
             """
-        The pipeline to run. This can be a name of an internally registered
-        pipeline, or it can point to a function that defines a pipeline
-        in a Python file. E.g. ``user_module.pipelines.custom_pipeline_func()``
-        or ``$HOME/my_code/my_pipeline.py::make_my_pipeline("arg")``.
+        The pipeline that produced the targets. If 'auto' (the default), it is
+        recovered from the serialized pipeline that ``kwdagger schedule`` writes
+        to ``<target>/_kwdagger_schedule/most_recent_run.json`` -- so a run whose
+        pipeline was defined inline (as YAML/data) needs no ``--pipeline`` here.
+        Otherwise this can be a declarative ``.yaml`` pipeline file, the name of
+        an internally registered pipeline, or code that defines a pipeline in a
+        Python file, e.g. ``user_module.pipelines.custom_pipeline_func()`` or
+        ``$HOME/my_code/my_pipeline.py::make_my_pipeline("arg")``.
         """
         ),
     )
@@ -181,7 +185,24 @@ class AggregateLoader(DataConfig):
         print('Coerce aggregators for pipeline:')
         from kwdagger import pipeline
 
-        dag = pipeline.coerce_pipeline(config.pipeline)
+        pipeline_spec = config.pipeline
+        if pipeline_spec is None or pipeline_spec == 'auto':
+            pipeline_spec, meta_fpath = _discover_pipeline_spec(input_targets)
+            if pipeline_spec is None:
+                raise ValueError(
+                    ub.paragraph(
+                        """
+                    No --pipeline was specified and none could be
+                    auto-discovered. kwdagger schedule serializes the pipeline to
+                    ``<root_dpath>/_kwdagger_schedule/most_recent_run.json``;
+                    point --target at a schedule output directory, or pass
+                    --pipeline explicitly.
+                    """
+                    )
+                )
+            print(f'Auto-discovered pipeline from {meta_fpath}')
+
+        dag = pipeline.coerce_pipeline(pipeline_spec)
         dag.print_graphs()
 
         print(f'Found {len(input_targets)} input targets')
@@ -418,6 +439,35 @@ class AggregateEvluationConfig(AggregateLoader):
         """
         config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
         run_aggregate(config)
+
+
+def _discover_pipeline_spec(input_targets: Any) -> tuple[Any, Any]:
+    """
+    Recover a serialized pipeline spec from a schedule output directory.
+
+    ``kwdagger schedule`` writes the pipeline it ran to
+    ``<root_dpath>/_kwdagger_schedule/most_recent_run.json``. Given the
+    aggregate ``--target`` paths (which may be the root directory itself or a
+    glob of node directories underneath it), walk up from each target to find
+    that metadata and return its ``pipeline`` value.
+
+    Returns:
+        Tuple[spec, fpath]: the serialized pipeline (a dict for an inline /
+        declarative pipeline, or a string reference) and the file it came from,
+        or ``(None, None)`` if nothing was found.
+    """
+    import json
+
+    for target in input_targets:
+        target = ub.Path(target)
+        for cand in [target, *target.parents]:
+            meta_fpath = cand / '_kwdagger_schedule' / 'most_recent_run.json'
+            if meta_fpath.exists():
+                data = json.loads(meta_fpath.read_text())
+                spec = data.get('pipeline')
+                if spec is not None:
+                    return spec, meta_fpath
+    return None, None
 
 
 def run_aggregate(config: Any) -> dict[str, 'Aggregator']:

@@ -21,6 +21,13 @@ Welcome to kwdagger's documentation!
    auto/kwdagger
    auto/modules
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Technical Reference
+
+   manual/technical/yaml_pipeline_spec
+   manual/technical/hashing_scheme
+
 
 Indices and tables
 ==================
