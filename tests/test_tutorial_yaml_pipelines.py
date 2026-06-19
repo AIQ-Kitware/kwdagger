@@ -17,9 +17,7 @@ import sys
 import pytest
 import ubelt as ub
 
-TUTORIALS = ub.Path(
-    __file__
-).parent.parent / 'docs/source/manual/tutorials'
+TUTORIALS = ub.Path(__file__).parent.parent / 'docs/source/manual/tutorials'
 
 # (tutorial dir, module, builder func, yaml file, representative matrix row)
 CASES = [
@@ -68,7 +66,7 @@ CASES = [
 ]
 
 # Runs inside the subprocess; compares the Python and YAML pipelines.
-CHECK_SCRIPT = r'''
+CHECK_SCRIPT = r"""
 import importlib, json, sys
 import ubelt as ub
 import kwdagger
@@ -136,22 +134,34 @@ for name in py_dag.node_dict:
     assert vantage(pn) == vantage(rn), f'{name}: round-trip vantage differs'
 
 print('EQUIV_OK')
-'''
+"""
 
 
-@pytest.mark.parametrize('tut,module,func,yaml_name,row', CASES,
-                         ids=[c[0] for c in CASES])
+@pytest.mark.parametrize(
+    'tut,module,func,yaml_name,row', CASES, ids=[c[0] for c in CASES]
+)
 def test_tutorial_yaml_matches_python(tut, module, func, yaml_name, row):
     tut_dpath = TUTORIALS / tut
     assert (tut_dpath / yaml_name).exists(), f'missing {tut_dpath / yaml_name}'
 
     repo = ub.Path(__file__).parent.parent
-    env = ub.dict_union(dict(__import__('os').environ),
-                        {'PYTHONPATH': f'{tut_dpath}:{repo}'})
+    env = ub.dict_union(
+        dict(__import__('os').environ), {'PYTHONPATH': f'{tut_dpath}:{repo}'}
+    )
     proc = subprocess.run(
-        [sys.executable, '-c', CHECK_SCRIPT, str(tut_dpath), module, func,
-         yaml_name, json.dumps(row)],
-        capture_output=True, text=True, env=env,
+        [
+            sys.executable,
+            '-c',
+            CHECK_SCRIPT,
+            str(tut_dpath),
+            module,
+            func,
+            yaml_name,
+            json.dumps(row),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
     )
     if proc.returncode != 0 or 'EQUIV_OK' not in proc.stdout:
         raise AssertionError(
@@ -162,4 +172,5 @@ def test_tutorial_yaml_matches_python(tut, module, func, yaml_name, row):
 
 if __name__ == '__main__':
     import xdoctest
+
     xdoctest.doctest_module(__file__)

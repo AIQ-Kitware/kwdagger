@@ -373,7 +373,9 @@ class Pipeline:
             self.proc_graph, path=rich.print, end='', vertical_chains=True
         )
 
-    def print_io_graph(self, shrink_labels: int = 1, show_types: int = 0) -> None:
+    def print_io_graph(
+        self, shrink_labels: int = 1, show_types: int = 0
+    ) -> None:
         """
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
@@ -763,7 +765,9 @@ class Node(ub.NiceRepr):
         self.pred: list[Any] = []
         self.succ: list[Any] = []
 
-    def _connect_single(self, other: Any, src_map: Mapping[str, str], dst_map: Mapping[str, str]) -> None:
+    def _connect_single(
+        self, other: Any, src_map: Mapping[str, str], dst_map: Mapping[str, str]
+    ) -> None:
         """
         Handles connection rules between this node and another one.
 
@@ -1502,7 +1506,9 @@ class ProcessNode(Node):
         return self
 
     @staticmethod
-    def _derive_groups_from_params_spec(params_spec: Any) -> tuple[Any, Any, Any, Any, Any]:
+    def _derive_groups_from_params_spec(
+        params_spec: Any,
+    ) -> tuple[Any, Any, Any, Any, Any]:
         tag_to_group = {
             'in_path': 'in_paths',
             'in': 'in_paths',
@@ -1686,8 +1692,12 @@ class ProcessNode(Node):
             final['in_paths'] = self.final_in_paths
         except KeyError as ex:
             print('ERROR: {}'.format(ub.urepr(ex, nl=1)))
-            print('condensed = {}'.format(ub.urepr(condensed, nl=1, sort=False)))
-            print('templates = {}'.format(ub.urepr(templates, nl=1, sort=False)))
+            print(
+                'condensed = {}'.format(ub.urepr(condensed, nl=1, sort=False))
+            )
+            print(
+                'templates = {}'.format(ub.urepr(templates, nl=1, sort=False))
+            )
             raise
         self.final = final
         return self.final
@@ -1776,11 +1786,11 @@ class ProcessNode(Node):
         else:
             unconnected_in_paths = (
                 ub.udict(self.final_in_paths) & unconnected_inputs  # type: ignore
-            )  
+            )
 
         final_algo_config = (
             self.config - self.non_algo_keys  # type: ignore
-        ) | unconnected_in_paths  
+        ) | unconnected_in_paths
 
         if isinstance(self.algo_params, dict):
             for k, v in self.algo_params.items():
@@ -2250,7 +2260,9 @@ class ProcessNode(Node):
             config_fpath = dpath / 'job_config.json'
             has_config = config_fpath.exists()
             if has_config:
-                job: Future[Any] | None = json_jobs.submit(_load_json, config_fpath)
+                job: Future[Any] | None = json_jobs.submit(
+                    _load_json, config_fpath
+                )
             else:
                 job = None
                 request_config = {}

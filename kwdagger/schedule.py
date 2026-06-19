@@ -21,7 +21,9 @@ import scriptconfig as scfg
 import ubelt as ub
 from cmd_queue.cli_boilerplate import CMDQueueConfig
 
-from kwdagger.pipeline import coerce_slurm_options as pipeline_coerce_slurm_options
+from kwdagger.pipeline import (
+    coerce_slurm_options as pipeline_coerce_slurm_options,
+)
 from kwdagger.utils import util_pandas
 
 

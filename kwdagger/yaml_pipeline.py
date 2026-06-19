@@ -174,9 +174,7 @@ class YamlProcessNode(ProcessNode):
         the same behavior as a Python node that does not define the method.
         """
         if not self._metrics_info:
-            raise AttributeError(
-                f'no metrics declared for node {self.name!r}'
-            )
+            raise AttributeError(f'no metrics declared for node {self.name!r}')
         return [dict(info) for info in self._metrics_info]
 
     @property
@@ -279,7 +277,9 @@ def _coerce_node(name: str, spec: Any) -> ProcessNode:
 
     if class_ref is not None:
         node_cls = _import_callable(class_ref)
-        if not (isinstance(node_cls, type) and issubclass(node_cls, ProcessNode)):
+        if not (
+            isinstance(node_cls, type) and issubclass(node_cls, ProcessNode)
+        ):
             raise TypeError(
                 f'node {name!r}: class {class_ref!r} must be a '
                 f'kwdagger.ProcessNode subclass, got {node_cls!r}'
@@ -321,7 +321,9 @@ def _split_endpoint(endpoint: str) -> tuple[str, str]:
     return node.strip(), port.strip()
 
 
-def _resolve_endpoint(node_dict: dict[str, Any], node_name: str, port: str) -> Any:
+def _resolve_endpoint(
+    node_dict: dict[str, Any], node_name: str, port: str
+) -> Any:
     """
     Resolve ``node_name.port`` to its IONode, preferring outputs over inputs.
 
@@ -432,9 +434,7 @@ def load_yaml_pipeline(spec: Any, root_dpath: Any = None) -> Pipeline:
 
     nodes_spec = data.get('nodes')
     if not isinstance(nodes_spec, dict) or not nodes_spec:
-        raise ValueError(
-            'YAML pipeline requires a non-empty "nodes" mapping'
-        )
+        raise ValueError('YAML pipeline requires a non-empty "nodes" mapping')
 
     node_dict: dict[str, Any] = {}
     for name, node_spec in nodes_spec.items():

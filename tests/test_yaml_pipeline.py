@@ -297,7 +297,9 @@ def test_node_class_reference(tmp_path):
         )
     )
     sys.path.insert(0, str(tmp_path))
-    root = ub.Path.appdir('kwdagger/unit_tests/yaml_pipeline/classref').ensuredir()
+    root = ub.Path.appdir(
+        'kwdagger/unit_tests/yaml_pipeline/classref'
+    ).ensuredir()
     try:
         # 1. Plain ProcessNode subclass: the command override is honored.
         dag = load_yaml_pipeline(
@@ -458,9 +460,7 @@ def test_yaml_eval_node_end_to_end():
     """
     from kwdagger import aggregate, schedule
 
-    dpath = ub.Path.appdir(
-        'kwdagger/unit_tests/yaml_pipeline/eval'
-    ).ensuredir()
+    dpath = ub.Path.appdir('kwdagger/unit_tests/yaml_pipeline/eval').ensuredir()
     script_fpath = _write_eval_script(dpath)
     input_fpath = dpath / 'input.txt'
     input_fpath.write_text('hello world')
@@ -603,7 +603,9 @@ def test_schedule_aggregate_python_pipeline_round_trip():
         # The Python pipeline was serialized to a declarative spec, with the
         # custom node emitted as an importable class reference.
         meta = json.loads(
-            (root_dpath / '_kwdagger_schedule' / 'most_recent_run.json').read_text()
+            (
+                root_dpath / '_kwdagger_schedule' / 'most_recent_run.json'
+            ).read_text()
         )
         assert isinstance(meta['pipeline'], dict)
         assert (

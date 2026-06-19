@@ -26,6 +26,7 @@ False / both backends serial+tmux-script-render). For backends, we
 only need to verify the rendered command — we never actually run a
 queue here.
 """
+
 from __future__ import annotations
 
 import cmd_queue
@@ -53,7 +54,9 @@ def _command_section(text: str) -> str:
     return text[start:end]
 
 
-def _first_real_job(queue: cmd_queue.base_queue.Queue) -> cmd_queue.base_queue.Job:
+def _first_real_job(
+    queue: cmd_queue.base_queue.Queue,
+) -> cmd_queue.base_queue.Job:
     for job in queue.jobs:
         if not getattr(job, 'bookkeeper', 0):
             return job
@@ -131,6 +134,7 @@ def test_submit_jobs_log_default_is_true(tmp_path):
 
 if __name__ == '__main__':
     import tempfile
+
     with tempfile.TemporaryDirectory() as td:
         td_path = ub.Path(td)
         test_submit_jobs_log_true_tees_command(td_path / 't1')

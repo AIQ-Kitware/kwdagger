@@ -698,7 +698,9 @@ class ArtistManager:
         self.group_to_line_segments[hashid].append(points)
         self.group_to_attrs[hashid] = attrs
 
-    def add_ellipse(self, xy: Any, rx: Any, ry: Any, angle: Any = 0, **attrs: Any) -> None:
+    def add_ellipse(
+        self, xy: Any, rx: Any, ry: Any, angle: Any = 0, **attrs: Any
+    ) -> None:
         """
         Real ellipses in dataspace
         """
@@ -965,9 +967,7 @@ class Palette(ub.udict):
         legend = kwplot.make_legend_img(self, dpi=dpi, **kwargs)
         return legend
 
-    def sorted_keys(
-        self, key: Any = None, reverse: bool = False
-    ) -> Any:
+    def sorted_keys(self, key: Any = None, reverse: bool = False) -> Any:
         return self.__class__(super().sorted_keys(key=key, reverse=reverse))
 
     def reorder(self, head: Any = None, tail: Any = None) -> Any:

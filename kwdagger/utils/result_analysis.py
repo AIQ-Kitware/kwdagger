@@ -297,7 +297,9 @@ class ResultTable:
         return self._cache['result_list']
 
     @classmethod
-    def demo(cls, num: int = 10, mode: str = 'null', rng: Any = None) -> ResultTable:
+    def demo(
+        cls, num: int = 10, mode: str = 'null', rng: Any = None
+    ) -> ResultTable:
         import kwarray
 
         rng = kwarray.ensure_rng(rng)
@@ -1584,7 +1586,9 @@ def varied_values(
             value = row.get(key, default)
             if isinstance(value, list):
                 value = tuple(value)
-            if isinstance(value, numbers.Number) and math.isnan(cast(float, value)):
+            if isinstance(value, numbers.Number) and math.isnan(
+                cast(float, value)
+            ):
                 if dropna:
                     continue
                 else:
@@ -1599,6 +1603,7 @@ def varied_values(
             except TypeError as ex:
                 if on_error == 'raise':
                     from kwutil.util_exception import add_exception_note
+
                     raise add_exception_note(ex, f'key={key}, {value}={value}')
                 elif on_error == 'placeholder':
                     varied[key].add(UnhashablePlaceholder(value))
@@ -1710,7 +1715,9 @@ def varied_value_counts(
             if isinstance(value, list):
                 value = tuple(value)
 
-            if isinstance(value, numbers.Number) and math.isnan(cast(float, value)):
+            if isinstance(value, numbers.Number) and math.isnan(
+                cast(float, value)
+            ):
                 if dropna:
                     continue
                 else:
@@ -1725,6 +1732,7 @@ def varied_value_counts(
             except TypeError as ex:
                 if on_error == 'raise':
                     from kwutil.util_exception import add_exception_note
+
                     raise add_exception_note(ex, f'key={key}, {value}={value}')
                 elif on_error == 'placeholder':
                     varied_counts[key][UnhashablePlaceholder(value)] += 1
@@ -1781,9 +1789,7 @@ if 1:
 # xdev.make_warnings_print_tracebacks()
 
 
-def aggregate_stats(
-    data: Any, suffix: str = '', group_keys: Any = None
-) -> Any:
+def aggregate_stats(data: Any, suffix: str = '', group_keys: Any = None) -> Any:
     """
     Given columns interpreted as containing stats, aggregate those stats
     within each group. For each row, any non-group, non-stat column

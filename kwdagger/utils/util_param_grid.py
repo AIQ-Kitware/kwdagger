@@ -98,9 +98,7 @@ def prevalidate_param_grid(arg: Any) -> None:
                         log_issue(k, p, 'might not be a valid path')
 
 
-def expand_param_grid(
-    arg: Any, max_configs: int | None = None
-) -> Any:
+def expand_param_grid(arg: Any, max_configs: int | None = None) -> Any:
     """
     Our own method for specifying many combinations. Uses the github actions
     method under the hood with our own
@@ -714,9 +712,7 @@ def extended_github_action_matrix(arg: Any) -> Any:
                 grid_item = grid_item | include_item
         return grid_item
 
-    def multisubmatrix_variants(
-        mat_item: Any, multi_submatrices_: Any
-    ) -> Any:
+    def multisubmatrix_variants(mat_item: Any, multi_submatrices_: Any) -> Any:
         # New version: every group of submatrices has the opportunity to
         # modify the item before yielding.
         curr_items = [mat_item]

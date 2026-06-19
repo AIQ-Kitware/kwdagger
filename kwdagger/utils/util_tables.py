@@ -133,6 +133,7 @@ def varied_values(
             except TypeError as ex:
                 if on_error == 'raise':
                     from kwutil.util_exception import add_exception_note
+
                     raise add_exception_note(ex, f'key={key}, {value}={value}')
                 elif on_error == 'placeholder':
                     varied[key].add(UnhashablePlaceholder(value))
@@ -269,6 +270,7 @@ def varied_value_counts(
             except TypeError as ex:
                 if on_error == 'raise':
                     from kwutil.util_exception import add_exception_note
+
                     raise add_exception_note(ex, f'key={key}, {value}={value}')
                 elif on_error == 'placeholder':
                     varied_counts[key][UnhashablePlaceholder(value)] += 1

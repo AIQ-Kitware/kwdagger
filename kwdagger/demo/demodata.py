@@ -158,13 +158,11 @@ class Stage1PredictCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(
-        cls, argv: int | bool | list[str] = 1, **kwargs: Any
-    ) -> None:
+    def main(cls, argv: int | bool | list[str] = 1, **kwargs: Any) -> None:
         config = cls.cli(  # type: ignore
-            argv=argv,   # type: ignore
+            argv=argv,  # type: ignore
             data=kwargs,
-            strict=True,  
+            strict=True,
             verbose='auto',
         )
 
@@ -207,13 +205,11 @@ class Stage1EvaluateCLI(scfg.DataConfig):
     workers = scfg.Value(0, help='number of parallel workers')
 
     @classmethod
-    def main(
-        cls, argv: int | bool | list[str] = 1, **kwargs: Any
-    ) -> None:
+    def main(cls, argv: int | bool | list[str] = 1, **kwargs: Any) -> None:
         config = cls.cli(  # type: ignore
-            argv=argv,   # type: ignore
+            argv=argv,  # type: ignore
             data=kwargs,
-            strict=True,  
+            strict=True,
             verbose='auto',
         )
 
@@ -303,6 +299,7 @@ class Stage1_Predict(ProcessNode):
         import json
 
         from kwdagger.aggregate_loader import new_process_context_parser
+
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
@@ -348,6 +345,7 @@ class Stage1_Evaluate(ProcessNode):
         import json
 
         from kwdagger.aggregate_loader import new_process_context_parser
+
         output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
