@@ -21,7 +21,9 @@ import scriptconfig as scfg
 import ubelt as ub
 from cmd_queue.cli_boilerplate import CMDQueueConfig
 
-from kwdagger.pipeline import coerce_slurm_options as pipeline_coerce_slurm_options
+from kwdagger.pipeline import (
+    coerce_slurm_options as pipeline_coerce_slurm_options,
+)
 from kwdagger.utils import util_pandas
 
 
@@ -181,8 +183,23 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
         kwdagger_meta = (root_dpath / '_kwdagger_schedule').ensuredir()
         # Write some metadata to help aggregate set its defaults automatically
         most_recent_fpath = kwdagger_meta / 'most_recent_run.json'
+        # Serialize the resolved pipeline to its declarative form so the run is
+        # self-describing and ``aggregate`` can reload it without re-running the
+        # builder. This works even for Python-defined pipelines (custom nodes
+        # become ``class:`` references). Fall back to the original reference if
+        # the pipeline cannot be serialized (e.g. a node class in __main__).
+        try:
+            serialized_pipeline: Any = dag.to_yaml_spec()
+        except Exception as ex:
+            print(
+                'Note: could not serialize the pipeline to its declarative '
+                f'form ({ex}); storing the original reference instead.'
+            )
+            serialized_pipeline = (
+                pipeline if isinstance(pipeline, (dict, str)) else str(pipeline)
+            )
         data = {
-            'pipeline': str(pipeline),
+            'pipeline': serialized_pipeline,
         }
         most_recent_fpath.write_text(json.dumps(data, indent='    '))
 

@@ -117,3 +117,29 @@ Once jobs complete, aggregate with:
             pipeline: 'example_user_module.pipelines.my_sentiment_pipeline()'
             root_dpath: ${EVAL_DPATH}
         "
+
+Declarative alternative: spelling the groups out in YAML
+--------------------------------------------------------
+
+Deriving node groups from a scriptconfig schema (``params = ...CLI``) keeps the
+pipeline in sync with the CLI definition. The trade-off is that you must read
+the Python to know what the matrix keys mean. If you would rather keep
+everything in one self-describing document, this folder also ships
+``pipeline.yaml``, which declares the same ``in_paths`` / ``out_paths`` /
+``algo_params`` / ``perf_params`` directly as data:
+
+.. code:: bash
+
+    PYTHONPATH=. kwdagger schedule --pipeline ./pipeline.yaml --params "
+        matrix:
+            keyword_sentiment_predict.src_fpath:
+                - data/toy_reviews_movies.jsonl
+                - data/toy_reviews_food.jsonl
+            keyword_sentiment_predict.keyword: [great, boring, love]
+            sentiment_evaluate.workers: 0
+    " --root_dpath "${EVAL_DPATH}" --backend serial --skip_existing 1 --run 1
+
+The two are equivalent (identical node IDs, outputs, and resolved parameters);
+pick whichever fits your project. See the
+:doc:`YAML pipeline specification </manual/technical/yaml_pipeline_spec>` for the
+full schema.

@@ -92,7 +92,6 @@ custom aggregation and plotting.
 
 The Pipeline
 ============
-I think that makes sense. I will need to get to peeling apart the module for any of this anyway. After I finish pulling together slides for our middle managing customer for our monthly
 
 Before defining the pipeline itself, we need a ProcessNode that wraps the benchmark CLI. A ProcessNode simply tells kwdagger:
 
@@ -168,6 +167,26 @@ pipeline. In this case we do not need to connect any inputs to any outputs.
 This pipeline has no dependencies-just a single callable node. kwdagger handles
 parameter expansion, run IDs, and output organization automatically.
 
+The same one-node pipeline in YAML
+----------------------------------
+
+Because the benchmark CLI already writes its scores to ``result.metrics`` and
+emits a ProcessContext, this node needs no Python at all -- the generic result
+loader handles it. This folder ships ``pipeline.yaml`` with the identical node,
+including the metric metadata (objectives, primary/display) that
+``default_metrics`` / ``default_vantage_points`` provided in Python. Point
+``--pipeline`` at it instead of the ``module.func()`` string::
+
+    PYTHONPATH=. kwdagger schedule --pipeline ./pipeline.yaml --params "
+        matrix:
+            ollama_benchmark.prompt_fpath: [prompts_5.yaml]
+            ollama_benchmark.model: ['llama3:8b', 'qwen2:7b']
+    " --root_dpath ./results_ollama --backend serial --run 1
+
+The advantage is that the swept keys (``ollama_benchmark.model``, ...) are now
+self-documenting: the node they configure sits right beside the matrix. See the
+:doc:`YAML pipeline specification </manual/technical/yaml_pipeline_spec>` for
+details.
 
 Running the Sweep
 -----------------

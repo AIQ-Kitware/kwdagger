@@ -15,6 +15,8 @@ Files in this tutorial
   evaluation nodes.
 * ``example_user_module/pipelines.py`` - the pipeline wiring that connects the
   two nodes.
+* ``pipeline.yaml`` - the same wiring expressed declaratively, with no Python
+  (see `Defining the pipeline in YAML instead of Python`_).
 * ``run_pipeline.sh`` - a copy/paste friendly script that runs scheduling and
   aggregation from this folder.
 
@@ -412,6 +414,43 @@ produces tables and plots. Useful flags include:
 
 Aggregation can also combine metrics across runs, but macro aggregation across
 multiple datasets is still being streamlined; expect improvements here.
+
+Defining the pipeline in YAML instead of Python
+-----------------------------------------------
+
+Everything above defines the pipeline in ``example_user_module/pipelines.py``.
+Because a ``ProcessNode`` is just data (a name, an executable, some input/output
+ports, and parameter groups), the very same pipeline can be written
+declaratively in ``pipeline.yaml`` with no Python at all. The node CLIs are
+reused unchanged; only the wiring moves from code to data::
+
+    PYTHONPATH=. kwdagger schedule \
+        --pipeline ./pipeline.yaml \
+        --params "
+            matrix:
+                keyword_sentiment_predict.src_fpath:
+                    - data/toy_reviews_movies.jsonl
+                    - data/toy_reviews_food.jsonl
+                keyword_sentiment_predict.keyword: [great, boring, love]
+                sentiment_evaluate.workers: 0
+        " \
+        --root_dpath ./results --backend serial --skip_existing 1 --run 1
+
+    PYTHONPATH=. kwdagger aggregate \
+        --pipeline ./pipeline.yaml \
+        --target ./results \
+        --eval_nodes "[sentiment_evaluate]" \
+        --output_dpath ./results/full_aggregate
+
+This produces equivalent node IDs, output directories, and resolved parameters
+to the Python version. The metric metadata that ``SentimentEvaluate`` exposed in
+Python (``default_metrics`` / ``default_vantage_points``) is declared under the
+``metrics`` and ``vantage_points`` keys of the evaluation node, and a generic
+result loader reads the scores from ``result.metrics``. The advantage is that
+the matrix keys (``keyword_sentiment_predict.keyword``, ...) are now
+self-documenting: the pipeline they refer to sits right beside them. For the
+full schema, see the
+:doc:`YAML pipeline specification </manual/technical/yaml_pipeline_spec>`.
 
 Limitations
 -----------

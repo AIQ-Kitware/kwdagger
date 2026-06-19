@@ -14,6 +14,7 @@ __submodules__ = {
     'aggregate_plots': [],
     'utils': [],
     'pipeline': ['Pipeline', 'ProcessNode'],
+    'yaml_pipeline': ['dump_yaml_pipeline', 'load_yaml_pipeline'],
 }
 
 ###
@@ -25,10 +26,15 @@ from kwdagger import (
     pipeline,
     schedule,
     utils,
+    yaml_pipeline,
 )
 from kwdagger.pipeline import (
     Pipeline,
     ProcessNode,
+)
+from kwdagger.yaml_pipeline import (
+    dump_yaml_pipeline,
+    load_yaml_pipeline,
 )
 
 __all__ = [
@@ -38,7 +44,10 @@ __all__ = [
     'aggregate_loader',
     'aggregate_plots',
     'demo',
+    'dump_yaml_pipeline',
+    'load_yaml_pipeline',
     'pipeline',
     'schedule',
     'utils',
+    'yaml_pipeline',
 ]

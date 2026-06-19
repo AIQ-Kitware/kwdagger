@@ -569,7 +569,10 @@ class ParamPlotter:
         rich.print('[green] made overview-macro_results-{name}.png')
 
     def plot_vantage_params(
-        plotter: Any, vantage: Any, pman: Any = None, params_of_interest: Any = None
+        plotter: Any,
+        vantage: Any,
+        pman: Any = None,
+        params_of_interest: Any = None,
     ) -> list[Any]:
         """
         The main parameter inspection plots.
@@ -906,9 +909,9 @@ class ParamPlotter:
             )
         if anova_rank_p is not None:
             title_builder.ensure_newline()
-            title_builder.append(   # type: ignore
+            title_builder.append(  # type: ignore
                 f'Effect of {param_name}: anova_rank_p={concice_si_display(anova_rank_p)}'
-            ) 
+            )
         header_text = title_builder.finalize()
 
         param_valname_map, had_value_remap = shrink_param_names(
@@ -1203,7 +1206,6 @@ class ParamPlotter:
                 if position is None:
                     position = xdata.mean()
                 # find closest index
-                import numpy as np
 
                 start_ind: int = 0
                 if direction == 'right':

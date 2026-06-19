@@ -237,20 +237,40 @@ def make_pipeline() -> Pipeline:
     }
 
     # Wire prep → proc
-    nodes['prep_a'].outputs['out_fpath'].connect(nodes['proc_a'].inputs['in_fpath'])
-    nodes['prep_b'].outputs['out_fpath'].connect(nodes['proc_b'].inputs['in_fpath'])
-    nodes['prep_c'].outputs['out_fpath'].connect(nodes['proc_c'].inputs['in_fpath'])
-    nodes['prep_d'].outputs['out_fpath'].connect(nodes['proc_d'].inputs['in_fpath'])
+    nodes['prep_a'].outputs['out_fpath'].connect(
+        nodes['proc_a'].inputs['in_fpath']
+    )
+    nodes['prep_b'].outputs['out_fpath'].connect(
+        nodes['proc_b'].inputs['in_fpath']
+    )
+    nodes['prep_c'].outputs['out_fpath'].connect(
+        nodes['proc_c'].inputs['in_fpath']
+    )
+    nodes['prep_d'].outputs['out_fpath'].connect(
+        nodes['proc_d'].inputs['in_fpath']
+    )
 
     # Wire proc → merge
-    nodes['proc_a'].outputs['out_fpath'].connect(nodes['merge_x'].inputs['in_fpath_a'])
-    nodes['proc_b'].outputs['out_fpath'].connect(nodes['merge_x'].inputs['in_fpath_b'])
-    nodes['proc_c'].outputs['out_fpath'].connect(nodes['merge_y'].inputs['in_fpath_a'])
-    nodes['proc_d'].outputs['out_fpath'].connect(nodes['merge_y'].inputs['in_fpath_b'])
+    nodes['proc_a'].outputs['out_fpath'].connect(
+        nodes['merge_x'].inputs['in_fpath_a']
+    )
+    nodes['proc_b'].outputs['out_fpath'].connect(
+        nodes['merge_x'].inputs['in_fpath_b']
+    )
+    nodes['proc_c'].outputs['out_fpath'].connect(
+        nodes['merge_y'].inputs['in_fpath_a']
+    )
+    nodes['proc_d'].outputs['out_fpath'].connect(
+        nodes['merge_y'].inputs['in_fpath_b']
+    )
 
     # Wire merge → final
-    nodes['merge_x'].outputs['out_fpath'].connect(nodes['final'].inputs['in_fpath_a'])
-    nodes['merge_y'].outputs['out_fpath'].connect(nodes['final'].inputs['in_fpath_b'])
+    nodes['merge_x'].outputs['out_fpath'].connect(
+        nodes['final'].inputs['in_fpath_a']
+    )
+    nodes['merge_y'].outputs['out_fpath'].connect(
+        nodes['final'].inputs['in_fpath_b']
+    )
 
     dag = Pipeline(nodes)
     dag.build_nx_graphs()

@@ -112,7 +112,8 @@ def nvidia_smi(ignore_environ: bool = False) -> dict[int, dict[str, Any]]:
         gpus[num] = gpu
 
     gpu_uuid_to_num: dict[str, int] = {
-        cast(str, gpu['gpu_uuid']): cast(int, gpu['num']) for gpu in gpus.values()
+        cast(str, gpu['gpu_uuid']): cast(int, gpu['num'])
+        for gpu in gpus.values()
     }
 
     for row in proc_rows:

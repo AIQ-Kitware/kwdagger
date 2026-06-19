@@ -29,6 +29,9 @@ Files in this tutorial
   available.
 * ``example_user_module/pipelines.py`` - pipeline wiring and node definitions,
   including per-node ``slurm_options`` defaults.
+* ``pipeline.yaml`` - the same pipeline declared as data, with the per-node
+  ``slurm_options`` written right on the Torch node (see `Per-node defaults in
+  code`_).
 
 Per-node defaults in code
 -------------------------
@@ -37,6 +40,13 @@ Note that the pipeline code can specify defaults for slurm. The file
 ``example_user_module/pipelines.py`` sets ``slurm_options`` on the Torch node
 so that GPU settings apply even without YAML overrides. The YAML layer still
 wins if you provide per-node options in the grid.
+
+The same applies to a declarative pipeline: ``pipeline.yaml`` puts those node
+defaults under a ``slurm_options`` key on the Torch node, so the exact same
+three-layer merge (global → code/YAML node default → per-node
+``__slurm_options__`` override) works whether the pipeline is Python or YAML.
+Swap ``--pipeline 'example_user_module.pipelines.build_pipeline()'`` for
+``--pipeline ./pipeline.yaml`` in any command below to use it.
 
 Running a dry run (no SLURM needed)
 -----------------------------------

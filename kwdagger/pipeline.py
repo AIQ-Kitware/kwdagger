@@ -24,8 +24,8 @@ import functools
 import os
 import typing
 import warnings
-from functools import cached_property
 from concurrent.futures import Future
+from functools import cached_property
 from typing import Any, Mapping, Sequence, cast
 
 import kwutil
@@ -116,6 +116,22 @@ class Pipeline:
     @classmethod
     def demo(cls) -> 'Pipeline':
         return demodata_pipeline()
+
+    def to_yaml_spec(self) -> dict[str, Any]:
+        """
+        Serialize this pipeline to the declarative dict form.
+
+        This is the inverse of :func:`kwdagger.load_yaml_pipeline`: the returned
+        mapping can be fed back through :func:`coerce_pipeline` to reconstruct an
+        equivalent pipeline. Custom :class:`ProcessNode` subclasses are emitted
+        as ``class`` references (their behavior lives in code, not data).
+
+        Returns:
+            dict: a ``{'nodes': ..., 'edges': ...}`` mapping.
+        """
+        from kwdagger.yaml_pipeline import dump_yaml_pipeline
+
+        return dump_yaml_pipeline(self)
 
     def _ensure_clean(self) -> None:
         if self._dirty:
@@ -357,7 +373,9 @@ class Pipeline:
             self.proc_graph, path=rich.print, end='', vertical_chains=True
         )
 
-    def print_io_graph(self, shrink_labels: int = 1, show_types: int = 0) -> None:
+    def print_io_graph(
+        self, shrink_labels: int = 1, show_types: int = 0
+    ) -> None:
         """
         Draw the networkx IO graph, which shows the connections between
         the inputs and the outputs of the processes in the pipeline.
@@ -747,7 +765,9 @@ class Node(ub.NiceRepr):
         self.pred: list[Any] = []
         self.succ: list[Any] = []
 
-    def _connect_single(self, other: Any, src_map: Mapping[str, str], dst_map: Mapping[str, str]) -> None:
+    def _connect_single(
+        self, other: Any, src_map: Mapping[str, str], dst_map: Mapping[str, str]
+    ) -> None:
         """
         Handles connection rules between this node and another one.
 
@@ -1486,7 +1506,9 @@ class ProcessNode(Node):
         return self
 
     @staticmethod
-    def _derive_groups_from_params_spec(params_spec: Any) -> tuple[Any, Any, Any, Any, Any]:
+    def _derive_groups_from_params_spec(
+        params_spec: Any,
+    ) -> tuple[Any, Any, Any, Any, Any]:
         tag_to_group = {
             'in_path': 'in_paths',
             'in': 'in_paths',
@@ -1670,8 +1692,12 @@ class ProcessNode(Node):
             final['in_paths'] = self.final_in_paths
         except KeyError as ex:
             print('ERROR: {}'.format(ub.urepr(ex, nl=1)))
-            print('condensed = {}'.format(ub.urepr(condensed, nl=1, sort=False)))
-            print('templates = {}'.format(ub.urepr(templates, nl=1, sort=False)))
+            print(
+                'condensed = {}'.format(ub.urepr(condensed, nl=1, sort=False))
+            )
+            print(
+                'templates = {}'.format(ub.urepr(templates, nl=1, sort=False))
+            )
             raise
         self.final = final
         return self.final
@@ -1760,11 +1786,11 @@ class ProcessNode(Node):
         else:
             unconnected_in_paths = (
                 ub.udict(self.final_in_paths) & unconnected_inputs  # type: ignore
-            )  
+            )
 
         final_algo_config = (
             self.config - self.non_algo_keys  # type: ignore
-        ) | unconnected_in_paths  
+        ) | unconnected_in_paths
 
         if isinstance(self.algo_params, dict):
             for k, v in self.algo_params.items():
@@ -2001,7 +2027,13 @@ class ProcessNode(Node):
         parts = []
         import shlex
 
-        for k, v in config.items():
+        # Emit arguments in a deterministic (sorted) order. ``config`` keys can
+        # originate from set-valued ``in_paths`` / ``algo_params`` / etc., whose
+        # iteration order is hash-seed dependent; sorting keeps the generated
+        # command (and the invoke.sh written to disk) reproducible across runs
+        # and Python versions. Argument order does not affect node identity --
+        # the algo_id / process_id hashes normalize independently of this.
+        for k, v in sorted(config.items()):
             if isinstance(v, list):
                 # Handle variable-args params
                 quoted_varargs = [shlex.quote(str(x)) for x in v]
@@ -2228,7 +2260,9 @@ class ProcessNode(Node):
             config_fpath = dpath / 'job_config.json'
             has_config = config_fpath.exists()
             if has_config:
-                job: Future[Any] | None = json_jobs.submit(_load_json, config_fpath)
+                job: Future[Any] | None = json_jobs.submit(
+                    _load_json, config_fpath
+                )
             else:
                 job = None
                 request_config = {}
@@ -2537,22 +2571,51 @@ def coerce_pipeline(pipeline: Any) -> Pipeline:
     Attempts to resolve a concise expression (typically from the command line) into a pre-defined pipeline.
 
     Args:
-        pipeline (str): a pre-registered name, or evaluatable code to construct a pipeline.
+        pipeline (str | dict | PathLike | Pipeline):
+            One of:
+
+            * a :class:`Pipeline` instance (returned as-is),
+            * a declarative mapping with ``nodes`` / ``edges`` keys, or a path to
+              a ``.yaml`` / ``.yml`` / ``.json`` file containing one (the
+              hardened, code-free form -- see
+              :func:`kwdagger.yaml_pipeline.load_yaml_pipeline`),
+            * a pre-registered name, or evaluatable code, e.g.
+              ``"module.func()"`` or ``"file.py::func()"``.
 
     Returns:
         Pipeline
     """
-    if isinstance(pipeline, str):
-        # New experimental pipelines
-        dag = _resolve_pipeline(pipeline)
-    else:
-        if isinstance(pipeline, Pipeline):
-            return pipeline
-        else:
-            raise TypeError(
-                'Unknown coerce technique for {type(pipeline)} with value {pipeline}'
-            )
-    return dag
+    import os
+
+    if isinstance(pipeline, Pipeline):
+        return pipeline
+
+    if isinstance(pipeline, dict):
+        # Declarative (pure-data) pipeline, no code execution.
+        from kwdagger.yaml_pipeline import load_yaml_pipeline
+
+        return load_yaml_pipeline(pipeline)
+
+    if isinstance(pipeline, (str, os.PathLike)):
+        pipeline_str = os.fspath(pipeline)
+        # A path to a YAML/JSON pipeline file is the hardened variant. The
+        # ``::`` form is reserved for executable Python files, so skip those.
+        if '::' not in pipeline_str:
+            suffix = pipeline_str.rsplit('.', 1)[-1].lower()
+            if suffix in {'yaml', 'yml', 'json'}:
+                if not os.path.exists(pipeline_str):
+                    raise FileNotFoundError(
+                        f'YAML pipeline file does not exist: {pipeline_str}'
+                    )
+                from kwdagger.yaml_pipeline import load_yaml_pipeline
+
+                return load_yaml_pipeline(pipeline_str)
+        # Fall back to the (code-executing) module/expression resolver.
+        return _resolve_pipeline(pipeline_str)
+
+    raise TypeError(
+        f'Unknown coerce technique for {type(pipeline)} with value {pipeline}'
+    )
 
 
 def _resolve_pipeline(pipeline: Any) -> Any:

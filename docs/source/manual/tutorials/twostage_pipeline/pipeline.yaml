@@ -1,0 +1,67 @@
+# Declarative (pure-YAML) version of example_user_module/pipelines.py.
+#
+# This describes exactly the same two-stage keyword-sentiment pipeline as
+# ``my_sentiment_pipeline()``, but as data instead of Python code. It reuses the
+# same CLI scripts unchanged. Run it the same way as run_pipeline.sh, with
+# ``PYTHONPATH=.`` set so the ``example_user_module`` package is importable:
+#
+#     PYTHONPATH=. kwdagger schedule \
+#         --pipeline ./pipeline.yaml \
+#         --params "
+#             matrix:
+#                 keyword_sentiment_predict.src_fpath:
+#                     - data/toy_reviews_movies.jsonl
+#                     - data/toy_reviews_food.jsonl
+#                 keyword_sentiment_predict.keyword: [great, boring, love]
+#                 sentiment_evaluate.workers: 0
+#         " \
+#         --root_dpath ./results --backend serial --run 1
+#
+#     PYTHONPATH=. kwdagger aggregate \
+#         --pipeline ./pipeline.yaml --target ./results \
+#         --eval_nodes "[sentiment_evaluate]" ...
+#
+# The metrics metadata that the Python ``SentimentEvaluate`` class exposed via
+# ``default_metrics`` / ``default_vantage_points`` lives here under the
+# ``metrics`` and ``vantage_points`` keys, and the generic result loader reads
+# the scores the CLI writes to ``result.metrics``.
+
+nodes:
+  keyword_sentiment_predict:
+    executable: "python -m example_user_module.cli.keyword_sentiment_predict"
+    in_paths: [src_fpath]
+    out_paths:
+      dst_fpath: keyword_predictions.json
+    primary_out_key: dst_fpath
+    # algo_params are the knobs you want to sweep over (they affect the hash).
+    algo_params:
+      keyword: great
+      case_sensitive: false
+    # perf_params are execution details (they do not affect the hash).
+    perf_params:
+      workers: 0
+
+  sentiment_evaluate:
+    executable: "python -m example_user_module.cli.sentiment_evaluate"
+    in_paths: [true_fpath, pred_fpath]
+    out_paths:
+      out_fpath: sentiment_metrics.json
+    primary_out_key: out_fpath
+    perf_params:
+      workers: 0
+    # The generic result loader reads scores from result.metrics in the output.
+    result:
+      metrics: result.metrics
+    metrics:
+      - {metric: accuracy,           objective: maximize, primary: true, display: true}
+      - {metric: precision_positive, objective: maximize, display: true}
+      - {metric: recall_positive,    objective: maximize, display: true}
+    vantage_points:
+      - metric1: metrics.sentiment_evaluate.accuracy
+        metric2: metrics.sentiment_evaluate.precision_positive
+
+edges:
+  # Predictions feed into the evaluator.
+  - keyword_sentiment_predict.dst_fpath -> sentiment_evaluate.pred_fpath
+  # Reuse the same labeled data as both the prediction input and ground truth.
+  - keyword_sentiment_predict.src_fpath -> sentiment_evaluate.true_fpath
