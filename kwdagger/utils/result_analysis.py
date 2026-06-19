@@ -668,7 +668,6 @@ class ResultAnalysis(ub.NiceRepr):
             param_group = [param_group]
 
         # For hashable generic dictionary
-        from collections import namedtuple
 
         def gd(**d: Any) -> tuple[Any, ...]:
             return tuple(d[p] for p in param_group)

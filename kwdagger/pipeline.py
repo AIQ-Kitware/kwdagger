@@ -24,8 +24,8 @@ import functools
 import os
 import typing
 import warnings
-from functools import cached_property
 from concurrent.futures import Future
+from functools import cached_property
 from typing import Any, Mapping, Sequence, cast
 
 import kwutil

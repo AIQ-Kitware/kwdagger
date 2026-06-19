@@ -44,7 +44,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import ubelt as ub
 
@@ -230,7 +230,10 @@ class YamlProcessNode(ProcessNode):
                 nest_resolved['metrics'] = metric_values
 
         flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
-        flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
+        # ``name`` is always set by the constructor for a configured node.
+        flat_resolved = flat_resolved.insert_prefix(
+            cast(str, self.name), index=1
+        )
         return flat_resolved
 
 

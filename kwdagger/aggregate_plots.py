@@ -1206,7 +1206,6 @@ class ParamPlotter:
                 if position is None:
                     position = xdata.mean()
                 # find closest index
-                import numpy as np
 
                 start_ind: int = 0
                 if direction == 'right':

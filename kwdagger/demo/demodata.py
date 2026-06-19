@@ -136,9 +136,9 @@ from typing import Any
 import kwutil
 import scriptconfig as scfg
 import ubelt as ub
-from kwdagger.utils import util_dotdict
 
 from kwdagger.pipeline import Pipeline, ProcessNode
+from kwdagger.utils import util_dotdict
 
 ### EXECUTABLE PROCESS CODE
 

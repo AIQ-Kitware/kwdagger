@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import shelve
-from typing import Any, cast
+from typing import Any
 
 import ubelt as ub
 
