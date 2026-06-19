@@ -2017,7 +2017,13 @@ class ProcessNode(Node):
         parts = []
         import shlex
 
-        for k, v in config.items():
+        # Emit arguments in a deterministic (sorted) order. ``config`` keys can
+        # originate from set-valued ``in_paths`` / ``algo_params`` / etc., whose
+        # iteration order is hash-seed dependent; sorting keeps the generated
+        # command (and the invoke.sh written to disk) reproducible across runs
+        # and Python versions. Argument order does not affect node identity --
+        # the algo_id / process_id hashes normalize independently of this.
+        for k, v in sorted(config.items()):
             if isinstance(v, list):
                 # Handle variable-args params
                 quoted_varargs = [shlex.quote(str(x)) for x in v]
