@@ -510,6 +510,21 @@ class Pipeline:
                     # to info_dpath/status/<pathid>.logs for post-mortem
                     # diagnosis of node failures.
                     extra_submitkw['log'] = log
+
+                    # Forward the resource lifecycle to cmd_queue: ``setup`` is
+                    # a gating precondition run before the command (e.g. acquire
+                    # a GPU lease) and ``teardown`` is cleanup that always runs
+                    # after the command -- on success, failure, and SIGTERM --
+                    # provided setup succeeded (e.g. release the lease). This is
+                    # the job-level try/finally; it co-locates acquire+release
+                    # in the job rather than as separate, skippable DAG nodes.
+                    # Works uniformly on the serial/tmux and slurm backends.
+                    node_setup = getattr(node, 'setup', None)
+                    node_teardown = getattr(node, 'teardown', None)
+                    if node_setup:
+                        extra_submitkw['setup'] = node_setup
+                    if node_teardown:
+                        extra_submitkw['teardown'] = node_teardown
                     if 'slurm' in queue.__class__.__name__.lower():
                         # Global slurm options apply to every job.
                         extra_submitkw.update(
@@ -1218,6 +1233,8 @@ class ProcessNode(Node):
         root_dpath: Any = None,
         config: Any = None,
         slurm_options: Any = None,
+        setup: Any = None,
+        teardown: Any = None,
         node_dpath: Any = None,  # overwrites configured node dapth
         group_dpath: Any = None,  # overwrites configured node dapth
         primary_out_key: str | None = None,
@@ -1271,6 +1288,11 @@ class ProcessNode(Node):
             'algo_params': {},
             'primary_out_key': None,
             'slurm_options': None,
+            # Resource lifecycle forwarded to cmd_queue: ``setup`` is a gating
+            # precondition (e.g. acquire a GPU lease) and ``teardown`` is an
+            # always-run cleanup (e.g. release it) -- see submit_jobs.
+            'setup': None,
+            'teardown': None,
         }
         _classvar_init(self, args, fallbacks)
         super().__init__(args['name'])
