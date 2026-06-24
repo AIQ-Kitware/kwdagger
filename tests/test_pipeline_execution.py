@@ -112,6 +112,24 @@ def _run_pipeline(dag: Pipeline, backend: str, dpath: ub.Path):
     queue = _make_queue(backend, 'kwd-exec', dpath / 'q')
     dag.submit_jobs(queue=queue, log=False)
     _run_blocking(queue, backend)
+    return queue
+
+
+def _assert_real_jobs_failed(queue, backend: str) -> None:
+    """Assert every real (non-bookkeeper) job was marked failed.
+
+    serial/tmux record pass/fail as on-disk markers; slurm tracks job state
+    through the scheduler (no fail marker), so the marker check is limited to
+    the file-based backends -- slurm's "setup failure exits non-zero" is
+    covered by cmd_queue's own slurm render/exec tests.
+    """
+    if backend == 'slurm':
+        return
+    real_jobs = [j for j in queue.jobs if not getattr(j, 'bookkeeper', 0)]
+    assert real_jobs, 'no real jobs were submitted'
+    for job in real_jobs:
+        assert job.fail_fpath.exists(), 'a failing setup must fail the job'
+        assert not job.pass_fpath.exists(), 'a failed job must not pass'
 
 
 @pytest.mark.parametrize('backend', BACKENDS)
@@ -183,9 +201,9 @@ def test_yaml_pipeline_executes_setup_teardown(backend):
 
 @_needs_setup_teardown
 @pytest.mark.parametrize('backend', BACKENDS)
-def test_yaml_pipeline_setup_failure_skips_command_and_teardown(backend):
-    """In a YAML pipeline, a failing setup gates the command (skipped) and
-    teardown (not run)."""
+def test_yaml_pipeline_setup_failure_fails_job_and_skips_command(backend):
+    """In a YAML pipeline, a failing setup marks the job failed, and gates the
+    command (skipped) and teardown (not run)."""
     dpath = _work_dpath(f'yaml-setup-fail-{backend}')
     cmd_marker = dpath / 'cmd.marker'
     teardown_marker = dpath / 'teardown.marker'
@@ -201,8 +219,9 @@ def test_yaml_pipeline_setup_failure_skips_command_and_teardown(backend):
     }
     dag = load_yaml_pipeline(spec)
 
-    _run_pipeline(dag, backend, dpath)
+    queue = _run_pipeline(dag, backend, dpath)
 
+    _assert_real_jobs_failed(queue, backend)
     assert not cmd_marker.exists(), 'command must be skipped when setup fails'
     assert not teardown_marker.exists(), (
         'teardown must not run when setup never succeeded'
