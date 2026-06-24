@@ -31,6 +31,7 @@ script here; the execution semantics (teardown runs on success / failure
 from __future__ import annotations
 
 import inspect
+from typing import Any
 
 import cmd_queue
 import pytest
@@ -62,9 +63,12 @@ def _build_demo(root_dpath: ub.Path) -> Pipeline:
     return dag
 
 
-def _first_real_job(
-    queue: cmd_queue.base_queue.Queue,
-) -> cmd_queue.base_queue.Job:
+def _first_real_job(queue: Any) -> Any:
+    # The concrete queue/job types (SerialQueue/TMUXMultiQueue, BashJob) expose
+    # ``jobs``/``log``/``preamble``/``teardown``/``finalize_text`` that are not
+    # on the cmd_queue base classes -- and which vary by cmd_queue version (e.g.
+    # ``teardown`` only exists in cmd_queue >= 0.3.1). Type as ``Any`` so this
+    # introspection is decoupled from the installed cmd_queue version.
     for job in queue.jobs:
         if not getattr(job, 'bookkeeper', 0):
             return job
