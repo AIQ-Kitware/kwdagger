@@ -35,6 +35,11 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
     (i.e. one at a time). This is a [link=https://gitlab.kitware.com/computer-vision/cmd_queue]cmd_queue[/link] CLI.
     """
 
+    # ``queue_name`` is inherited from the untyped ``CMDQueueConfig`` base, so
+    # annotate it here (annotation only -- no runtime attribute, keeping
+    # scriptconfig's Value collection intact) to resolve mypy's has-type cycle.
+    queue_name: Any
+
     params = scfg.Value(
         None, type=str, help='a yaml/json grid/matrix of prediction params'
     )

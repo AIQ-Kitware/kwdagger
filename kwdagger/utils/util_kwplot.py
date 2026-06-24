@@ -358,7 +358,7 @@ class LabelModifier:
                 self._dict_mapper.update(ub.udict(mapping).map_keys(str))
         return self
 
-    def update(self, dict_mapping: Any) -> Any:  # type: ignore
+    def update(self, dict_mapping: Any) -> Any:
         self._dict_mapper.update(dict_mapping)
         self._dict_mapper.update(ub.udict(dict_mapping).map_keys(str))
         return self
@@ -666,7 +666,7 @@ class ArtistManager:
         if 'color' in attrs:
             attrs['color'] = kwimage.Color.coerce(attrs['color']).as01()
         if 'hashid' in attrs:
-            attrs = attrs - {'hashid'}  # type: ignore
+            attrs = attrs - {'hashid'}  # ty: ignore[unsupported-operator]
         hashid = ub.hash_data(sorted(attrs.items()))[0:8]
         return hashid, attrs
 
@@ -822,7 +822,7 @@ class ArtistManager:
                 units='points',
                 # units='x',
                 # units='xy',
-                transOffset=ax.transData,  # type: ignore
+                transOffset=ax.transData,
                 **attrs,
             )
             # collection.set_transOffset(ax.transData)

@@ -159,7 +159,7 @@ class Stage1PredictCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs: Any) -> None:
-        config = cls.cli(  # type: ignore
+        config = cls.cli(
             argv=argv,  # type: ignore
             data=kwargs,
             strict=True,
@@ -180,7 +180,7 @@ class Stage1PredictCLI(scfg.DataConfig):
         text = ub.Path(config.src_fpath).read_text()
 
         # A dummy prediction computation
-        data['result'] = ub.hash_data(str(config.param1) + str(text))  # type: ignore
+        data['result'] = ub.hash_data(str(config.param1) + str(text))
 
         obj = proc_context.stop()
         data['info'].append(obj)
@@ -206,7 +206,7 @@ class Stage1EvaluateCLI(scfg.DataConfig):
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs: Any) -> None:
-        config = cls.cli(  # type: ignore
+        config = cls.cli(
             argv=argv,  # type: ignore
             data=kwargs,
             strict=True,
@@ -300,7 +300,10 @@ class Stage1_Predict(ProcessNode):
 
         from kwdagger.aggregate_loader import new_process_context_parser
 
-        output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
+        # primary_out_key is derived/required by the time a node loads its
+        # result; assert it so the out_paths lookup is well-typed.
+        assert self.primary_out_key is not None
+        output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
@@ -346,7 +349,10 @@ class Stage1_Evaluate(ProcessNode):
 
         from kwdagger.aggregate_loader import new_process_context_parser
 
-        output_fpath = node_dpath / self.out_paths[self.primary_out_key]  # type: ignore
+        # primary_out_key is derived/required by the time a node loads its
+        # result; assert it so the out_paths lookup is well-typed.
+        assert self.primary_out_key is not None
+        output_fpath = node_dpath / self.out_paths[self.primary_out_key]
         result = json.loads(output_fpath.read_text())
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)

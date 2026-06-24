@@ -1387,10 +1387,10 @@ class AggregatorAnalysisMixin:
             table.loc[top_locs, 'rank'] = np.arange(len(top_locs))
             table = table.sort_values('rank')
 
-            if len(agg.model_cols) == 0:  # type: ignore
+            if len(agg.model_cols) == 0:
                 print('No model columns are availble')
             else:
-                model_col = agg.model_cols[0]  # type: ignore
+                model_col = agg.model_cols[0]
 
                 # HACK: we want to group models that came from the same training
                 # run so we report a more diverse set of models. We typically group
@@ -1446,8 +1446,8 @@ class AggregatorAnalysisMixin:
         import pandas as pd
         from kwutil import util_time
 
-        table = agg.table.copy()  # type: ignore
-        resources = agg.resources  # type: ignore
+        table = agg.table.copy()
+        resources = agg.resources
 
         duration_cols = [k for k in resources.keys() if k.endswith('.duration')]
         for k in duration_cols:
@@ -1607,8 +1607,8 @@ class AggregatorAnalysisMixin:
         # Given these set of A/B values, visualize each region
         for region_id, group in ub.ProgIter(
             list(subagg.index.groupby('region_id')), desc='Inspect Region'
-        ):  # type: ignore
-            group_agg = Aggregator.filterto(subagg, index=group.index)  # type: ignore
+        ):
+            group_agg = Aggregator.filterto(subagg, index=group.index)
             for id, row in group_agg.index.iterrows():
                 ...
                 inspect_node(subagg, id, row, group_agg, agg_group_dpath)
@@ -2698,7 +2698,7 @@ class Aggregator(
             rois = 'max'
         if isinstance(rois, str):
             if rois == 'max' or rois == 'auto':
-                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)  # type: ignore
+                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)
             else:
                 from kwutil.util_yaml import Yaml
 
@@ -3491,7 +3491,7 @@ def _build_metrics_info_table(agg: Any, node: Any) -> None:
                         f'No metrics for {node} were marked as primary, forcing at least one'
                     )
                     agg.primary_metric_cols = [
-                        ub.peek(agg._metric_info.values())['name']  # type: ignore
+                        ub.peek(agg._metric_info.values())['name']
                     ]
             if agg.display_metric_cols == 'auto':
                 agg.display_metric_cols = [

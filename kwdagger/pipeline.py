@@ -840,7 +840,7 @@ class Node(ub.NiceRepr):
                 in_node = inputs[in_key]
                 # out_node._connect_single(in_node, src_map, dst_map)
                 assert hasattr(out_node, '_connect_single')
-                out_node._connect_single(in_node, {}, {})  # type: ignore
+                out_node._connect_single(in_node, {}, {})  # ty: ignore[call-non-callable]
 
     def connect(
         self,
@@ -914,10 +914,17 @@ class InputNode(IONode): ...
 
 
 class OutputNode(IONode):
-    @property  # type: ignore[misc]
+    # Redefine as a full read-write property (getter + setter) so it remains a
+    # Liskov-compatible override of IONode's read-write ``final_value`` -- a
+    # plain ``@property`` would drop the setter and trip the type checkers.
+    @property
     def final_value(self) -> Any:
         # return self.parent._finalize_templates()['out_paths'][self.name]
         return self.parent.final_out_paths[self.name]
+
+    @final_value.setter
+    def final_value(self, value: Any) -> None:
+        self._final_value = value
 
     @property
     def template_value(self) -> Any:
@@ -1379,8 +1386,8 @@ class ProcessNode(Node):
                 self.primary_out_key = derived_primary_out_key
 
         if self.primary_out_key is None:
-            if len(self.out_paths) == 1:  # type: ignore
-                self.primary_out_key = ub.peek(self.out_paths)  # type: ignore
+            if len(self.out_paths) == 1:
+                self.primary_out_key = ub.peek(self.out_paths)
 
         if self.group is None:
             self.group = '.'
@@ -1625,12 +1632,12 @@ class ProcessNode(Node):
                         warnings.warn(
                             f'Ignoring default for in_path "{key}" defined in params.'
                         )
-                    path_kwargs[group_key].add(key)  # type: ignore
+                    path_kwargs[group_key].add(key)
                 elif group_key == 'out_paths':
                     if isinstance(default_value, str) and default_value:
-                        path_kwargs[group_key][key] = default_value  # type: ignore
+                        path_kwargs[group_key][key] = default_value
                 else:
-                    path_kwargs[group_key][key] = default_value  # type: ignore
+                    path_kwargs[group_key][key] = default_value
 
         return (
             path_kwargs['in_paths'],
@@ -1857,7 +1864,7 @@ class ProcessNode(Node):
             :func:`ProcessNode.final_out_paths`
         """
         if not isinstance(self.out_paths, dict):
-            out_paths = self.config & self.out_paths  # type: ignore
+            out_paths = self.config & self.out_paths
         else:
             out_paths = self.out_paths
         template_node_dpath = self.template_node_dpath

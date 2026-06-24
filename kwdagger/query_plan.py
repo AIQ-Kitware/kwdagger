@@ -555,7 +555,7 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
     if isinstance(val, dict):
         # explicit 'and' and/or 'or'
         if 'and' in val:
-            and_val = val.get('and', [])  # type: ignore
+            and_val = val.get('and', [])
             if isinstance(and_val, str):
                 add_and([and_val])
             elif isinstance(and_val, Iterable):
@@ -564,7 +564,7 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
                 # a scalar (e.g. int) -- treat as a single AND term
                 add_and([and_val])
         if 'or' in val:
-            or_val = val.get('or', [])  # type: ignore
+            or_val = val.get('or', [])
             if isinstance(or_val, str):
                 add_or([or_val])
             elif isinstance(or_val, Iterable):
