@@ -302,7 +302,7 @@ class Pipeline:
 
         default: dict[str, Any] = {}
         for _, row in df[df['maybe_required']].iterrows():
-            default[row['node'] + '.' + row['key']] = None
+            default[str(row['node']) + '.' + str(row['key'])] = None
         rich.print(util_yaml.Yaml.dumps(default))
 
     def configure(
@@ -799,8 +799,10 @@ class Node(ub.NiceRepr):
 
         self_is_proc = self.__node_type__ == 'process'
         if self_is_proc:
+            # ``outputs`` lives on ProcessNode, not the base Node; access it
+            # dynamically (guarded by __node_type__) to stay well-typed.
             assert hasattr(self, 'outputs')
-            outputs = self.outputs
+            outputs = getattr(self, 'outputs')
         else:
             assert self.__node_type__ == 'io'
             outputs = {self.name: self}
@@ -840,7 +842,7 @@ class Node(ub.NiceRepr):
                 in_node = inputs[in_key]
                 # out_node._connect_single(in_node, src_map, dst_map)
                 assert hasattr(out_node, '_connect_single')
-                out_node._connect_single(in_node, {}, {})  # ty: ignore[call-non-callable]
+                out_node._connect_single(in_node, {}, {})
 
     def connect(
         self,
@@ -2358,6 +2360,7 @@ def _labelize_graph(
     for _, data in graph.nodes(data=True):
         all_names.append(data['node'].name)
 
+    ambiguous_names = []
     if shrink_labels:
         ambiguous_names = list(ub.find_duplicates(all_names))
 

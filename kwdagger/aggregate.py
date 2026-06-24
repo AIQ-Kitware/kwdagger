@@ -2426,6 +2426,9 @@ class Aggregator(
 
     @property
     def default_vantage_points(self) -> Any:
+        # Default when there is no dag (or anything goes wrong) -- keeps
+        # ``vantage_points`` bound on every path.
+        vantage_points = []
         try:
             assert self.node_type is not None
             if self.dag is not None:
@@ -2516,6 +2519,8 @@ class Aggregator(
         hashids_v1 = pd.Series([None] * len(self.index), index=self.index.index)
         hashid_to_effective_params = {}
 
+        # Bound in both branches below (chain in one, dict_items in the other).
+        param_groups_iter: Any
         if len(param_cols_list) > 0:
             param_groups = effective_params.groupby(
                 param_cols_list, dropna=False
@@ -2556,13 +2561,11 @@ class Aggregator(
 
         else:
             # fallback case, something is probably wrong if we are here
-            param_groups_iter_any: Any = {None: effective_params}.items()
+            param_groups_iter = {None: effective_params}.items()
 
-        for param_vals, group in (
-            param_groups_iter
-            if len(param_cols_list) > 0
-            else param_groups_iter_any
-        ):
+        # ``param_groups_iter`` is bound in both branches above (the >0 branch
+        # sets it or raises), so iterate it directly.
+        for param_vals, group in param_groups_iter:
             # Further subdivide the group so each row only computes its hash
             # with the parameters that were included in its row
             is_group_included = is_param_included.loc[group.index]
@@ -3271,6 +3274,9 @@ def macro_aggregate(
         sub_hash_cols = agg.test_dset_cols
         subgroups = table.groupby('region_id')
         subrows = []
+        # Bound so the diagnostic print in the except still works if iteration
+        # raises before the loop variables are first assigned.
+        _ = subgroup = cast(Any, None)
         try:
             for _, subgroup in subgroups:
                 subrow = aggregate_param_cols(
@@ -3442,6 +3448,9 @@ def _build_metrics_info_table(agg: Any, node: Any) -> None:
             _default_fn = getattr(node, '_default_metrics2', None)
         if _default_fn is None:
             raise AttributeError('No default_metrics')
+        # ``_default_fn`` is user-supplied; its result is validated to be
+        # iterable below, so type it as Any for the downstream iteration.
+        user_metric_info: Any
         if callable(_default_fn):
             user_metric_info = _default_fn()
         else:

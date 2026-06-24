@@ -659,6 +659,10 @@ def extended_github_action_matrix(arg: Any) -> Any:
     ]
 
     MULTI_SUBMATRICES = 1
+    # Bind both up front; only the branch matching MULTI_SUBMATRICES is
+    # populated, but the loop below references each under the same condition.
+    multi_submatrices_: list = []
+    submatrices_: list = []
     if MULTI_SUBMATRICES:
         # Try allowing for more variations. The idea is we effectively
         # want to take the cross product of multiple lists of submatrices.

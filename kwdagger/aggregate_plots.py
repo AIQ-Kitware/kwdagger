@@ -50,14 +50,17 @@ def build_plotter(agg: Any, rois: Any, plot_config: Any) -> ParamPlotter:
     else:
         macro_table = None
 
+    from kwdagger.aggregate import hash_regions
+
+    # ``region_hash`` depends on ``rois`` (not on whether a plot_dpath was
+    # configured); compute it unconditionally so it is always bound.
+    if rois is not None:
+        region_hash = hash_regions(rois)
+    else:
+        region_hash = 'allrois'
+
     plot_dpath = plot_config.get('plot_dpath', None)
     if plot_dpath is None:
-        from kwdagger.aggregate import hash_regions
-
-        if rois is not None:
-            region_hash = hash_regions(rois)
-        else:
-            region_hash = 'allrois'
         plot_dpath = agg.output_dpath / 'plots'
     else:
         plot_dpath = ub.Path(plot_dpath)
@@ -195,8 +198,8 @@ class ParamPlotter:
 
     def __init__(plotter: Any, agg: Any, vantage_points: Any = None) -> None:
         plotter.agg = agg
-        plotter.plot_dpath = None
-        plotter.macro_plot_dpath = None
+        plotter.plot_dpath = cast(Any, None)
+        plotter.macro_plot_dpath = cast(Any, None)
         plotter.param_to_palette = cast(dict[str, Any], {})
         plotter.param_to_valmap = cast(dict[str, Any], {})
         plotter.modifier = cast(Any, None)
@@ -697,6 +700,8 @@ class ParamPlotter:
                 for col in resolved_params.columns:
                     if len(macro_table[col].unique()) > 1:
                         chosen_params.append(col)
+            else:
+                chosen_params = params_of_interest
             param_name_to_stats = {}
 
         # ranked_params = ['bas_poly_eval.params.bas_pxl.package_fpath']

@@ -166,6 +166,7 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     pipeline = config.pipeline
 
     param_slurm_options = {}
+    param_arg: Any = {}
     if config['params'] is not None:
         param_arg = kwutil.Yaml.coerce(config['params']) or {}
         if isinstance(param_arg, dict):

@@ -308,6 +308,7 @@ class Stage1_Predict(ProcessNode):
         proc_item = result['info'][-1]
         nest_resolved = new_process_context_parser(proc_item)
         flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
+        assert self.name is not None
         flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
         return flat_resolved
 
@@ -358,6 +359,7 @@ class Stage1_Evaluate(ProcessNode):
         nest_resolved = new_process_context_parser(proc_item)
         nest_resolved['metrics'] = result['result']
         flat_resolved = util_dotdict.DotDict.from_nested(nest_resolved)
+        assert self.name is not None
         flat_resolved = flat_resolved.insert_prefix(self.name, index=1)
         return flat_resolved
 

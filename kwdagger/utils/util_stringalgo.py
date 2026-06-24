@@ -126,6 +126,9 @@ def shortest_unique_prefixes(
     # This is the shortest unique prefix over all items.
     unique = []
     for item in items:
+        # Fall back to the full item if the trie yields no prefixes, keeping
+        # ``prefix`` bound (and a str) on every path.
+        prefix = item
         freq = None
         for prefix, freq in trie.prefixes(item):
             if freq == 1:
