@@ -107,7 +107,17 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 import pandas as pd
@@ -503,12 +513,14 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
     """
     groups: List[Group] = []
 
-    def add_and(exprs: Sequence[str]) -> None:
+    # These accept any iterable of values (each is stringified); callers guard
+    # bare strings into a single-element list so we never iterate a str's chars.
+    def add_and(exprs: Iterable[Any]) -> None:
         exprs = [str(e) for e in exprs if str(e).strip()]
         if exprs:
             groups.append(('and', list(exprs)))
 
-    def add_or(exprs: Sequence[str]) -> None:
+    def add_or(exprs: Iterable[Any]) -> None:
         exprs = [str(e) for e in exprs if str(e).strip()]
         if exprs:
             groups.append(('or', list(exprs)))
@@ -546,14 +558,20 @@ def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
             and_val = val.get('and', [])  # type: ignore
             if isinstance(and_val, str):
                 add_and([and_val])
-            else:
+            elif isinstance(and_val, Iterable):
                 add_and(and_val)
+            else:
+                # a scalar (e.g. int) -- treat as a single AND term
+                add_and([and_val])
         if 'or' in val:
             or_val = val.get('or', [])  # type: ignore
             if isinstance(or_val, str):
                 add_or([or_val])
-            else:
+            elif isinstance(or_val, Iterable):
                 add_or(or_val)
+            else:
+                # a scalar (e.g. int) -- treat as a single OR term
+                add_or([or_val])
         # if no and/or keys, treat other keys as error
         if not groups and val:
             raise ValueError(

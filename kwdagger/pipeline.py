@@ -1234,6 +1234,18 @@ class ProcessNode(Node):
     # Optional job-level slurm options. Can be overridden via configuration.
     slurm_options: dict[str, Any] | None = None
 
+    # Optional resource lifecycle forwarded to the underlying cmd_queue job
+    # (see :meth:`Pipeline.submit_jobs`). ``setup`` is a gating precondition run
+    # before the command -- e.g. acquire a GPU lease -- and a failing setup
+    # skips the command and fails the node. ``teardown`` is cleanup that always
+    # runs after the command (on success, failure, and signal) provided setup
+    # succeeded -- e.g. release the lease. Together they are the node-level
+    # try/finally for bracketing an external resource, rather than modeling
+    # acquire/release as separate, skippable DAG nodes. Requires cmd_queue with
+    # BashJob/SlurmJob setup/teardown support (>= 0.3.1).
+    setup: Any = None
+    teardown: Any = None
+
     # Optional scriptconfig schema for deriving path/param groups. This is the
     # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
     params: Any = None
@@ -1519,7 +1531,7 @@ class ProcessNode(Node):
             name = getattr(config_cls, '__command__', name)
         if name is None:
             name = config_cls.__name__
-        node_kwargs = {}
+        node_kwargs: dict[str, Any] = {}
         node_kwargs['name'] = name
         node_kwargs['executable'] = '<EXECUTABLE UNSPECIFIED>'
         node_kwargs.update(path_kwargs)

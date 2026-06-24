@@ -30,10 +30,30 @@ script here; the execution semantics (teardown runs on success / failure
 """
 from __future__ import annotations
 
+import inspect
+
 import cmd_queue
+import pytest
 import ubelt as ub
 
 from kwdagger.pipeline import Pipeline
+
+# The resource-lifecycle feature requires a cmd_queue whose BashJob accepts
+# ``setup`` / ``teardown`` (cmd_queue >= 0.3.1). Feature-detect rather than
+# version-parse so this stays correct regardless of how it is packaged. Skip
+# the whole module on older cmd_queue (e.g. the currently pinned 0.2.3) instead
+# of failing -- the kwdagger plumbing cannot be exercised without upstream
+# support.
+from cmd_queue.serial_queue import BashJob
+
+_HAS_SETUP_TEARDOWN = (
+    'teardown' in inspect.signature(BashJob.__init__).parameters
+)
+
+pytestmark = pytest.mark.skipif(
+    not _HAS_SETUP_TEARDOWN,
+    reason='requires cmd_queue with BashJob setup/teardown support (>= 0.3.1)',
+)
 
 
 def _build_demo(root_dpath: ub.Path) -> Pipeline:
