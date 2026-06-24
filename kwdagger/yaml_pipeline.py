@@ -64,6 +64,12 @@ _PROCESS_NODE_KEYS = {
     'perf_params',
     'group',
     'slurm_options',
+    # Resource lifecycle forwarded to the underlying cmd_queue job. ``setup``
+    # is a gating precondition run before the command; ``teardown`` is cleanup
+    # that always runs after it (success, failure, or signal). Each may be a
+    # single shell string or a list of strings.
+    'setup',
+    'teardown',
     'config',
     'node_dpath',
     'group_dpath',
@@ -560,6 +566,11 @@ def dump_yaml_pipeline(dag: Any) -> dict[str, Any]:
             spec['group'] = node.group
         if node.slurm_options:
             spec['slurm_options'] = dict(node.slurm_options)
+        # Resource lifecycle (forwarded to cmd_queue); a single string or list.
+        if node.setup:
+            spec['setup'] = node.setup
+        if node.teardown:
+            spec['teardown'] = node.teardown
 
         # Data-driven extras are meaningful only on the default YamlProcessNode
         # path; a custom subclass carries that behavior in its code.

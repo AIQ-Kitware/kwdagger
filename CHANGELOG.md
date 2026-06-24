@@ -7,6 +7,8 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 * `ProcessNode` now accepts `setup` and `teardown` shell commands, forwarded through `Pipeline.submit_jobs` to the underlying cmd_queue job (`setup` as a gating precondition, `teardown` as always-run cleanup). This brackets a node with an external resource — e.g. acquire a GPU lease before a run and release it after, even on failure or signal — without modeling acquire/release as separate, skippable DAG nodes. Requires cmd_queue with `BashJob`/`SlurmJob` setup/teardown support (>= 0.3.1).
+* The declarative YAML pipeline spec now supports `setup` and `teardown` node keys (a single shell string or a list), forwarded to the node's resource lifecycle and round-tripped by `dump_yaml_pipeline`.
+* Backend execution tests (`tests/test_pipeline_execution.py`) that actually run a pipeline — including a YAML pipeline with `setup`/`teardown` — on the serial backend, and on tmux/slurm when those backends are available (skipped otherwise).
 
 
 ## Version 0.2.4 - Released 2026-06-19

@@ -783,3 +783,40 @@ if __name__ == '__main__':
     import xdoctest
 
     xdoctest.doctest_module(__file__)
+
+
+def test_yaml_setup_teardown_round_trip():
+    """``setup`` / ``teardown`` are accepted on a YAML node, forwarded to the
+    ProcessNode, and survive a dump round-trip (as a string or a list)."""
+    from kwdagger.yaml_pipeline import dump_yaml_pipeline, load_yaml_pipeline
+
+    spec = {
+        'nodes': {
+            'a': {
+                'executable': 'echo a',
+                'out_paths': {'dst': 'a.txt'},
+                'setup': 'acquire_lease',
+                'teardown': ['release_lease', 'log_done'],
+            },
+        },
+    }
+    dag = load_yaml_pipeline(spec)
+    node = dag.node_dict['a']
+    assert node.setup == 'acquire_lease'
+    assert node.teardown == ['release_lease', 'log_done']
+
+    dumped = dump_yaml_pipeline(dag)
+    assert dumped['nodes']['a']['setup'] == 'acquire_lease'
+    assert dumped['nodes']['a']['teardown'] == ['release_lease', 'log_done']
+
+    # Re-loading the dumped spec preserves the lifecycle.
+    dag2 = load_yaml_pipeline(dumped)
+    node2 = dag2.node_dict['a']
+    assert node2.setup == 'acquire_lease'
+    assert node2.teardown == ['release_lease', 'log_done']
+
+    # A node without setup/teardown does not gain the keys on dump.
+    plain = dump_yaml_pipeline(load_yaml_pipeline(
+        {'nodes': {'a': {'executable': 'echo a'}}}))
+    assert 'setup' not in plain['nodes']['a']
+    assert 'teardown' not in plain['nodes']['a']
