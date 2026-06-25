@@ -2,7 +2,7 @@
 #    uv export --frozen --no-emit-project --format requirements.txt --no-hashes --extra tests --extra optional -o requirements/locks/tests-optional.txt
 affine==2.4.0
     # via kwimage
-cmd-queue==0.2.3
+cmd-queue==0.3.1
     # via kwdagger
 colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
@@ -44,7 +44,9 @@ kwimage==0.11.6
 kwplot==0.5.4
     # via kwdagger
 kwutil==0.3.8
-    # via kwdagger
+    # via
+    #   cmd-queue
+    #   kwdagger
 lazy-loader==0.5
     # via
     #   kwimage

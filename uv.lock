@@ -18,9 +18,6 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
-[options]
-exclude-newer = "2026-05-22T04:00:00Z"
-
 [[package]]
 name = "affine"
 version = "2.4.0"
@@ -202,9 +199,10 @@ wheels = [
 
 [[package]]
 name = "cmd-queue"
-version = "0.2.3"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "kwutil" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and python_full_version < '4'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -217,9 +215,9 @@ dependencies = [
     { name = "scriptconfig" },
     { name = "ubelt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d7/e2/ea20dd1bb8dedacd0a1280a7b8c11d376d5b5df1681952950661b654ee2f/cmd_queue-0.2.3.tar.gz", hash = "sha256:89ce0d02995af7e54403a38be094328f6f586f57833db564f4504596151346f5", size = 98120, upload-time = "2025-12-09T17:05:58.364Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/77/59/6347df7c19a968341f5c49df343892c0c0402508f45707b1af3be3c58a5c/cmd_queue-0.3.1.tar.gz", hash = "sha256:5a4929e1cb61d9bf7eed22bbb1574a8ede7ac40aeb85ad8bb62ea652c04e0ef5", size = 113595, upload-time = "2026-06-25T17:24:25.643Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/95/d1c2648f0b27cdc9f7d1a083a702fd2d42d34a915d4000e39ae9256a08b2/cmd_queue-0.2.3-py3-none-any.whl", hash = "sha256:6e7cfc70528998571d897b51c0bea289318b8b60da051f3986ee2ccffc3640a8", size = 96136, upload-time = "2025-12-09T17:05:54.793Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/8b/c9229909b5e6eb3dc57df1dcf6d2685473b086bf25387136596b437ebd15/cmd_queue-0.3.1-py3-none-any.whl", hash = "sha256:1fcc5ef2dd39c35c2d5373b6fd34469474e0f8d5e3569a96aef3b36c6488f01f", size = 99196, upload-time = "2026-06-25T17:24:23.727Z" },
 ]
 
 [[package]]
@@ -954,7 +952,7 @@ tests = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cmd-queue", specifier = ">=0.1.20" },
+    { name = "cmd-queue", specifier = ">=0.3.1" },
     { name = "coverage", marker = "python_full_version == '3.8.*' and extra == 'tests'", specifier = ">=6.1.1" },
     { name = "coverage", marker = "python_full_version == '3.9.*' and extra == 'tests'", specifier = ">=5.3.1" },
     { name = "coverage", marker = "python_full_version >= '3.10' and python_full_version < '3.12' and extra == 'tests'", specifier = ">=6.1.1" },
