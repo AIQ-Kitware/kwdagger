@@ -17,9 +17,17 @@ from __future__ import annotations
 
 from typing import Any
 
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
-from cmd_queue.cli_boilerplate import CMDQueueConfig
+
+try:
+    # cmd_queue >= 0.3.2 ships a kwconf-native boilerplate base.
+    from cmd_queue.cli_boilerplate import CmdQueueConfigMixin
+except ImportError:
+    # cmd_queue <= 0.3.1 only ships the scriptconfig-based CMDQueueConfig, which
+    # cannot host kwconf fields. Fall back to a local kwconf reimplementation
+    # that targets the stable cmd_queue.Queue API. See _cmd_queue_compat.
+    from kwdagger._cmd_queue_compat import CmdQueueConfigMixin
 
 from kwdagger.pipeline import (
     coerce_slurm_options as pipeline_coerce_slurm_options,
@@ -27,7 +35,7 @@ from kwdagger.pipeline import (
 from kwdagger.utils import util_pandas
 
 
-class ScheduleEvaluationConfig(CMDQueueConfig):
+class ScheduleEvaluationConfig(CmdQueueConfigMixin):
     """
     Driver for KWDagger scheduling
 
@@ -35,39 +43,27 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
     (i.e. one at a time). This is a [link=https://gitlab.kitware.com/computer-vision/cmd_queue]cmd_queue[/link] CLI.
     """
 
-    # ``queue_name`` is inherited from the untyped ``CMDQueueConfig`` base, so
-    # annotate it here (annotation only -- no runtime attribute, keeping
-    # scriptconfig's Value collection intact) to resolve mypy's has-type cycle.
-    queue_name: Any
+    # NOTE: ``queue_name`` and ``monitor`` are inherited from the kwconf
+    # ``CmdQueueConfigMixin`` base. The scriptconfig-era overrides for those
+    # (an annotation-only ``queue_name`` to break a mypy cycle, and a
+    # ``type=str`` ``monitor`` to stop smartcast from turning 'none' into
+    # ``None``) are no longer needed: kwconf does not smartcast, so
+    # ``--monitor=none`` stays the string 'none'.
 
-    # Shadow the inherited ``monitor`` option to force ``type=str``. Older
-    # cmd_queue releases (<= 0.3.1) declare this without a type, so scriptconfig
-    # smartcasts the string 'none' to Python None and then fails its own choices
-    # validation. Overriding here keeps ``--monitor=none`` working regardless of
-    # the installed cmd_queue version. (cmd_queue >= 0.3.2 also fixes this at the
-    # source; this override is harmless there and can be dropped once the minimum
-    # is raised.)
-    monitor = scfg.Value(
-        'inline',
-        type=str,
-        choices=['hybrid', 'inline', 'tmux', 'none'],
-        help='where the live status UI runs while jobs execute',
-        group='cmd-queue',
+    params = kw.Value(
+        None, parser=str, help='a yaml/json grid/matrix of prediction params'
     )
 
-    params = scfg.Value(
-        None, type=str, help='a yaml/json grid/matrix of prediction params'
-    )
-
-    devices = scfg.Value(
+    devices = kw.Value(
         None,
         help=(
             'if using tmux or serial, indicate which gpus are available for use '
-            'as a comma separated list: e.g. 0,1'
+            'as a comma separated list: e.g. 0,1 (split in __post_init__; '
+            'kwconf does not auto-split comma strings)'
         ),
     )
 
-    skip_existing = scfg.Value(
+    skip_existing = kw.Value(
         False,
         help=(
             'if True dont submit commands where the expected '
@@ -75,20 +71,20 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
         ),
     )
 
-    pred_workers = scfg.Value(
+    pred_workers = kw.Value(
         4, help='number of prediction workers in each process'
     )
 
-    root_dpath = scfg.Value(
+    root_dpath = kw.Value(
         './kwdagger_output',
         help=(
             'Where do dump all results. If "auto", uses <expt_dvc_dpath>/dag_runs'
         ),
     )
 
-    pipeline = scfg.Value(
+    pipeline = kw.Value(
         None,
-        type=str,
+        parser=str,
         help=ub.paragraph(
             """
         The name of the pipeline to run. Can also specify this in the params.
@@ -100,19 +96,15 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
         ),
     )
 
-    enable_links = scfg.Value(
-        True, isflag=True, help='if true enable symlink jobs'
-    )
-    cache = scfg.Value(
+    enable_links = kw.Flag(True, help='if true enable symlink jobs')
+    cache = kw.Flag(
         True,
-        isflag=True,
         help=(
             'if true, each a test is appened to each job to skip itself if its output exists'
         ),
     )
-    log = scfg.Value(
+    log = kw.Flag(
         True,
-        isflag=True,
         help=ub.paragraph(
             """
             If true (the default), every job's stdout/stderr is teed to a
@@ -124,14 +116,14 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
         ),
     )
 
-    max_configs = scfg.Value(
+    max_configs = kw.Value(
         None,
         help='if specified only run at most this many of the grid search configs',
     )
 
-    queue_size = scfg.Value(None, help='if auto, defaults to number of GPUs')
+    queue_size = kw.Value(None, help='if auto, defaults to number of GPUs')
 
-    print_varied = scfg.Value(
+    print_varied: Any = kw.Value(
         'auto', isflag=True, help='print the varied parameters'
     )
 
@@ -149,14 +141,27 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
         devices = self.devices
         if devices == 'auto':
             GPUS = _auto_gpus()
+        elif devices is None:
+            GPUS = None
         else:
-            GPUS = None if devices is None else ensure_iterable(devices)
+            # kwconf does not auto-split comma strings the way scriptconfig's
+            # smartcast did, so split a "0,1" string here (numeric ids are
+            # coerced to int to match the historical behavior). A pre-built
+            # list (e.g. from a programmatic call) passes through unchanged.
+            if isinstance(devices, str):
+                devices = [
+                    _coerce_device(p.strip())
+                    for p in devices.split(',')
+                    if p.strip() != ''
+                ]
+            GPUS = ensure_iterable(devices)
         self.devices = GPUS
 
     @staticmethod
     def main(argv: bool | list[str] = True, **kwargs: Any) -> None:
         config = ScheduleEvaluationConfig.cli(
-            argv=argv, data=kwargs, strict=True, verbose='auto'
+            argv=argv, data=kwargs, strict=True, special_options=True,
+            verbose='auto',
         )
         build_schedule(config)
 
@@ -324,6 +329,18 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
 
 def ensure_iterable(inputs: Any) -> list[Any]:
     return inputs if ub.iterable(inputs) else [inputs]
+
+
+def _coerce_device(item: str) -> Any:
+    """Coerce a single device token to ``int`` when it looks numeric.
+
+    Mirrors the historical scriptconfig smartcast behavior for ``--devices``
+    (e.g. ``"0,1"`` -> ``[0, 1]``) while leaving non-numeric ids untouched.
+    """
+    try:
+        return int(item)
+    except (TypeError, ValueError):
+        return item
 
 
 def _auto_gpus() -> list[int]:
