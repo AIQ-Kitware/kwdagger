@@ -1849,7 +1849,7 @@ def aggregate_stats(data: Any, suffix: str = '', group_keys: Any = None) -> Any:
     non_stats_cols = list(ub.oset(data.columns) - stats_cols)  # type: ignore
     if group_keys is None:
         group_keys = non_stats_cols
-    non_group_keys = list(ub.oset(non_stats_cols) - group_keys)  # type: ignore
+    non_group_keys = list(ub.oset(non_stats_cols) - group_keys)  # ty: ignore[unsupported-operator]
 
     new_rows = []
     for group_vals, group in list(data.groupby(group_keys)):

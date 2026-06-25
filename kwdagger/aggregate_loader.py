@@ -300,6 +300,7 @@ def load_result_worker(
         try:
             flat = load_result_resolved(node_dpath, node=node, dag=dag)
 
+            region_ids = None
             HACK_FOR_REGION_ID = True
             if HACK_FOR_REGION_ID:
                 # Munge data to get the region ids we expect

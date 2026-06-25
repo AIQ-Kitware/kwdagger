@@ -66,9 +66,6 @@ packages.find.include = [
   "kwdagger*",
 ]
 
-[tool.uv]
-exclude-newer = "2026-05-21"
-
 [tool.ruff]
 target-version = "py38"
 line-length = 80
@@ -96,8 +93,8 @@ rules.unresolved-import = "ignore"
 rules.possibly-missing-submodule = "ignore"
 
 [tool.pytest]
-ini_options.addopts = "-p no:doctest --xdoctest --xdoctest-style=google --ignore-glob=setup.py --ignore-glob=dev --ignore-glob=docs"
-ini_options.norecursedirs = ".git ignore build __pycache__ dev _skbuild docs"
+ini_options.addopts = "-p no:doctest --xdoctest --xdoctest-style=google --ignore-glob=setup.py --ignore-glob=dev --ignore-glob=docs --ignore-glob=examples"
+ini_options.norecursedirs = ".git ignore build __pycache__ dev _skbuild docs examples"
 ini_options.filterwarnings = [
   "default",
   "ignore:.*No cfgstr given in Cacher constructor or call.*:Warning",

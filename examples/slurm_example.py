@@ -1,26 +1,44 @@
 #!/usr/bin/env python3
 r"""
-Demonstrates the ``monitor`` kwarg on the tmux backend through a kwdagger
-pipeline by calling ``ScheduleEvaluationConfig.main`` directly.  This
-exercises the same code path as ``python -m kwdagger.schedule`` and
-exposes whether the four cmd_queue monitor modes are properly supported.
+Submitting a kwdagger pipeline to a real slurm scheduler (``backend='slurm'``).
 
-Four monitor modes are available (set via ``--monitor``):
+Like the tmux and serial examples, this calls ``ScheduleEvaluationConfig.main``
+directly, exercising the same code path as ``python -m kwdagger.schedule`` --
+only the backend and a few scheduler-specific options differ.
 
-    * ``hybrid``   — inline status table in this shell *and* a detached
-                     ``cmd_queue monitor`` tmux session. Press ``[a]``
-                     to attach, ``[q]`` to stop watching.
+This is the "level 3" backend: kwdagger converts the job DAG into ``sbatch``
+submissions (with ``--dependency`` edges) and lets slurm schedule them across
+the cluster. The same pipeline definition used by the serial and tmux examples
+is reused here unchanged.
 
-    * ``inline``   — only the in-shell live UI (the kwdagger default).
+Partition / account
+-------------------
+On a shared cluster you typically must route jobs to a specific partition and
+bill them to an account, e.g.::
 
-    * ``tmux``     — only a detached tmux session; no inline view.
+    python ~/code/kwdagger/examples/slurm_example.py \
+        --partition=general --account=my_project
 
-    * ``none``     — headless; reattach hint is still printed so you can
-                     reconnect via ``cmd_queue monitor``.
+When ``--partition``/``--account`` are omitted (the default) the options are
+left off the ``sbatch`` command, so slurm uses the cluster's default partition
+and no accounting. That is what lets this example run as-is on a vanilla
+single-node slurm install (which usually exposes a default ``debug``
+partition).
 
-The pipeline has four logical levels:
+Monitoring
+----------
+Like the tmux example, ``--monitor`` selects where the live status UI runs:
 
-    Level 1 (prep):   prep_a  prep_b  prep_c  prep_d   (parallel, 5-8s)
+    * ``hybrid`` (default) — inline table in this shell *and* an attachable
+      detached tmux monitor session.
+    * ``inline``           — in-shell live UI only.
+    * ``tmux``             — detached tmux monitor session only.
+    * ``none``             — headless; ``run()`` blocks until jobs finish.
+
+The pipeline has four logical levels (identical to the serial/tmux examples so
+the three can be compared directly):
+
+    Level 1 (prep):   prep_a  prep_b  prep_c  prep_d   (parallel)
     Level 2 (proc):   proc_a  proc_b  proc_c  proc_d   (each after one prep)
     Level 3 (merge):  merge_x (after proc_a + proc_b)
                       merge_y (after proc_c + proc_d)
@@ -33,23 +51,18 @@ The file is also its own executable: the ``sleep_job`` sub-command is what
 kwdagger dispatches as each individual queue job.
 
 CommandLine:
-    # Default (hybrid): inline monitor + attachable tmux session
-    python ~/code/kwdagger/examples/tmux_example.py
+    # Run on the cluster's default partition (works on a local install)
+    python ~/code/kwdagger/examples/slurm_example.py
 
-    # Inline-only, no side tmux session
-    python ~/code/kwdagger/examples/tmux_example.py --monitor=inline
-
-    # Monitor lives only in a tmux session
-    python ~/code/kwdagger/examples/tmux_example.py --monitor=tmux
-
-    # Headless; reattach manually with `cmd_queue monitor <name>`
-    python ~/code/kwdagger/examples/tmux_example.py --monitor=none
+    # Target a specific partition / account on a shared cluster
+    python ~/code/kwdagger/examples/slurm_example.py \
+        --partition=general --account=my_project
 
     # Clean run (no injected failures)
-    python ~/code/kwdagger/examples/tmux_example.py --failures=0
+    python ~/code/kwdagger/examples/slurm_example.py --failures=0
 
-    # Print commands only, do not run
-    python ~/code/kwdagger/examples/tmux_example.py --run=False
+    # Print the sbatch commands without submitting anything
+    python ~/code/kwdagger/examples/slurm_example.py --run=False
 """
 
 from __future__ import annotations
@@ -110,13 +123,13 @@ class SleepJobCLI(scfg.DataConfig):
         print(f'[{label}] done  out={out_fpath}')
 
 
-class TmuxExampleModalCLI(scfg.ModalCLI):
+class SlurmExampleModalCLI(scfg.ModalCLI):
     """Modal CLI that wraps the job sub-commands defined in this file."""
 
     sleep_job = SleepJobCLI
 
 
-__cli__ = TmuxExampleModalCLI
+__cli__ = SlurmExampleModalCLI
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +231,7 @@ def make_pipeline() -> Pipeline:
     Build the four-level DAG pipeline.
 
     Example:
-        >>> from examples.tmux_example import make_pipeline
+        >>> from examples.slurm_example import make_pipeline
         >>> dag = make_pipeline()
         >>> dag.print_graphs()
     """
@@ -282,13 +295,13 @@ def make_pipeline() -> Pipeline:
 # ---------------------------------------------------------------------------
 
 
-class TmuxExampleConfig(scfg.DataConfig):
+class SlurmExampleConfig(scfg.DataConfig):
     """
-    Run the kwdagger tmux-monitor example.
+    Run the kwdagger slurm-backend example.
 
-    Calls ``ScheduleEvaluationConfig.main`` directly to exercise the
-    standard kwdagger scheduling path and verify that the four cmd_queue
-    monitor modes are properly exposed through it.
+    Calls ``ScheduleEvaluationConfig.main`` directly with ``backend='slurm'``
+    so the DAG is submitted to the cluster via ``sbatch`` with dependency
+    edges.
     """
 
     monitor = scfg.Value(
@@ -297,7 +310,24 @@ class TmuxExampleConfig(scfg.DataConfig):
         choices=['hybrid', 'inline', 'tmux', 'none'],
         help='monitor mode passed through to cmd_queue',
     )
-    workers = scfg.Value(4, type=int, help='number of parallel tmux workers')
+    partition = scfg.Value(
+        None,
+        help=ub.paragraph(
+            """
+            Slurm partition to submit to. If unset, the sbatch --partition
+            option is omitted and the cluster's default partition is used.
+            """
+        ),
+    )
+    account = scfg.Value(
+        None,
+        help=ub.paragraph(
+            """
+            Slurm account to bill jobs to. If unset, the sbatch --account
+            option is omitted.
+            """
+        ),
+    )
     failures = scfg.Value(
         1,
         type=int,
@@ -310,7 +340,7 @@ class TmuxExampleConfig(scfg.DataConfig):
     run = scfg.Value(
         True,
         isflag=True,
-        help='if False, only print commands without executing them',
+        help='if False, only print the sbatch commands without submitting them',
     )
     logs = scfg.Value(True, isflag=True, help='enable per-job log capture')
 
@@ -320,10 +350,10 @@ class TmuxExampleConfig(scfg.DataConfig):
 
         from kwdagger.schedule import ScheduleEvaluationConfig
 
-        config = TmuxExampleConfig.cli(argv=argv, data=kwargs, strict=True)
+        config = SlurmExampleConfig.cli(argv=argv, data=kwargs, strict=True)
 
         root_dpath = ub.Path(
-            config.root_dpath or ub.Path.appdir('kwdagger/tmux-example')
+            config.root_dpath or ub.Path.appdir('kwdagger/slurm-example')
         ).ensuredir()
 
         # Reference the pipeline function defined in this file.
@@ -334,9 +364,17 @@ class TmuxExampleConfig(scfg.DataConfig):
         fail_names = set(proc_names[: max(0, min(int(config.failures), 4))])
         matrix = {f'{n}.fail': [n in fail_names] for n in proc_names}
 
+        # Only pass partition/account through to sbatch when the user actually
+        # specified them; otherwise let slurm use its defaults.
+        slurm_options = {}
+        if config.partition is not None:
+            slurm_options['partition'] = config.partition
+        if config.account is not None:
+            slurm_options['account'] = config.account
+
         print(
-            f'\nLaunching with monitor={config.monitor!r}, '
-            f'workers={config.workers}, '
+            f'\nSubmitting with monitor={config.monitor!r}, '
+            f'partition={config.partition!r}, account={config.account!r}, '
             f'failures={config.failures}\n'
         )
 
@@ -345,25 +383,24 @@ class TmuxExampleConfig(scfg.DataConfig):
             pipeline=pipeline_ref,
             params=json.dumps({'matrix': matrix}),
             root_dpath=str(root_dpath),
-            backend='tmux',
-            tmux_workers=int(config.workers),
+            backend='slurm',
+            slurm_options=slurm_options or None,
             monitor=config.monitor,
             run=bool(config.run),
             log=bool(config.logs),
             skip_existing=False,
-            other_session_handler='auto',
         )
 
 
 if __name__ == '__main__':
     """
     CommandLine:
-        python ~/code/kwdagger/examples/tmux_example.py
+        python ~/code/kwdagger/examples/slurm_example.py
     """
     # This file is both the example orchestrator and the executable that
     # kwdagger dispatches for each job. Route the ``sleep_job`` sub-command
     # to the job CLI; otherwise run the orchestrator.
     if len(sys.argv) > 1 and sys.argv[1] == 'sleep_job':
-        TmuxExampleModalCLI.main()
+        SlurmExampleModalCLI.main()
     else:
-        TmuxExampleConfig.main()
+        SlurmExampleConfig.main()

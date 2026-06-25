@@ -50,14 +50,17 @@ def build_plotter(agg: Any, rois: Any, plot_config: Any) -> ParamPlotter:
     else:
         macro_table = None
 
+    from kwdagger.aggregate import hash_regions
+
+    # ``region_hash`` depends on ``rois`` (not on whether a plot_dpath was
+    # configured); compute it unconditionally so it is always bound.
+    if rois is not None:
+        region_hash = hash_regions(rois)
+    else:
+        region_hash = 'allrois'
+
     plot_dpath = plot_config.get('plot_dpath', None)
     if plot_dpath is None:
-        from kwdagger.aggregate import hash_regions
-
-        if rois is not None:
-            region_hash = hash_regions(rois)
-        else:
-            region_hash = 'allrois'
         plot_dpath = agg.output_dpath / 'plots'
     else:
         plot_dpath = ub.Path(plot_dpath)
@@ -195,8 +198,8 @@ class ParamPlotter:
 
     def __init__(plotter: Any, agg: Any, vantage_points: Any = None) -> None:
         plotter.agg = agg
-        plotter.plot_dpath = None
-        plotter.macro_plot_dpath = None
+        plotter.plot_dpath = cast(Any, None)
+        plotter.macro_plot_dpath = cast(Any, None)
         plotter.param_to_palette = cast(dict[str, Any], {})
         plotter.param_to_valmap = cast(dict[str, Any], {})
         plotter.modifier = cast(Any, None)
@@ -640,7 +643,7 @@ class ParamPlotter:
 
         if params_of_interest is not None:
             chosen_params = params_of_interest
-            params_of_interest = set(params_of_interest)  # type: ignore
+            params_of_interest = set(params_of_interest)  # ty: ignore[invalid-argument-type]
             valid_params_of_interest = list(
                 resolved_params.columns.intersection(params_of_interest)
             )
@@ -659,7 +662,7 @@ class ParamPlotter:
             print('params_of_interest is unspecified, automatically choosing')
 
         # TODO: cleanup logic
-        DO_STAT_ANALYSIS = plotter.plot_config.get('stats_ranking', False)  # type: ignore
+        DO_STAT_ANALYSIS = plotter.plot_config.get('stats_ranking', False)
         if DO_STAT_ANALYSIS:
             ### Build param analysis
             from kwdagger.utils import result_analysis
@@ -685,7 +688,7 @@ class ParamPlotter:
                     cast(list[Any], analysis.statistics),
                     key=lambda x: x['anova_rank_p'],
                 )
-            )  # type: ignore
+            )
             param_name_to_stats = {s['param_name']: s for s in ranked_stats}
             ranked_params = ub.oset(param_name_to_stats.keys())
             chosen_params = ranked_params
@@ -697,6 +700,8 @@ class ParamPlotter:
                 for col in resolved_params.columns:
                     if len(macro_table[col].unique()) > 1:
                         chosen_params.append(col)
+            else:
+                chosen_params = params_of_interest
             param_name_to_stats = {}
 
         # ranked_params = ['bas_poly_eval.params.bas_pxl.package_fpath']
@@ -776,7 +781,7 @@ class ParamPlotter:
         assert hasattr(plotter, 'macro_plot_dpath')
         vantage_dpath = (
             (plotter.macro_plot_dpath / 'vantage' / vantage['name']).ensuredir()
-        ).resolve()  # type: ignore
+        ).resolve()
         vantage_flat_dpath = (vantage_dpath / '_flat').ensuredir()
         finalize_figure = util_kwplot.FigureFinalizer(
             size_inches=np.array([6.4, 4.8]) * 1.0,
@@ -893,7 +898,7 @@ class ParamPlotter:
         if param_name in param_to_palette:
             snskw['palette'] = param_to_palette[param_name]
 
-        s = plotter.plot_config.get('scatter.markersize', None)  # type: ignore
+        s = plotter.plot_config.get('scatter.markersize', None)
         scatterkw = snskw.copy()
         if s is not None:
             scatterkw['s'] = s
@@ -919,10 +924,10 @@ class ParamPlotter:
         )
         print(f'had_value_remap={had_value_remap}')
 
-        if param_name in plotter.param_to_valmap:  # type: ignore
+        if param_name in plotter.param_to_valmap:
             had_value_remap = True
             # User can overload the mappign of the parameter value names
-            param_valname_map.update(plotter.param_to_valmap[param_name])  # type: ignore
+            param_valname_map.update(plotter.param_to_valmap[param_name])
             ...
 
         # Mapper for the legend
@@ -979,7 +984,7 @@ class ParamPlotter:
                 size=300,
             )
 
-        if plotter.plot_config.get('compare_sv_hack', False):  # type: ignore
+        if plotter.plot_config.get('compare_sv_hack', False):
             # Hack to compare before/after SV
             if 'sv_poly_eval' in x.split('.'):
                 plotter._add_sv_hack_lines(ax, sub_macro_table, x, y)
@@ -1080,8 +1085,8 @@ class ParamPlotter:
             else:
                 freq_mapper_box.relabel_xticks(ax)
                 ax.set_title(header_text)
-                modifier.relabel(ax, ticks=False)  # type: ignore
-                modifier.relabel_xticks(ax)  # type: ignore
+                modifier.relabel(ax, ticks=False)
+                modifier.relabel_xticks(ax)
                 finalize_figure.finalize(fig, param_fpath)
                 rich.print(f'[green] wrote {param_fpath.name}')
                 drawn_rows.append(

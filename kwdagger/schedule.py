@@ -35,6 +35,26 @@ class ScheduleEvaluationConfig(CMDQueueConfig):
     (i.e. one at a time). This is a [link=https://gitlab.kitware.com/computer-vision/cmd_queue]cmd_queue[/link] CLI.
     """
 
+    # ``queue_name`` is inherited from the untyped ``CMDQueueConfig`` base, so
+    # annotate it here (annotation only -- no runtime attribute, keeping
+    # scriptconfig's Value collection intact) to resolve mypy's has-type cycle.
+    queue_name: Any
+
+    # Shadow the inherited ``monitor`` option to force ``type=str``. Older
+    # cmd_queue releases (<= 0.3.1) declare this without a type, so scriptconfig
+    # smartcasts the string 'none' to Python None and then fails its own choices
+    # validation. Overriding here keeps ``--monitor=none`` working regardless of
+    # the installed cmd_queue version. (cmd_queue >= 0.3.2 also fixes this at the
+    # source; this override is harmless there and can be dropped once the minimum
+    # is raised.)
+    monitor = scfg.Value(
+        'inline',
+        type=str,
+        choices=['hybrid', 'inline', 'tmux', 'none'],
+        help='where the live status UI runs while jobs execute',
+        group='cmd-queue',
+    )
+
     params = scfg.Value(
         None, type=str, help='a yaml/json grid/matrix of prediction params'
     )
@@ -161,6 +181,7 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     pipeline = config.pipeline
 
     param_slurm_options = {}
+    param_arg: Any = {}
     if config['params'] is not None:
         param_arg = kwutil.Yaml.coerce(config['params']) or {}
         if isinstance(param_arg, dict):

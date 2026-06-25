@@ -302,7 +302,7 @@ class Pipeline:
 
         default: dict[str, Any] = {}
         for _, row in df[df['maybe_required']].iterrows():
-            default[row['node'] + '.' + row['key']] = None
+            default[str(row['node']) + '.' + str(row['key'])] = None
         rich.print(util_yaml.Yaml.dumps(default))
 
     def configure(
@@ -528,6 +528,21 @@ class Pipeline:
                     # to info_dpath/status/<pathid>.logs for post-mortem
                     # diagnosis of node failures.
                     extra_submitkw['log'] = log
+
+                    # Forward the resource lifecycle to cmd_queue: ``setup`` is
+                    # a gating precondition run before the command (e.g. acquire
+                    # a GPU lease) and ``teardown`` is cleanup that always runs
+                    # after the command -- on success, failure, and SIGTERM --
+                    # provided setup succeeded (e.g. release the lease). This is
+                    # the job-level try/finally; it co-locates acquire+release
+                    # in the job rather than as separate, skippable DAG nodes.
+                    # Works uniformly on the serial/tmux and slurm backends.
+                    node_setup = getattr(node, 'setup', None)
+                    node_teardown = getattr(node, 'teardown', None)
+                    if node_setup:
+                        extra_submitkw['setup'] = node_setup
+                    if node_teardown:
+                        extra_submitkw['teardown'] = node_teardown
                     if 'slurm' in queue.__class__.__name__.lower():
                         # Global slurm options apply to every job.
                         extra_submitkw.update(
@@ -784,8 +799,10 @@ class Node(ub.NiceRepr):
 
         self_is_proc = self.__node_type__ == 'process'
         if self_is_proc:
+            # ``outputs`` lives on ProcessNode, not the base Node; access it
+            # dynamically (guarded by __node_type__) to stay well-typed.
             assert hasattr(self, 'outputs')
-            outputs = self.outputs
+            outputs = getattr(self, 'outputs')
         else:
             assert self.__node_type__ == 'io'
             outputs = {self.name: self}
@@ -825,7 +842,7 @@ class Node(ub.NiceRepr):
                 in_node = inputs[in_key]
                 # out_node._connect_single(in_node, src_map, dst_map)
                 assert hasattr(out_node, '_connect_single')
-                out_node._connect_single(in_node, {}, {})  # type: ignore
+                out_node._connect_single(in_node, {}, {})
 
     def connect(
         self,
@@ -899,10 +916,17 @@ class InputNode(IONode): ...
 
 
 class OutputNode(IONode):
-    @property  # type: ignore[misc]
+    # Redefine as a full read-write property (getter + setter) so it remains a
+    # Liskov-compatible override of IONode's read-write ``final_value`` -- a
+    # plain ``@property`` would drop the setter and trip the type checkers.
+    @property
     def final_value(self) -> Any:
         # return self.parent._finalize_templates()['out_paths'][self.name]
         return self.parent.final_out_paths[self.name]
+
+    @final_value.setter
+    def final_value(self, value: Any) -> None:
+        self._final_value = value
 
     @property
     def template_value(self) -> Any:
@@ -1219,6 +1243,18 @@ class ProcessNode(Node):
     # Optional job-level slurm options. Can be overridden via configuration.
     slurm_options: dict[str, Any] | None = None
 
+    # Optional resource lifecycle forwarded to the underlying cmd_queue job
+    # (see :meth:`Pipeline.submit_jobs`). ``setup`` is a gating precondition run
+    # before the command -- e.g. acquire a GPU lease -- and a failing setup
+    # skips the command and fails the node. ``teardown`` is cleanup that always
+    # runs after the command (on success, failure, and signal) provided setup
+    # succeeded -- e.g. release the lease. Together they are the node-level
+    # try/finally for bracketing an external resource, rather than modeling
+    # acquire/release as separate, skippable DAG nodes. Requires cmd_queue with
+    # BashJob/SlurmJob setup/teardown support (>= 0.3.1).
+    setup: Any = None
+    teardown: Any = None
+
     # Optional scriptconfig schema for deriving path/param groups. This is the
     # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
     params: Any = None
@@ -1238,6 +1274,8 @@ class ProcessNode(Node):
         root_dpath: Any = None,
         config: Any = None,
         slurm_options: Any = None,
+        setup: Any = None,
+        teardown: Any = None,
         node_dpath: Any = None,  # overwrites configured node dapth
         group_dpath: Any = None,  # overwrites configured node dapth
         primary_out_key: str | None = None,
@@ -1291,6 +1329,11 @@ class ProcessNode(Node):
             'algo_params': {},
             'primary_out_key': None,
             'slurm_options': None,
+            # Resource lifecycle forwarded to cmd_queue: ``setup`` is a gating
+            # precondition (e.g. acquire a GPU lease) and ``teardown`` is an
+            # always-run cleanup (e.g. release it) -- see submit_jobs.
+            'setup': None,
+            'teardown': None,
         }
         _classvar_init(self, args, fallbacks)
         super().__init__(args['name'])
@@ -1345,8 +1388,8 @@ class ProcessNode(Node):
                 self.primary_out_key = derived_primary_out_key
 
         if self.primary_out_key is None:
-            if len(self.out_paths) == 1:  # type: ignore
-                self.primary_out_key = ub.peek(self.out_paths)  # type: ignore
+            if len(self.out_paths) == 1:
+                self.primary_out_key = ub.peek(self.out_paths)
 
         if self.group is None:
             self.group = '.'
@@ -1497,7 +1540,7 @@ class ProcessNode(Node):
             name = getattr(config_cls, '__command__', name)
         if name is None:
             name = config_cls.__name__
-        node_kwargs = {}
+        node_kwargs: dict[str, Any] = {}
         node_kwargs['name'] = name
         node_kwargs['executable'] = '<EXECUTABLE UNSPECIFIED>'
         node_kwargs.update(path_kwargs)
@@ -1591,12 +1634,12 @@ class ProcessNode(Node):
                         warnings.warn(
                             f'Ignoring default for in_path "{key}" defined in params.'
                         )
-                    path_kwargs[group_key].add(key)  # type: ignore
+                    path_kwargs[group_key].add(key)
                 elif group_key == 'out_paths':
                     if isinstance(default_value, str) and default_value:
-                        path_kwargs[group_key][key] = default_value  # type: ignore
+                        path_kwargs[group_key][key] = default_value
                 else:
-                    path_kwargs[group_key][key] = default_value  # type: ignore
+                    path_kwargs[group_key][key] = default_value
 
         return (
             path_kwargs['in_paths'],
@@ -1823,7 +1866,7 @@ class ProcessNode(Node):
             :func:`ProcessNode.final_out_paths`
         """
         if not isinstance(self.out_paths, dict):
-            out_paths = self.config & self.out_paths  # type: ignore
+            out_paths = self.config & self.out_paths
         else:
             out_paths = self.out_paths
         template_node_dpath = self.template_node_dpath
@@ -2317,6 +2360,7 @@ def _labelize_graph(
     for _, data in graph.nodes(data=True):
         all_names.append(data['node'].name)
 
+    ambiguous_names = []
     if shrink_labels:
         ambiguous_names = list(ub.find_duplicates(all_names))
 

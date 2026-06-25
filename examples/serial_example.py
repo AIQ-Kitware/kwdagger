@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 r"""
-Demonstrates the ``monitor`` kwarg on the tmux backend through a kwdagger
-pipeline by calling ``ScheduleEvaluationConfig.main`` directly.  This
-exercises the same code path as ``python -m kwdagger.schedule`` and
-exposes whether the four cmd_queue monitor modes are properly supported.
+The simplest backend driven through a kwdagger pipeline: ``backend='serial'``.
 
-Four monitor modes are available (set via ``--monitor``):
+Like the tmux example, this calls ``ScheduleEvaluationConfig.main`` directly,
+exercising the same code path as ``python -m kwdagger.schedule`` -- only the
+backend differs.
 
-    * ``hybrid``   — inline status table in this shell *and* a detached
-                     ``cmd_queue monitor`` tmux session. Press ``[a]``
-                     to attach, ``[q]`` to stop watching.
+The serial backend writes the DAG to a single bash script and runs the jobs
+one at a time in topological order, in the current process. No tmux, no
+scheduler, nothing to install -- it works anywhere. That makes it the natural
+"level 1" of the serial -> tmux -> slurm progression: the same kwdagger
+pipeline you define here scales out unchanged to the other backends.
 
-    * ``inline``   — only the in-shell live UI (the kwdagger default).
+Because everything runs sequentially, the total runtime is the *sum* of every
+job's duration, whereas the tmux and slurm backends run independent branches in
+parallel. Watching the serial run is a good way to feel why the parallel
+backends exist.
 
-    * ``tmux``     — only a detached tmux session; no inline view.
+The pipeline has four logical levels (identical to the tmux/slurm examples so
+the three can be compared directly):
 
-    * ``none``     — headless; reattach hint is still printed so you can
-                     reconnect via ``cmd_queue monitor``.
-
-The pipeline has four logical levels:
-
-    Level 1 (prep):   prep_a  prep_b  prep_c  prep_d   (parallel, 5-8s)
+    Level 1 (prep):   prep_a  prep_b  prep_c  prep_d   (independent)
     Level 2 (proc):   proc_a  proc_b  proc_c  proc_d   (each after one prep)
     Level 3 (merge):  merge_x (after proc_a + proc_b)
                       merge_y (after proc_c + proc_d)
@@ -33,23 +33,14 @@ The file is also its own executable: the ``sleep_job`` sub-command is what
 kwdagger dispatches as each individual queue job.
 
 CommandLine:
-    # Default (hybrid): inline monitor + attachable tmux session
-    python ~/code/kwdagger/examples/tmux_example.py
-
-    # Inline-only, no side tmux session
-    python ~/code/kwdagger/examples/tmux_example.py --monitor=inline
-
-    # Monitor lives only in a tmux session
-    python ~/code/kwdagger/examples/tmux_example.py --monitor=tmux
-
-    # Headless; reattach manually with `cmd_queue monitor <name>`
-    python ~/code/kwdagger/examples/tmux_example.py --monitor=none
+    # Run the demo DAG serially
+    python ~/code/kwdagger/examples/serial_example.py
 
     # Clean run (no injected failures)
-    python ~/code/kwdagger/examples/tmux_example.py --failures=0
+    python ~/code/kwdagger/examples/serial_example.py --failures=0
 
     # Print commands only, do not run
-    python ~/code/kwdagger/examples/tmux_example.py --run=False
+    python ~/code/kwdagger/examples/serial_example.py --run=False
 """
 
 from __future__ import annotations
@@ -110,13 +101,13 @@ class SleepJobCLI(scfg.DataConfig):
         print(f'[{label}] done  out={out_fpath}')
 
 
-class TmuxExampleModalCLI(scfg.ModalCLI):
+class SerialExampleModalCLI(scfg.ModalCLI):
     """Modal CLI that wraps the job sub-commands defined in this file."""
 
     sleep_job = SleepJobCLI
 
 
-__cli__ = TmuxExampleModalCLI
+__cli__ = SerialExampleModalCLI
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +209,7 @@ def make_pipeline() -> Pipeline:
     Build the four-level DAG pipeline.
 
     Example:
-        >>> from examples.tmux_example import make_pipeline
+        >>> from examples.serial_example import make_pipeline
         >>> dag = make_pipeline()
         >>> dag.print_graphs()
     """
@@ -282,22 +273,15 @@ def make_pipeline() -> Pipeline:
 # ---------------------------------------------------------------------------
 
 
-class TmuxExampleConfig(scfg.DataConfig):
+class SerialExampleConfig(scfg.DataConfig):
     """
-    Run the kwdagger tmux-monitor example.
+    Run the kwdagger serial-backend example.
 
-    Calls ``ScheduleEvaluationConfig.main`` directly to exercise the
-    standard kwdagger scheduling path and verify that the four cmd_queue
-    monitor modes are properly exposed through it.
+    Calls ``ScheduleEvaluationConfig.main`` directly with ``backend='serial'``
+    to exercise the standard kwdagger scheduling path with no scheduler or
+    tmux involved.
     """
 
-    monitor = scfg.Value(
-        'hybrid',
-        type=str,
-        choices=['hybrid', 'inline', 'tmux', 'none'],
-        help='monitor mode passed through to cmd_queue',
-    )
-    workers = scfg.Value(4, type=int, help='number of parallel tmux workers')
     failures = scfg.Value(
         1,
         type=int,
@@ -320,10 +304,10 @@ class TmuxExampleConfig(scfg.DataConfig):
 
         from kwdagger.schedule import ScheduleEvaluationConfig
 
-        config = TmuxExampleConfig.cli(argv=argv, data=kwargs, strict=True)
+        config = SerialExampleConfig.cli(argv=argv, data=kwargs, strict=True)
 
         root_dpath = ub.Path(
-            config.root_dpath or ub.Path.appdir('kwdagger/tmux-example')
+            config.root_dpath or ub.Path.appdir('kwdagger/serial-example')
         ).ensuredir()
 
         # Reference the pipeline function defined in this file.
@@ -335,9 +319,8 @@ class TmuxExampleConfig(scfg.DataConfig):
         matrix = {f'{n}.fail': [n in fail_names] for n in proc_names}
 
         print(
-            f'\nLaunching with monitor={config.monitor!r}, '
-            f'workers={config.workers}, '
-            f'failures={config.failures}\n'
+            f'\nRunning serially: failures={config.failures}, '
+            f'logs={config.logs}\n'
         )
 
         ScheduleEvaluationConfig.main(
@@ -345,25 +328,23 @@ class TmuxExampleConfig(scfg.DataConfig):
             pipeline=pipeline_ref,
             params=json.dumps({'matrix': matrix}),
             root_dpath=str(root_dpath),
-            backend='tmux',
-            tmux_workers=int(config.workers),
-            monitor=config.monitor,
+            backend='serial',
+            monitor='inline',
             run=bool(config.run),
             log=bool(config.logs),
             skip_existing=False,
-            other_session_handler='auto',
         )
 
 
 if __name__ == '__main__':
     """
     CommandLine:
-        python ~/code/kwdagger/examples/tmux_example.py
+        python ~/code/kwdagger/examples/serial_example.py
     """
     # This file is both the example orchestrator and the executable that
     # kwdagger dispatches for each job. Route the ``sleep_job`` sub-command
     # to the job CLI; otherwise run the orchestrator.
     if len(sys.argv) > 1 and sys.argv[1] == 'sleep_job':
-        TmuxExampleModalCLI.main()
+        SerialExampleModalCLI.main()
     else:
-        TmuxExampleConfig.main()
+        SerialExampleConfig.main()
