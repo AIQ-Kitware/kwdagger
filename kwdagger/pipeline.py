@@ -815,6 +815,15 @@ class Pipeline:
                             / f'slurm-output-{node_procid}.log',
                         )
 
+                    # Bash heredoc terminators must begin in column zero.
+                    # cmd_queue normally indents dependency-guarded jobs, which
+                    # would invalidate the gather manifest delimiter. The shell
+                    # does not require commands inside an ``if`` body to be
+                    # indented, so disable formatting indentation whenever the
+                    # concrete consumer command contains a gather heredoc.
+                    if has_gather and not is_slurm:
+                        extra_submitkw['allow_indent'] = False
+
                     # TODO: we need to be able to pass per-job slurm options
                     node_job = queue.submit(
                         command=node_command,
@@ -927,12 +936,19 @@ class Pipeline:
                     )
                     _procid = 'before_' + node_procid
                     if _procid not in queue.named_jobs:
+                        before_submitkw = {}
+                        if not is_slurm:
+                            # Invocation and config artifacts are serialized with
+                            # quoted heredocs. Dependent jobs must not indent
+                            # their terminators inside cmd_queue's status guard.
+                            before_submitkw['allow_indent'] = False
                         _job = queue.submit(
                             command=before_command,
                             depends=pred_node_procids,
                             bookkeeper=1,
                             name=_procid,
                             tags=['boilerplate'],
+                            **before_submitkw,
                         )
                         if node_job is not None:
                             if node_job.depends is None:

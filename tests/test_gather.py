@@ -420,6 +420,43 @@ def test_gather_yaml_schedule_end_to_end():
     assert ensemble.final_out_paths['ensemble_fpath'].exists()
 
 
+def test_dependent_heredoc_jobs_are_not_indented():
+    """cmd_queue dependency guards must preserve column-zero delimiters."""
+    import subprocess
+
+    import cmd_queue
+
+    dag = _demo_gather_pipeline()
+    root = ub.Path.appdir(
+        'kwdagger/tests/gather/heredoc-indent'
+    ).delete().ensuredir()
+    compiled = dag.compile_configurations(
+        _demo_rows(), root_dpath=root, cache=False
+    )
+    queue = cmd_queue.Queue.create(
+        backend='serial', name='gather-heredoc-indent-test'
+    )
+    compiled.submit_jobs(
+        queue=queue,
+        enable_links=False,
+        write_invocations=True,
+        write_configs=True,
+    )
+
+    ensemble = ub.peek(
+        node for node in compiled.nodes.values() if node.name == 'ensemble'
+    )
+    consumer_job = queue.named_jobs[ensemble.process_id]
+    bookkeeper_job = queue.named_jobs['before_' + ensemble.process_id]
+    assert consumer_job.depends
+    assert bookkeeper_job.depends
+    assert consumer_job.allow_indent is False
+    assert bookkeeper_job.allow_indent is False
+
+    script_fpath = queue.write()
+    subprocess.run(['bash', '-n', script_fpath], check=True)
+
+
 def test_gather_slurm_uses_short_file_backed_command():
     """Large gather heredocs must never be passed through sbatch --wrap."""
     import cmd_queue

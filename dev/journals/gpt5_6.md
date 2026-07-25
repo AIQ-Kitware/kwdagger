@@ -58,3 +58,16 @@ assert both the large-heredoc behavior and the short Slurm command. The main
 remaining scale boundary is the scheduler's own dependency list for extremely
 large fan-in, which is separate from manifest transport and should be measured
 before adding another abstraction.
+
+
+## 2026-07-25: dependent heredoc indentation repair
+
+The first portability overlay used quoted heredocs correctly, but cmd_queue's
+serial status wrapper indents dependent job bodies by default. Bash requires a
+normal heredoc closing delimiter to start in column zero, so non-root
+bookkeeping jobs and gathered consumers produced truncated scripts. Jobs that
+contain generated heredocs now submit with ``allow_indent=False`` on serial and
+tmux backends. Commands inside an ``if`` dependency guard do not need visual
+indentation, so this preserves dependency semantics while keeping the exported
+Bash valid. A regression test writes the complete queue script and checks it
+with ``bash -n``.

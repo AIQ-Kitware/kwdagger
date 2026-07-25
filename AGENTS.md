@@ -102,6 +102,10 @@ graph compilation, generated commands, or artifact layout.
   notably Slurm's ``sbatch --wrap``, must submit a short file-backed command such
   as ``bash invoke.sh`` instead of placing the heredoc in ``--wrap``. The
   newline-delimited format rejects paths containing newlines.
+- **Heredoc delimiters stay at column zero:** cmd_queue normally indents
+  dependency-guarded job bodies for display. Any serial or tmux job containing
+  a generated heredoc must set ``allow_indent=False``; otherwise Bash will not
+  recognize the closing delimiter and the exported script becomes invalid.
 - **Visible cardinality:** logical Process and IO graphs must visibly distinguish
   gather fan-in and collection-valued inputs. After matrix compilation, report
   concrete direct, fan-out, fan-in, and many-to-many cardinalities before queue

@@ -17,6 +17,8 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 * File-backed Slurm gather submission: gathered jobs use a short
   `bash invoke.sh` payload instead of placing a potentially large heredoc in
   `sbatch --wrap`.
+* Fixed dependent serial/tmux jobs so cmd_queue does not indent generated
+  heredoc delimiters inside dependency guards.
 
 
 ## Version 0.2.5 - Released 2026-06-25
