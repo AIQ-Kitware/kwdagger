@@ -246,26 +246,49 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     if len(all_param_grid) == 0:
         print('WARNING: PARAM GRID IS EMPTY')
 
-    # Configure a DAG for each row.
-    pman = util_progress.ProgressManager()
+    # Ordinary pipelines preserve the historical row-at-a-time configuration
+    # path. Gather pipelines compile every row first so collection membership
+    # is known before any concrete command is submitted.
     configured_stats = []
-    with pman:
-        for row_config in pman.progiter(
-            all_param_grid, desc='configure dags', verbose=3
-        ):
-            if param_slurm_options and 'slurm_options' not in row_config:
-                row_config = ub.udict(row_config)
-                row_config['__slurm_options__'] = param_slurm_options
-            dag.configure(
-                config=row_config, root_dpath=root_dpath, cache=config['cache']
-            )
-            summary = dag.submit_jobs(
-                queue=queue,
-                skip_existing=config['skip_existing'],
-                enable_links=config['enable_links'],
-                log=config['log'],
-            )
-            configured_stats.append(summary)
+    if dag.has_gather_connections:
+        dag.__slurm_options__ = dict(config.slurm_options)
+        compiled = dag.compile_configurations(
+            all_param_grid,
+            root_dpath=root_dpath,
+            cache=config['cache'],
+        )
+        summary = compiled.submit_jobs(
+            queue=queue,
+            skip_existing=config['skip_existing'],
+            enable_links=config['enable_links'],
+            log=config['log'],
+        )
+        configured_stats.append(summary)
+        print('Gather compilation summary:')
+        for key, value in compiled.compile_summary.items():
+            print(f'    {key}: {value}')
+        dag = compiled
+    else:
+        pman = util_progress.ProgressManager()
+        with pman:
+            for row_config in pman.progiter(
+                all_param_grid, desc='configure dags', verbose=3
+            ):
+                if param_slurm_options and 'slurm_options' not in row_config:
+                    row_config = ub.udict(row_config)
+                    row_config['__slurm_options__'] = param_slurm_options
+                dag.configure(
+                    config=row_config,
+                    root_dpath=root_dpath,
+                    cache=config['cache'],
+                )
+                summary = dag.submit_jobs(
+                    queue=queue,
+                    skip_existing=config['skip_existing'],
+                    enable_links=config['enable_links'],
+                    log=config['log'],
+                )
+                configured_stats.append(summary)
 
     print(f'len(queue)={len(queue)}')
 

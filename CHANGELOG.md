@@ -4,6 +4,13 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Version 0.2.6 - Unreleased
 
+### Added
+
+* Compile-time gather edges via `GatherSpec(group_by=..., order_by=...,
+  require='all_success')` in Python and matching YAML edge syntax.
+* Static newline-delimited path manifests, exact gather provenance in
+  `job_config.json`, and a cross-validation gather tutorial.
+
 
 ## Version 0.2.5 - Released 2026-06-25
 

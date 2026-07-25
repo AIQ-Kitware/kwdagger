@@ -350,3 +350,65 @@ identical node IDs, output directories, and resolved parameters -- differing
 only in how each node's CLI is invoked (the YAML form uses ``python -m
 example_user_module.cli....`` rather than an absolute script path, since a static
 document cannot compute one).
+
+Compile-time gather edges
+-------------------------
+
+A gather edge connects many configured instances of one source output to one
+collection-valued target input. Membership is resolved when the entire parameter
+matrix is compiled; no jobs are discovered or created at runtime.
+
+The mapping edge form accepts a ``gather`` specification::
+
+    edges:
+      - src: train.checkpoint_fpath
+        dst: build_ensemble.checkpoints_fpath
+        gather:
+          group_by: [algorithm, seed]
+          order_by: [fold]
+          require: all_success
+
+``group_by`` (required)
+    Parameter names shared by the source and target nodes. For each concrete
+    target instance, kwdagger selects all source instances with equal values for
+    these parameters. This follows the dataframe group-by intuition: one target
+    collection is formed per distinct group. Source parameters not listed in
+    ``group_by`` vary within the collection. An empty list gathers every source
+    instance into one collection for each otherwise-distinct target instance.
+
+``order_by`` (optional)
+    Source algorithm parameters used to order the paths in the generated
+    manifest. When omitted, members are ordered by source process ID. Declare
+    this whenever the consumer gives semantic meaning to input order.
+
+``require``
+    Completion policy. The initial implementation supports only
+    ``all_success``: every statically selected source job is a dependency of the
+    target, and the target runs only after all of them succeed.
+
+The target CLI receives a normal key/value input whose value is a generated
+newline-delimited path manifest::
+
+    python build_ensemble.py \
+        --checkpoints_fpath=.../_gather/checkpoints_fpath.txt \
+        --ensemble_fpath=.../ensemble.pkl
+
+The manifest creation is emitted as a static cmd-queue bookkeeper command. The
+logical member process IDs and gather policy participate in the target hash;
+absolute cache-root paths do not define membership. Gather pipelines must be
+compiled across the complete parameter matrix before submission; submitting a
+single configured template row is rejected.
+
+The equivalent Python API is::
+
+    source.outputs['checkpoint_fpath'].connect(
+        target.inputs['checkpoints_fpath'],
+        gather=kwdagger.GatherSpec(
+            group_by=['algorithm', 'seed'],
+            order_by=['fold'],
+            require='all_success',
+        ),
+    )
+
+See :doc:`../tutorials/gather_cross_validation/README` for a complete fan-out,
+gather, and second fan-out example.

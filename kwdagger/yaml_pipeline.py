@@ -48,7 +48,7 @@ from typing import Any, cast
 
 import ubelt as ub
 
-from kwdagger.pipeline import Pipeline, ProcessNode
+from kwdagger.pipeline import GatherSpec, Pipeline, ProcessNode
 
 __all__ = ['YamlProcessNode', 'dump_yaml_pipeline', 'load_yaml_pipeline']
 
@@ -359,6 +359,7 @@ def _connect_edge(node_dict: dict[str, Any], edge: Any) -> None:
     """
     Wire a single edge spec, accepting either the string or mapping form.
     """
+    gather = None
     if isinstance(edge, str):
         if '->' not in edge:
             raise ValueError(
@@ -369,6 +370,7 @@ def _connect_edge(node_dict: dict[str, Any], edge: Any) -> None:
         src_node, src_port = _split_endpoint(src_str.strip())
         dst_node, dst_port = _split_endpoint(dst_str.strip())
     elif isinstance(edge, dict):
+        gather = edge.get('gather', None)
         if 'src_key' in edge or 'dst_key' in edge:
             src_node = edge['src']
             dst_node = edge['dst']
@@ -384,7 +386,10 @@ def _connect_edge(node_dict: dict[str, Any], edge: Any) -> None:
 
     src_io = _resolve_endpoint(node_dict, src_node, src_port)
     dst_io = _resolve_endpoint(node_dict, dst_node, dst_port)
-    src_io.connect(dst_io)
+    src_io.connect(
+        dst_io,
+        gather=None if gather is None else GatherSpec.coerce(gather),
+    )
 
 
 def load_yaml_pipeline(spec: Any, root_dpath: Any = None) -> Pipeline:
@@ -587,15 +592,32 @@ def dump_yaml_pipeline(dag: Any) -> dict[str, Any]:
         nodes_spec[name] = spec
 
     # Invert each input port's predecessors into "src.port -> dst.port" edges.
-    edges: set[str] = set()
+    edges: list[Any] = []
     for name, node in dag.node_dict.items():
         for in_name, inode in node.inputs.items():
             for pred in inode.pred:
-                edges.add(
+                edges.append(
                     f'{pred.parent.name}.{pred.name} -> {node.name}.{in_name}'
+                )
+            if inode._gather_connection is not None:
+                connection = inode._gather_connection
+                edges.append(
+                    {
+                        'src': connection.source.key,
+                        'dst': inode.key,
+                        'gather': connection.spec.to_dict(),
+                    }
                 )
 
     out: dict[str, Any] = {'nodes': nodes_spec}
     if edges:
-        out['edges'] = sorted(edges)
+        out['edges'] = sorted(
+            edges,
+            key=lambda edge: (
+                'string',
+                edge,
+            )
+            if isinstance(edge, str)
+            else ('mapping', edge['src'], edge['dst']),
+        )
     return out
