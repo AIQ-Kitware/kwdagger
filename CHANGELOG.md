@@ -10,6 +10,13 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   require='all_success')` in Python and matching YAML edge syntax.
 * Static newline-delimited path manifests, exact gather provenance in
   `job_config.json`, and a cross-validation gather tutorial.
+* Explicit gather markers in logical Process/IO graphs and a compiled process
+  cardinality graph that distinguishes direct, fan-out, and gather edges.
+* Standalone gather execution: quoted-heredoc manifest writers are embedded in
+  consumer commands and `invoke.sh`, avoiding `ARG_MAX` and hidden preparation.
+* File-backed Slurm gather submission: gathered jobs use a short
+  `bash invoke.sh` payload instead of placing a potentially large heredoc in
+  `sbatch --wrap`.
 
 
 ## Version 0.2.5 - Released 2026-06-25

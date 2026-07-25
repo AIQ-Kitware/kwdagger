@@ -257,6 +257,12 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
             root_dpath=root_dpath,
             cache=config['cache'],
         )
+        # Print the concrete cardinality diagnostics before queue submission so
+        # users can audit fan-in and fan-out before any execution is possible.
+        compiled.print_cardinality_graph()
+        print('Gather compilation summary:')
+        for key, value in compiled.compile_summary.items():
+            print(f'    {key}: {value}')
         summary = compiled.submit_jobs(
             queue=queue,
             skip_existing=config['skip_existing'],
@@ -264,9 +270,6 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
             log=config['log'],
         )
         configured_stats.append(summary)
-        print('Gather compilation summary:')
-        for key, value in compiled.compile_summary.items():
-            print(f'    {key}: {value}')
         dag = compiled
     else:
         pman = util_progress.ProgressManager()

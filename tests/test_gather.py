@@ -9,7 +9,12 @@ import ubelt as ub
 
 import kwdagger
 from kwdagger import schedule
-from kwdagger.pipeline import GatherSpec, Pipeline, ProcessNode
+from kwdagger.pipeline import (
+    GatherSpec,
+    Pipeline,
+    ProcessNode,
+    bash_heredoc_write_command,
+)
 
 
 def _demo_gather_pipeline():
@@ -72,6 +77,57 @@ def _demo_rows(data_fpath='data.txt'):
     return rows
 
 
+def test_gather_template_graphs_make_collection_edges_visible():
+    dag = _demo_gather_pipeline()
+    process_graph = dag._process_display_graph()
+    process_labels = [
+        data.get('label', '') for _, data in process_graph.nodes(data=True)
+    ]
+    assert any('gather N:1' in label for label in process_labels)
+    assert any('group_by=algorithm,seed' in label for label in process_labels)
+    assert not any(
+        data['node'].name == 'gather'
+        for _, data in process_graph.nodes(data=True)
+        if 'node' in data
+    )
+
+    io_graph = dag._io_display_graph()
+    io_labels = [data.get('label', '') for _, data in io_graph.nodes(data=True)]
+    assert any('gather N:1 -> path manifest' in label for label in io_labels)
+    assert any('(collection)' in label for label in io_labels)
+
+
+def test_quoted_heredoc_avoids_argv_expansion(tmp_path):
+    import subprocess
+
+    # This is intentionally much larger than a comfortable command argument
+    # list. It remains script input rather than argv passed to ``cat``.
+    lines = [f'/tmp/model path/{idx:06d}/checkpoint.pkl' for idx in range(20000)]
+    lines.extend(
+        [
+            r'/tmp/$HOME/checkpoint.pkl',
+            r'/tmp/$(touch should-not-run)/checkpoint.pkl',
+            r'/tmp/back\slash/checkpoint.pkl',
+            '\\',
+        ]
+    )
+    text = ''.join(line + '\n' for line in lines)
+    output_fpath = tmp_path / 'large gather manifest.txt'
+    command = bash_heredoc_write_command(
+        text, output_fpath, label='KWDAGGER_GATHER_TEST'
+    )
+    assert "<<'KWDAGGER_GATHER_TEST_" in command
+    assert 'printf ' not in command
+    assert lines[0] in command
+    assert lines[-1] in command
+
+    script_fpath = tmp_path / 'write_manifest.sh'
+    script_fpath.write_text('#!/bin/bash\nset -e\n' + command + '\n')
+    subprocess.run(['bash', '-n', script_fpath], check=True)
+    subprocess.run(['bash', script_fpath], check=True)
+    assert output_fpath.read_text() == text
+
+
 def test_gather_python_compile_static_graph():
     dag = _demo_gather_pipeline()
     root = ub.Path.appdir('kwdagger/tests/gather/compile').delete().ensuredir()
@@ -114,6 +170,30 @@ def test_gather_python_compile_static_graph():
 
     # The graph is static and includes all fan-in / fan-out edges.
     assert len(compiled.proc_graph.edges()) == 20
+
+    records = compiled._edge_cardinality_records()
+    gather_record = ub.peek(
+        [record for record in records if record['kind'] == 'gather']
+    )
+    fanout_record = ub.peek(
+        [
+            record
+            for record in records
+            if record['source'] == 'ensemble'
+            and record['target'] == 'evaluate'
+        ]
+    )
+    assert gather_record['relation'] == 'gather 3:1'
+    assert gather_record['source_count'] == 12
+    assert gather_record['target_count'] == 4
+    assert fanout_record['relation'] == 'fan-out 1:2'
+
+    cardinality_labels = [
+        data.get('label', '')
+        for _, data in compiled._cardinality_display_graph().nodes(data=True)
+    ]
+    assert any('gather 3:1' in label for label in cardinality_labels)
+    assert any('fan-out 1:2' in label for label in cardinality_labels)
 
 
 def test_gather_yaml_round_trip():
@@ -318,6 +398,71 @@ def test_gather_yaml_schedule_end_to_end():
     commands = queue.finalize_text()
     assert '_gather/checkpoints_fpath.txt' in commands
     assert '--checkpoints_fpath=' in commands
+    assert "cat > " in commands
+    assert "<<'KWDAGGER_GATHER_ENSEMBLE_CHECKPOINTS_FPATH_" in commands
+    assert '# kwdagger gather:' in commands
+    assert '# kwdagger bookkeeping only;' in commands
+
+    # Gather materialization is part of the consumer's standalone invocation,
+    # not hidden state prepared by kwdagger or an opaque scheduler node.
+    ensemble = ub.peek(
+        node for node in compiled.nodes.values() if node.name == 'ensemble'
+    )
+    invoke_fpath = ensemble.final_node_dpath / 'invoke.sh'
+    invoke_text = invoke_fpath.read_text()
+    assert '# kwdagger gather:' in invoke_text
+    assert "cat > " in invoke_text
+    manifest_fpath = ensemble.inputs['checkpoints_fpath'].gather_manifest_fpath
+    manifest_fpath.delete()
+    ensemble.final_out_paths['ensemble_fpath'].delete()
+    ub.cmd(['bash', invoke_fpath], check=True)
+    assert manifest_fpath.exists()
+    assert ensemble.final_out_paths['ensemble_fpath'].exists()
+
+
+def test_gather_slurm_uses_short_file_backed_command():
+    """Large gather heredocs must never be passed through sbatch --wrap."""
+    import cmd_queue
+
+    dag = _demo_gather_pipeline()
+    root = ub.Path.appdir('kwdagger/tests/gather/slurm').delete().ensuredir()
+    compiled = dag.compile_configurations(
+        _demo_rows(), root_dpath=root, cache=False
+    )
+    queue = cmd_queue.Queue.create(backend='slurm', name='gather-slurm-test')
+    compiled.submit_jobs(
+        queue=queue,
+        enable_links=False,
+        write_invocations=False,
+        write_configs=True,
+    )
+
+    ensembles = [
+        node for node in compiled.nodes.values() if node.name == 'ensemble'
+    ]
+    assert ensembles
+    for ensemble in ensembles:
+        invoke_fpath = ensemble.final_node_dpath / 'invoke.sh'
+        config_fpath = ensemble.final_node_dpath / 'job_config.json'
+        assert invoke_fpath.exists()
+        assert config_fpath.exists()
+        invoke_text = invoke_fpath.read_text()
+        assert '# kwdagger gather:' in invoke_text
+        assert "cat > " in invoke_text
+        assert "<<'KWDAGGER_GATHER_ENSEMBLE_CHECKPOINTS_FPATH_" in invoke_text
+
+        # The Slurm job receives only the short file-backed command. Even when
+        # write_invocations=False, gathered Slurm consumers require this
+        # standalone artifact to avoid placing the manifest in --wrap argv.
+        job = queue.named_jobs[ensemble.process_id]
+        assert 'bash ' in job.command
+        assert str(invoke_fpath) in job.command
+        assert 'cat > ' not in job.command
+        assert len(job.command) < 1024
+
+    slurm_text = queue.finalize_text()
+    for ensemble in ensembles:
+        assert str(ensemble.final_node_dpath / 'invoke.sh') in slurm_text
 
 
 def test_gather_rejects_unknown_require_policy():

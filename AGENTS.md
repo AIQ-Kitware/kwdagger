@@ -65,6 +65,59 @@ common workflows, and testing/documentation practices.
 - Build the HTML docs locally with `make -C docs html` (requires
   `requirements/docs.txt`). Generated output is placed under `docs/build/html`.
 
+## Core pipeline invariants and value proposition
+
+Treat these as architectural constraints, especially when changing scheduling,
+graph compilation, generated commands, or artifact layout.
+
+- **Static DAG:** all process instances and dependency memberships are fixed at
+  compile time. Nodes may make data-dependent decisions internally, but they
+  must map those decisions into statically declared outputs. Do not add runtime
+  task discovery or scheduler-side DAG mutation without an explicit redesign.
+- **Bash is a first-class product:** kwdagger constructs the graph, but execution
+  must be separable from kwdagger. A generated cmd-queue Bash script or the
+  exported script bundle rooted at its node ``invoke.sh`` files must contain
+  the complete commands needed to execute the work. Static scripts and configs
+  may be materialized during compilation when a backend requires file-backed
+  commands, but they must be visible, portable artifacts rather than opaque
+  in-memory state.
+- **Ordinary CLI contracts:** nodes consume named ``--key=value`` arguments.
+  Existing programs should require only mild CLI adaptation. Avoid positional
+  conventions and avoid expanding large collections into command-line argument
+  lists.
+- **Preserve the node model:** new features should compose the existing
+  ``algo_params``, ``in_paths``, and ``out_paths`` concepts instead of creating
+  a parallel parameter or artifact language.
+- **Gather is compile-time edge semantics:** use
+  ``GatherSpec(group_by=[...], order_by=[...], require='all_success')``. The
+  compiler partitions known source instances with dataframe-like ``group_by``
+  semantics, orders each group deterministically, and passes one path-manifest
+  filename to an ordinary consumer node. Gather is not a special user program
+  and not a runtime-discovery node. Parameters omitted from ``group_by`` vary
+  within the group; do not add a second ``across``/``over`` membership control.
+- **Portable gather manifests:** collection membership is written with a quoted
+  heredoc inside the consumer's complete command and ``invoke.sh``. This avoids
+  ``ARG_MAX`` when Bash reads a script because member paths are script input
+  rather than argv. Backends that transport commands through an argument, most
+  notably Slurm's ``sbatch --wrap``, must submit a short file-backed command such
+  as ``bash invoke.sh`` instead of placing the heredoc in ``--wrap``. The
+  newline-delimited format rejects paths containing newlines.
+- **Visible cardinality:** logical Process and IO graphs must visibly distinguish
+  gather fan-in and collection-valued inputs. After matrix compilation, report
+  concrete direct, fan-out, fan-in, and many-to-many cardinalities before queue
+  submission. Generated execution text should make manifest creation obvious.
+- **Deterministic identity:** gather policy, ordered logical membership, source
+  process IDs, and source output keys participate in the consumer process hash.
+  Cache identity must not depend on cache-root location, filesystem enumeration
+  order, or completion timing.
+- **Phase boundaries for discovery:** workflows with an unknown runtime candidate
+  set should materialize and freeze that set, then compile a new static
+  downstream pipeline. Do not weaken ordinary gather semantics to mean
+  "whatever outputs happen to exist."
+- **Aggregation is separate:** ``aggregate`` queries historical results; gather
+  connects known outputs inside one compiled pipeline. Keep these concepts and
+  implementations distinct.
+
 ## Extending or refactoring
 - **Pipelines:** new pipelines should compose `ProcessNode` instances with
   explicit inputs/outputs; prefer connecting specific IO nodes rather than

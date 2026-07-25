@@ -89,7 +89,7 @@ def _node_command_sections(script_text: str) -> list[str]:
     markers and can appear at the same indent depth as real-node
     sections once dependencies introduce ``if`` guards. The reliable
     distinguisher is the command content itself: bookkeeper sections
-    write a ``printf '#!/bin/bash...'`` payload to construct the
+    contain the generated ``KWDAGGER_INVOKE_*`` heredoc that constructs the
     node's ``invoke.sh``, which never appears in a real-node command.
 
     Real-node BashJobs are the only ones whose ``self.log`` should
@@ -103,7 +103,7 @@ def _node_command_sections(script_text: str) -> list[str]:
         re.DOTALL,
     )
     sections = pattern.findall(script_text)
-    return [s for s in sections if "printf '#!/bin/bash" not in s]
+    return [s for s in sections if 'KWDAGGER_INVOKE_' not in s]
 
 
 def test_schedule_cli_log_true_tees_node_commands(tmp_path):

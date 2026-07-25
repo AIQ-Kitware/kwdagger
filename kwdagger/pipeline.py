@@ -492,44 +492,120 @@ class Pipeline:
             cache=cache,
         )
 
+    def _process_display_graph(
+        self, shrink_labels: int = 1, show_types: int = 0
+    ) -> nx.DiGraph:
+        """Build a display-only process graph with gather edges made explicit."""
+        self._ensure_clean()
+        graph = self.proc_graph.copy()
+        _labelize_graph(graph, shrink_labels, show_types)
+
+        gather_by_pair: dict[tuple[str, str], list[GatherConnection]] = (
+            defaultdict(list)
+        )
+        for connection in self.gather_connections:
+            pair = (
+                connection.source.parent.name,
+                connection.target.parent.name,
+            )
+            gather_by_pair[pair].append(connection)
+
+        for marker_idx, ((src, dst), connections) in enumerate(
+            gather_by_pair.items()
+        ):
+            if graph.has_edge(src, dst):
+                graph.remove_edge(src, dst)
+            labels = []
+            for connection in connections:
+                spec = connection.spec
+                label = 'gather N:1'
+                if spec.group_by:
+                    label += ' | group_by=' + ','.join(spec.group_by)
+                else:
+                    label += ' | group_by=<all>'
+                if spec.order_by:
+                    label += ' | order_by=' + ','.join(spec.order_by)
+                labels.append(label)
+            marker = f'__gather_process_edge_{marker_idx}'
+            graph.add_node(
+                marker,
+                label='[bright_magenta]' + ' ; '.join(labels) + '[/bright_magenta]',
+            )
+            graph.add_edge(src, marker)
+            graph.add_edge(marker, dst)
+        return graph
+
+    def _io_display_graph(
+        self, shrink_labels: int = 1, show_types: int = 0
+    ) -> nx.DiGraph:
+        """Build a display-only IO graph with collection artifacts visible."""
+        self._ensure_clean()
+        graph = self.io_graph.copy()
+        _labelize_graph(graph, shrink_labels, show_types, color_procs=True)
+
+        marker_idx = 0
+        for src, dst, edge_data in list(graph.edges(data=True)):
+            spec = edge_data.get('gather')
+            if spec is None:
+                continue
+            graph.remove_edge(src, dst)
+            label = 'gather N:1 -> path manifest'
+            if spec.group_by:
+                label += ' | group_by=' + ','.join(spec.group_by)
+            else:
+                label += ' | group_by=<all>'
+            if spec.order_by:
+                label += ' | order_by=' + ','.join(spec.order_by)
+            marker = f'__gather_io_edge_{marker_idx}'
+            marker_idx += 1
+            graph.add_node(
+                marker,
+                label=f'[bright_magenta]{label}[/bright_magenta]',
+            )
+            graph.add_edge(src, marker)
+            graph.add_edge(marker, dst)
+            target_label = graph.nodes[dst].get('label', dst)
+            if '(collection)' not in target_label:
+                graph.nodes[dst]['label'] = target_label + ' (collection)'
+        return graph
+
     def print_process_graph(
         self, shrink_labels: int = 1, show_types: int = 0
     ) -> None:
         """
-        Draw the networkx process graph, which only shows if there exists
-        a connection between processes, and does not show details of which
-        output connects to which input.  See :func:`Pipeline.print_io_graph`
-        for that level of detail.
+        Draw the logical process graph.
+
+        Gather edges are represented by display-only ``gather N:1`` marker
+        nodes so many-to-one semantics are not mistaken for ordinary direct
+        dependencies. The marker is not an executable process node.
         """
         import networkx as nx
         import rich
 
-        self._ensure_clean()
-        _labelize_graph(self.proc_graph, shrink_labels, show_types)
+        graph = self._process_display_graph(shrink_labels, show_types)
         print('')
         print('Process Graph')
         nx.write_network_text(
-            self.proc_graph, path=rich.print, end='', vertical_chains=True
+            graph, path=rich.print, end='', vertical_chains=True
         )
 
     def print_io_graph(
         self, shrink_labels: int = 1, show_types: int = 0
     ) -> None:
         """
-        Draw the networkx IO graph, which shows the connections between
-        the inputs and the outputs of the processes in the pipeline.
+        Draw the logical IO graph.
+
+        Gather edges show the compile-time path-manifest conversion and mark
+        the receiving input as collection-valued.
         """
         import networkx as nx
         import rich
 
-        self._ensure_clean()
-        _labelize_graph(
-            self.io_graph, shrink_labels, show_types, color_procs=True
-        )
+        graph = self._io_display_graph(shrink_labels, show_types)
         print('')
         print('IO Graph')
         nx.write_network_text(
-            self.io_graph, path=rich.print, end='', vertical_chains=True
+            graph, path=rich.print, end='', vertical_chains=True
         )
 
     def print_commands(self, **kwargs: Any) -> None:
@@ -586,8 +662,8 @@ class Pipeline:
                 'or kwdagger schedule.'
             )
 
-        # import shlex
         import json
+        import shlex
 
         import cmd_queue
         import networkx as nx
@@ -660,15 +736,42 @@ class Pipeline:
             else:
                 node_procid = node.process_id
                 node_job = None
+                pred_node_procids = [
+                    n.process_id for n in pred_nodes if n.enabled
+                ]
+                is_slurm = 'slurm' in queue.__class__.__name__.lower()
+                has_gather = any(
+                    input_node._gather_members is not None
+                    for input_node in node.inputs.values()
+                )
+                invoke_fpath = node.final_node_dpath / 'invoke.sh'
+                invoke_text = node._invocation_script_text()
+                invoke_prewritten = False
+
+                # Slurm serializes each job through ``sbatch --wrap``. A large
+                # gather heredoc would therefore become one large argv entry at
+                # submission time even though the heredoc itself is safe once
+                # Bash reads it. Materialize the complete standalone invocation
+                # file while compiling the queue and submit only a short
+                # ``bash invoke.sh`` command. This preserves the ability to run
+                # the graph without importing or invoking kwdagger.
+                if is_slurm and has_gather:
+                    invoke_fpath.parent.ensuredir()
+                    invoke_fpath.write_text(invoke_text)
+                    invoke_fpath.chmod(0o775)
+                    invoke_prewritten = True
+                    node_command = '\n'.join(
+                        [
+                            '# kwdagger gather is materialized in the '
+                            'standalone invocation script below',
+                            'bash ' + shlex.quote(os.fspath(invoke_fpath)),
+                        ]
+                    )
+                else:
+                    node_command = node.final_command()
 
                 # Another configuration may have submitted this job already
                 if node_procid not in queue.named_jobs:
-                    pred_node_procids = [
-                        n.process_id for n in pred_nodes if n.enabled
-                    ]
-                    # Submit a primary queue process
-                    node_command = node.final_command()
-
                     extra_submitkw: dict[str, Any] = {}
                     # Forward the log flag so cmd_queue tees stdout/stderr
                     # to info_dpath/status/<pathid>.logs for post-mortem
@@ -689,7 +792,7 @@ class Pipeline:
                         extra_submitkw['setup'] = node_setup
                     if node_teardown:
                         extra_submitkw['teardown'] = node_teardown
-                    if 'slurm' in queue.__class__.__name__.lower():
+                    if is_slurm:
                         # Global slurm options apply to every job.
                         extra_submitkw.update(
                             coerce_slurm_options(
@@ -729,24 +832,6 @@ class Pipeline:
                 # We might want to execute a few boilerplate instructions
                 # before running each node.
                 before_node_commands = []
-
-                # Gather inputs are compile-time-resolved collections. Write
-                # their path manifests as ordinary static bookkeeper commands
-                # after all source jobs succeed and before the consumer runs.
-                for input_node in node.inputs.values():
-                    if input_node._gather_members is not None:
-                        manifest_fpath = input_node.gather_manifest_fpath
-                        manifest_text = input_node.gather_manifest_text()
-                        escaped_manifest_text = bash_printf_literal_string(
-                            manifest_text
-                        )
-                        command = '\n'.join(
-                            [
-                                f'mkdir -p {manifest_fpath.parent} && \\',
-                                f'printf {escaped_manifest_text} > {manifest_fpath}',
-                            ]
-                        )
-                        before_node_commands.append(command)
 
                 # Add symlink jobs that make the graph structure traversable in
                 # the flat output directories.
@@ -789,41 +874,22 @@ class Pipeline:
                         # command = '(' + ' && '.join(parts) + ')'
                         before_node_commands.extend(parts)
 
-                if write_invocations:
-                    # Add a job that writes a file with the command used to
-                    # execute this node.
-                    # FIXME: this writes the file with a weird indentation.
-                    # The effect is cosmetic, but not sure why its doing that.
-                    invoke_fpath = node.final_node_dpath / 'invoke.sh'
-
-                    invoke_lines = ['#!/bin/bash']
-                    # TODO: can we topologically sort this?
-                    depend_nodes = list(node.ancestor_process_nodes())
-                    if depend_nodes:
-                        invoke_lines.append('# See Also: ')
-                        for depend_node in list(node.ancestor_process_nodes()):
-                            invoke_lines.append(
-                                '# ' + depend_node.final_node_dpath
-                            )
-                    else:
-                        invoke_lines.append('# Root node')
-                    invoke_command = node._raw_command()
-                    invoke_lines.append(invoke_command)
-                    invoke_text = '\n'.join(invoke_lines)
-
-                    escaped_invoke_text = bash_printf_literal_string(
-                        invoke_text
+                if write_invocations and not invoke_prewritten:
+                    # Write the exact independently executable command. For a
+                    # gathered consumer this includes the quoted manifest
+                    # heredoc and all cache guards.
+                    command = bash_heredoc_write_command(
+                        invoke_text,
+                        invoke_fpath,
+                        label=f'KWDAGGER_INVOKE_{node.name}',
                     )
-                    # escaped_invoke_text = shlex.quote(invoke_text)
-
-                    command = '\n'.join(
+                    before_node_commands.extend(
                         [
-                            f'mkdir -p {invoke_fpath.parent} && \\',
-                            f'printf {escaped_invoke_text} \\',
-                            f'> {invoke_fpath}',
+                            command,
+                            'chmod +x -- '
+                            + shlex.quote(os.fspath(invoke_fpath)),
                         ]
                     )
-                    before_node_commands.append(command)
 
                 if write_configs:
                     depends_config = node._depends_config()
@@ -831,27 +897,34 @@ class Pipeline:
                     # execute this node.
                     job_config_fpath = node.final_node_dpath / 'job_config.json'
                     json_text = json.dumps(depends_config)
-                    escaped_json_text = bash_printf_literal_string(json_text)
-                    if _has_jq():
-                        command = '\n'.join(
-                            [
-                                f'mkdir -p {job_config_fpath.parent} && \\',
-                                f'printf {escaped_json_text} | jq . > {job_config_fpath}',
-                            ]
-                        )
+                    if is_slurm and has_gather:
+                        # Gather provenance can be as large as the manifest.
+                        # Keep it out of a second Slurm ``--wrap`` argument.
+                        job_config_fpath.parent.ensuredir()
+                        if _has_jq():
+                            json_text = json.dumps(depends_config, indent=4)
+                        job_config_fpath.write_text(json_text)
                     else:
-                        command = '\n'.join(
-                            [
-                                f'mkdir -p {job_config_fpath.parent} && \\',
-                                f'printf {escaped_json_text} > {job_config_fpath}',
-                            ]
+                        command = bash_heredoc_write_command(
+                            json_text,
+                            job_config_fpath,
+                            label=f'KWDAGGER_CONFIG_{node.name}',
+                            filter_command='jq .' if _has_jq() else None,
                         )
-                    before_node_commands.append(command)
+                        before_node_commands.append(command)
 
                 if before_node_commands:
+                    if has_gather:
+                        before_node_commands.insert(
+                            0,
+                            '# kwdagger bookkeeping only; the gather manifest '
+                            'is materialized by the consumer command/invoke.sh',
+                        )
                     # TODO: nicer infastructure mechanisms (make the code
                     # prettier and easier to reason about)
-                    before_command = ' && \\\n'.join(before_node_commands)
+                    before_command = '\n'.join(
+                        ['(', 'set -e', *before_node_commands, ')']
+                    )
                     _procid = 'before_' + node_procid
                     if _procid not in queue.named_jobs:
                         _job = queue.submit(
@@ -893,6 +966,138 @@ class CompiledPipeline:
         # Pipeline.submit_jobs is intentionally reused: it only needs the
         # concrete process graph and the global slurm-options attribute.
         self.__slurm_options__ = dict(slurm_options or {})
+
+    def _edge_cardinality_records(self) -> list[dict[str, Any]]:
+        """Summarize concrete edge multiplicity by logical process pair."""
+        gather_edges: set[tuple[str, str]] = set()
+        gather_meta: dict[tuple[str, str], dict[str, Any]] = {}
+        for target in self.nodes.values():
+            for input_node in target.inputs.values():
+                members = input_node._gather_members
+                if members is None:
+                    continue
+                connection = input_node._gather_connection
+                assert connection is not None
+                key = (connection.source.parent.name, target.name)
+                meta = gather_meta.setdefault(
+                    key,
+                    {
+                        'source_port': connection.source.name,
+                        'target_port': input_node.name,
+                        'spec': connection.spec,
+                        'member_counts': [],
+                    },
+                )
+                meta['member_counts'].append(len(members))
+                for member in members:
+                    gather_edges.add((member.parent.process_id, target.process_id))
+
+        grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for src_id, dst_id in self.proc_graph.edges():
+            src_node = self.proc_graph.nodes[src_id]['node']
+            dst_node = self.proc_graph.nodes[dst_id]['node']
+            kind = 'gather' if (src_id, dst_id) in gather_edges else 'ordinary'
+            key = (src_node.name, dst_node.name, kind)
+            record = grouped.setdefault(
+                key,
+                {
+                    'source': src_node.name,
+                    'target': dst_node.name,
+                    'kind': kind,
+                    'source_ids': set(),
+                    'target_ids': set(),
+                    'edge_count': 0,
+                },
+            )
+            record['source_ids'].add(src_id)
+            record['target_ids'].add(dst_id)
+            record['edge_count'] += 1
+
+        records = []
+        for (source, target, kind), record in sorted(grouped.items()):
+            source_count = len(record.pop('source_ids'))
+            target_count = len(record.pop('target_ids'))
+            record['source_count'] = source_count
+            record['target_count'] = target_count
+            if kind == 'gather':
+                meta = gather_meta[(source, target)]
+                member_counts = meta['member_counts']
+                if len(set(member_counts)) == 1:
+                    ratio = f'{member_counts[0]}:1'
+                else:
+                    ratio = f'{min(member_counts)}-{max(member_counts)}:1'
+                record['relation'] = f'gather {ratio}'
+                record.update(
+                    {
+                        'source_port': meta['source_port'],
+                        'target_port': meta['target_port'],
+                        'spec': meta['spec'],
+                    }
+                )
+            else:
+                targets_per_source = (
+                    record['edge_count'] / source_count if source_count else 0
+                )
+                sources_per_target = (
+                    record['edge_count'] / target_count if target_count else 0
+                )
+                if targets_per_source > 1 and sources_per_target == 1:
+                    relation = f'fan-out 1:{targets_per_source:g}'
+                elif sources_per_target > 1 and targets_per_source == 1:
+                    relation = f'fan-in {sources_per_target:g}:1'
+                elif targets_per_source == 1 and sources_per_target == 1:
+                    relation = 'direct 1:1'
+                else:
+                    relation = 'many-to-many'
+                record['relation'] = relation
+            records.append(record)
+        return records
+
+    def _cardinality_display_graph(self) -> nx.DiGraph:
+        """Build a logical graph annotated with concrete instance counts."""
+        graph = nx.DiGraph()
+        grouped_nodes = ub.group_items(
+            self.nodes.values(), key=lambda node: node.name
+        )
+        for name, nodes in sorted(grouped_nodes.items()):
+            graph.add_node(name, label=f'{name} [{len(nodes)} instances]')
+        for idx, record in enumerate(self._edge_cardinality_records()):
+            marker = f'__cardinality_edge_{idx}'
+            label = (
+                f"{record['relation']} | "
+                f"{record['source_count']} -> {record['target_count']} instances"
+            )
+            if record['kind'] == 'gather':
+                spec = record['spec']
+                label += (
+                    f" | {record['source_port']} -> {record['target_port']}"
+                )
+                if spec.group_by:
+                    label += ' | group_by=' + ','.join(spec.group_by)
+                if spec.order_by:
+                    label += ' | order_by=' + ','.join(spec.order_by)
+            graph.add_node(
+                marker,
+                label=f'[bright_magenta]{label}[/bright_magenta]'
+                if record['kind'] == 'gather'
+                else label,
+            )
+            graph.add_edge(record['source'], marker)
+            graph.add_edge(marker, record['target'])
+        return graph
+
+    def print_cardinality_graph(self) -> None:
+        """Print fan-in, fan-out, and direct cardinalities after compilation."""
+        import rich
+
+        print('')
+        print('Compiled Process Cardinality Graph')
+        nx.write_network_text(
+            self._cardinality_display_graph(),
+            path=rich.print,
+            end='',
+            vertical_chains=True,
+        )
 
     def submit_jobs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         return Pipeline.submit_jobs(self, *args, **kwargs)
@@ -1116,6 +1321,59 @@ def _compile_pipeline_configurations(
         root_dpath=root_dpath,
         slurm_options=getattr(template, '__slurm_options__', {}),
         compile_summary=compile_summary,
+    )
+
+
+def bash_heredoc_write_command(
+    text: str,
+    output_fpath: str | os.PathLike[str],
+    *,
+    label: str = 'KWDAGGER_DATA',
+    filter_command: str | None = None,
+) -> str:
+    r"""Build a quoted-heredoc command that writes text without using argv.
+
+    When the returned command is read from a script file, the heredoc body is
+    script input rather than command arguments, so even a very large gather
+    collection does not consume ``ARG_MAX``. Callers that transport the whole
+    command through argv (for example ``sbatch --wrap``) must use a file-backed
+    invocation instead. Quoting the delimiter disables parameter expansion,
+    command substitution, and backslash processing inside the body.
+    """
+    import hashlib
+    import shlex
+
+    if '\x00' in text:
+        raise ValueError('Bash heredocs cannot contain NUL bytes')
+    output_fpath = os.fspath(output_fpath)
+    parent = os.path.dirname(output_fpath) or '.'
+    digest = hashlib.sha256(text.encode('utf8')).hexdigest()[:16].upper()
+    safe_label = ''.join(
+        char if char in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_' else '_'
+        for char in label.upper()
+    ).strip('_') or 'KWDAGGER_DATA'
+    delimiter_base = f'{safe_label}_{digest}'
+    delimiter = delimiter_base
+    body_lines = set(text.splitlines())
+    suffix = 0
+    while delimiter in body_lines:
+        suffix += 1
+        delimiter = f'{delimiter_base}_{suffix}'
+    if text and not text.endswith('\n'):
+        text += '\n'
+    if filter_command is None:
+        cat_line = f"cat > {shlex.quote(output_fpath)} <<'{delimiter}'"
+    else:
+        cat_line = (
+            f"cat <<'{delimiter}' | {filter_command} > "
+            f'{shlex.quote(output_fpath)}'
+        )
+    return '\n'.join(
+        [
+            f'mkdir -p -- {shlex.quote(parent)}',
+            cat_line,
+            text + delimiter,
+        ]
     )
 
 
@@ -2773,19 +3031,74 @@ class ProcessNode(Node):
             command = command()
         return command
 
+    def _gather_manifest_commands(self) -> list[str]:
+        """Return static manifest writers for configured collection inputs."""
+        commands = []
+        for input_node in self.inputs.values():
+            if input_node._gather_members is None:
+                continue
+            connection = input_node._gather_connection
+            assert connection is not None
+            spec = connection.spec
+            description = (
+                f'# kwdagger gather: {connection.source.key} -> '
+                f'{input_node.key} | members={len(input_node._gather_members)} '
+                f'| group_by={list(spec.group_by)!r} '
+                f'| order_by={list(spec.order_by)!r} '
+                f'| require={spec.require}'
+            )
+            writer = bash_heredoc_write_command(
+                input_node.gather_manifest_text(),
+                input_node.gather_manifest_fpath,
+                label=f'KWDAGGER_GATHER_{self.name}_{input_node.name}',
+            )
+            commands.extend([description, writer])
+        return commands
+
+    @staticmethod
+    def _cleanup_raw_command(command: str) -> str:
+        """Normalize an executable command without touching heredoc bodies."""
+        base_command = command.rstrip().rstrip('\\').rstrip()
+        lines = base_command.split('\n')
+        return '\n'.join(
+            [line for line in lines if line.strip() != '\\']
+        )
+
+    def _invocation_script_text(self) -> str:
+        """Build the complete standalone ``invoke.sh`` file contents."""
+        invoke_lines = ['#!/bin/bash']
+        depend_nodes = list(self.ancestor_process_nodes())
+        if depend_nodes:
+            invoke_lines.append('# See Also:')
+            for depend_node in depend_nodes:
+                invoke_lines.append(
+                    '# ' + os.fspath(depend_node.final_node_dpath)
+                )
+        else:
+            invoke_lines.append('# Root node')
+        invoke_lines.append(self.final_command())
+        return "\n".join(invoke_lines) + "\n"
+
+    def _raw_command_with_gather(self) -> Any:
+        """Return a standalone command including any gather materialization."""
+        raw_command = self._cleanup_raw_command(self._raw_command())
+        gather_commands = self._gather_manifest_commands()
+        if not gather_commands:
+            return raw_command
+        # A subshell keeps ``set -e`` local while ensuring manifest creation and
+        # the consumer program behave as one schedulable command. The raw
+        # program command is normalized before heredoc bodies are inserted so
+        # collection paths are never mistaken for shell-continuation lines.
+        return '\n'.join(
+            ['(', 'set -e', *gather_commands, raw_command, ')']
+        )
+
     def final_command(self) -> Any:
         """
         Wraps ``self.command`` with optional checks to prevent the command from
         executing if its outputs already exist.
         """
-        command = self._raw_command()
-
-        # Cleanup the command
-        base_command = command.rstrip().rstrip('\\').rstrip()
-        lines = base_command.split('\n')
-        base_command = '\n'.join(
-            [line for line in lines if line.strip() != '\\']
-        )
+        base_command = self._raw_command_with_gather()
 
         if self.cache or (not self.enabled and self.enabled != 'redo'):
             test_cmd = self.test_is_computed_command()
