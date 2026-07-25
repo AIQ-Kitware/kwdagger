@@ -71,3 +71,20 @@ tmux backends. Commands inside an ``if`` dependency guard do not need visual
 indentation, so this preserves dependency semantics while keeping the exported
 Bash valid. A regression test writes the complete queue script and checks it
 with ``bash -n``.
+
+
+## 2026-07-25 13:49:27 -0400
+
+The column-zero repair exposed a second shell-composition issue. Gathered
+consumer commands began with a subshell ``(``, while cmd_queue's logging layer
+also wraps a job in ``(...)``. The serialized result began with ``((`` and Bash
+correctly interpreted the entire multiline command as arithmetic, so training
+completed but every ensemble job failed without producing outputs.
+
+The repair replaces the gather subshell with a brace group and explicit ``&&``
+chaining. This avoids leaking ``set -e`` into the surrounding serial script,
+remains safe when cmd_queue adds its logging subshell, and keeps ordinary shell
+commands visibly indented. Only heredoc contents and closing delimiters remain
+at column zero, which is the unavoidable syntax requirement for quoted
+heredocs. Tests now assert the generated consumer begins with ``{``, contains
+fail-fast chaining, and serializes as ``({ ... })`` rather than ``(( ... ))``.

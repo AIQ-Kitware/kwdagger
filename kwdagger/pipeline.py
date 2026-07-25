@@ -1346,6 +1346,8 @@ def bash_heredoc_write_command(
     *,
     label: str = 'KWDAGGER_DATA',
     filter_command: str | None = None,
+    command_indent: str = '',
+    chain: bool = False,
 ) -> str:
     r"""Build a quoted-heredoc command that writes text without using argv.
 
@@ -1355,6 +1357,11 @@ def bash_heredoc_write_command(
     command through argv (for example ``sbatch --wrap``) must use a file-backed
     invocation instead. Quoting the delimiter disables parameter expansion,
     command substitution, and backslash processing inside the body.
+
+    ``command_indent`` affects only the shell commands. The heredoc body and
+    closing delimiter deliberately remain in column zero. ``chain=True`` adds
+    ``&&`` after the directory and ``cat`` commands so a caller can compose the
+    writer into a fail-fast brace group without enabling global ``set -e``.
     """
     import hashlib
     import shlex
@@ -1384,10 +1391,13 @@ def bash_heredoc_write_command(
             f"cat <<'{delimiter}' | {filter_command} > "
             f'{shlex.quote(output_fpath)}'
         )
+    suffix = ' &&' if chain else ''
     return '\n'.join(
         [
-            f'mkdir -p -- {shlex.quote(parent)}',
-            cat_line,
+            command_indent
+            + f'mkdir -p -- {shlex.quote(parent)}'
+            + suffix,
+            command_indent + cat_line + suffix,
             text + delimiter,
         ]
     )
@@ -3067,8 +3077,10 @@ class ProcessNode(Node):
                 input_node.gather_manifest_text(),
                 input_node.gather_manifest_fpath,
                 label=f'KWDAGGER_GATHER_{self.name}_{input_node.name}',
+                command_indent='    ',
+                chain=True,
             )
-            commands.extend([description, writer])
+            commands.extend(['    ' + description, writer])
         return commands
 
     @staticmethod
@@ -3101,12 +3113,16 @@ class ProcessNode(Node):
         gather_commands = self._gather_manifest_commands()
         if not gather_commands:
             return raw_command
-        # A subshell keeps ``set -e`` local while ensuring manifest creation and
-        # the consumer program behave as one schedulable command. The raw
-        # program command is normalized before heredoc bodies are inserted so
-        # collection paths are never mistaken for shell-continuation lines.
+        # Use a brace group instead of a leading subshell. cmd_queue wraps
+        # logged commands in ``(...)``; a command that itself begins with ``(``
+        # would therefore become Bash arithmetic syntax ``((...))``. Explicit
+        # ``&&`` chaining preserves fail-fast behavior without leaking
+        # ``set -e`` into the surrounding queue script. Commands remain
+        # indented for readability, while heredoc bodies and terminators stay
+        # in column zero as required by Bash.
+        indented_raw_command = ub.indent(raw_command, '    ')
         return '\n'.join(
-            ['(', 'set -e', *gather_commands, raw_command, ')']
+            ['{', *gather_commands, indented_raw_command, '}']
         )
 
     def final_command(self) -> Any:

@@ -106,6 +106,11 @@ graph compilation, generated commands, or artifact layout.
   dependency-guarded job bodies for display. Any serial or tmux job containing
   a generated heredoc must set ``allow_indent=False``; otherwise Bash will not
   recognize the closing delimiter and the exported script becomes invalid.
+  Preserve readability by explicitly indenting ordinary commands inside a brace
+  group while leaving only heredoc bodies and terminators at column zero.
+  Heredoc-bearing commands must not begin with ``(``: cmd_queue may add its own
+  logging subshell, and the combination becomes Bash arithmetic syntax
+  ``((...))``. Prefer ``{ ...; }`` with explicit ``&&`` chaining.
 - **Visible cardinality:** logical Process and IO graphs must visibly distinguish
   gather fan-in and collection-valued inputs. After matrix compilation, report
   concrete direct, fan-out, fan-in, and many-to-many cardinalities before queue
@@ -146,7 +151,7 @@ graph compilation, generated commands, or artifact layout.
 - Quickstart workflow in `README.rst` shows end-to-end scheduling and aggregation commands using the demo pipeline.
 - Coverage/pytest/xdoctest configuration lives in `pyproject.toml`.
 - The `requirements/` directory documents optional dependency groups for CI, docs, linting, and runtime use.
-- There are several tutorials in `docs/source/manual/tutorials` 
+- There are several tutorials in `docs/source/manual/tutorials`
 
 ## Developer journal
 Keep a running journal at `dev/journals/<agent_name>.md` (e.g.

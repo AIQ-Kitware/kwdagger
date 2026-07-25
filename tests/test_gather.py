@@ -162,6 +162,12 @@ def test_gather_python_compile_static_graph():
         command = ensemble._raw_command()
         assert '--checkpoints_fpath=' in command
         assert str(gathered.gather_manifest_fpath) in command
+        final_command = ensemble.final_command()
+        assert final_command.startswith('{\n')
+        assert '\n    mkdir -p -- ' in final_command
+        assert '\n    cat > ' in final_command
+        assert ' &&\n' in final_command
+        assert not final_command.startswith('(\n')
         gather_info = ensemble._depends_config()[
             '__gather__.checkpoints_fpath'
         ]
@@ -402,6 +408,12 @@ def test_gather_yaml_schedule_end_to_end():
     assert "<<'KWDAGGER_GATHER_ENSEMBLE_CHECKPOINTS_FPATH_" in commands
     assert '# kwdagger gather:' in commands
     assert '# kwdagger bookkeeping only;' in commands
+    # cmd_queue adds a logging subshell around each command. The gather command
+    # begins with a brace group so that wrapping yields ``({ ... })`` rather
+    # than the arithmetic syntax ``(( ... ))``.
+    assert '\n({\n    # kwdagger gather:' in commands
+    assert '\n((\nset -e' not in commands
+    assert '\n    mkdir -p -- ' in commands
 
     # Gather materialization is part of the consumer's standalone invocation,
     # not hidden state prepared by kwdagger or an opaque scheduler node.
