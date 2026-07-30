@@ -334,8 +334,12 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     # param. The forced reset is removed; ``BashJob.log`` now reflects
     # the configured value as set during submission.
 
+    # Report the local root_dpath rather than ``dag.root_dpath``: both branches
+    # above derive the latter from the former, but an empty param grid never
+    # enters the configure loop, leaving a template Pipeline with no
+    # ``root_dpath`` attribute at all.
     if config.run:
-        ub.Path(dag.root_dpath).ensuredir()
+        root_dpath.ensuredir()
 
     print_kwargs = {
         'with_status': 0,
@@ -344,9 +348,7 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
         'exclude_tags': ['boilerplate'],
     }
 
-    rich.print(
-        f'\n\ndag.root_dpath: [link={dag.root_dpath}]{dag.root_dpath}[/link]'
-    )
+    rich.print(f'\n\ndag.root_dpath: [link={root_dpath}]{root_dpath}[/link]')
     config.run_queue(queue, print_kwargs=print_kwargs, system=True)
 
     if not config.run:

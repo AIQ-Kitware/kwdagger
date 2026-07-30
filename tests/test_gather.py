@@ -879,6 +879,59 @@ def test_gather_can_refan_out_and_gather_again():
     ]
 
 
+def _slurm_conflict_rows(*, gpu1_first, key='train.__slurm_options__'):
+    """Two rows with one identity and two Slurm resource requests.
+
+    ``__slurm_options__`` is stripped from the hashed config just like
+    ``__enabled__``, so the surviving row silently decides the partition,
+    GPU count, memory, time limit, and account for every duplicate.
+    """
+
+    def row(fold, gres=None):
+        config = {
+            'train.data_fpath': 'data.txt',
+            'train.algorithm': 'linear',
+            'train.seed': 0,
+            'train.fold': fold,
+            'ensemble.algorithm': 'linear',
+            'ensemble.seed': 0,
+        }
+        if gres is not None:
+            config[key] = {'gres': gres}
+        return config
+
+    states = ['gpu:1', 'gpu:4'] if gpu1_first else ['gpu:4', 'gpu:1']
+    return [row(0, states[0]), row(0, states[1]), row(1)]
+
+
+@pytest.mark.parametrize('gpu1_first', [True, False])
+@pytest.mark.parametrize(
+    'key', ['train.__slurm_options__', '__slurm_options__']
+)
+def test_gather_rejects_conflicting_slurm_options(gpu1_first, key):
+    """Node-specific and row-global Slurm options both must agree."""
+    rows = _slurm_conflict_rows(gpu1_first=gpu1_first, key=key)
+    dag = _demo_gather_pipeline()
+    with pytest.raises(ValueError) as excinfo:
+        dag.compile_configurations(rows, root_dpath='runs', cache=False)
+    message = str(excinfo.value)
+    assert '__slurm_options__' in message
+    assert "'train'" in message
+
+
+@pytest.mark.parametrize('gpu1_first', [True, False])
+def test_gather_allows_agreeing_slurm_options(gpu1_first):
+    """Duplicates requesting the same resources still collapse."""
+    rows = _slurm_conflict_rows(gpu1_first=gpu1_first)
+    rows[1]['train.__slurm_options__'] = rows[0]['train.__slurm_options__']
+    dag = _demo_gather_pipeline()
+    compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
+    nodes_by_name = ub.group_items(
+        compiled.nodes.values(), key=lambda node: node.name
+    )
+    assert len(nodes_by_name['train']) == 2
+
+
 def _enabled_conflict_rows(*, enabled_first, target='train'):
     """Two rows with one identity and two ``__enabled__`` values, plus a peer.
 

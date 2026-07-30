@@ -1255,7 +1255,17 @@ def _normalize_enabled(value: Any) -> Any:
     return bool(value)
 
 
-def _check_enabled_agreement(
+#: Execution state that ``configure`` strips out of the hashed config, and so
+#: cannot distinguish two otherwise-identical process instances. Each entry is
+#: the config key users write, the node attribute it lands in, and a
+#: normalizer that reduces a value to the form the scheduler actually reads.
+_UNHASHED_EXECUTION_STATE = [
+    ('__enabled__', 'enabled', _normalize_enabled),
+    ('__slurm_options__', 'slurm_options', dict),
+]
+
+
+def _check_execution_state_agreement(
     *,
     canonical: 'ProcessNode',
     duplicate: 'ProcessNode',
@@ -1267,23 +1277,26 @@ def _check_enabled_agreement(
     """
     Reject matrix rows that share a process identity but disagree on state.
 
-    Silently keeping the first row's ``__enabled__`` would make compilation
-    depend on row order, and a disabled gather source stays in the consumer's
-    manifest membership while its output is never produced.
+    Silently keeping the first row's values would make compilation depend on
+    row order. For ``__enabled__`` a disabled gather source stays in the
+    consumer's manifest membership while its output is never produced; for
+    ``__slurm_options__`` the surviving row silently picks the partition, GPU
+    count, memory, time limit, or account that every duplicate runs under.
     """
-    lhs = _normalize_enabled(canonical.enabled)
-    rhs = _normalize_enabled(duplicate.enabled)
-    if lhs == rhs:
-        return
-    raise ValueError(
-        f'Conflicting __enabled__ values for process {template_name!r}. '
-        f'Rows {canonical_row_idx} and {duplicate_row_idx} compile to the '
-        f'same process identity {process_id!r} but request '
-        f'{canonical.enabled!r} and {duplicate.enabled!r} respectively. '
-        'Process identity does not include __enabled__, so these rows cannot '
-        'be distinguished. Give them differing parameters, or make their '
-        '__enabled__ values agree.'
-    )
+    for config_key, attr_name, normalize in _UNHASHED_EXECUTION_STATE:
+        lhs = getattr(canonical, attr_name)
+        rhs = getattr(duplicate, attr_name)
+        if normalize(lhs) == normalize(rhs):
+            continue
+        raise ValueError(
+            f'Conflicting {config_key} values for process {template_name!r}. '
+            f'Rows {canonical_row_idx} and {duplicate_row_idx} compile to the '
+            f'same process identity {process_id!r} but request '
+            f'{lhs!r} and {rhs!r} respectively. '
+            f'Process identity does not include {config_key}, so these rows '
+            'cannot be distinguished. Give them differing parameters, or make '
+            f'their {config_key} values agree.'
+        )
 
 
 def _compile_pipeline_configurations(
@@ -1418,12 +1431,12 @@ def _compile_pipeline_configurations(
                 instances_by_template[template_name][process_id] = canonical
                 canonical_row_idx[process_id] = row_idx
             else:
-                # ``__enabled__`` is popped off the config by ``configure``, so
+                # Execution state is popped off the config by ``configure``, so
                 # it does not participate in process identity. Rows that agree
                 # on identity but disagree on execution state would otherwise
                 # be resolved by whichever row happened to come first, making
                 # compilation row-order dependent.
-                _check_enabled_agreement(
+                _check_execution_state_agreement(
                     canonical=canonical,
                     duplicate=node,
                     template_name=template_name,

@@ -26,10 +26,14 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 * Reject matrix rows that compile to one process identity but disagree on
-  `__enabled__`. Because `__enabled__` is not part of process identity, the
-  first row silently won, making compilation row-order dependent; a disabled
-  gather source stayed in the consumer's manifest membership while its output
-  was never produced.
+  `__enabled__` or `__slurm_options__`. Neither is part of process identity, so
+  the first row silently won, making compilation row-order dependent. A
+  disabled gather source stayed in the consumer's manifest membership while its
+  output was never produced, and duplicate rows could silently run under the
+  wrong partition, GPU count, memory, time limit, or account.
+* Report the configured `root_dpath` from `build_schedule` instead of reading
+  it back off the pipeline, which raised `AttributeError` on an empty parameter
+  grid instead of exiting cleanly after the existing warning.
 * Include port-resolved ordinary input provenance in process identity so gather
   consumers with different row-local bindings cannot be silently canonicalized.
 * Preserve parallel gather and ordinary port semantics in compiled cardinality
