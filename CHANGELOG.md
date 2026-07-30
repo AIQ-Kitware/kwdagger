@@ -25,6 +25,11 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+* Reject matrix rows that compile to one process identity but disagree on
+  `__enabled__`. Because `__enabled__` is not part of process identity, the
+  first row silently won, making compilation row-order dependent; a disabled
+  gather source stayed in the consumer's manifest membership while its output
+  was never produced.
 * Include port-resolved ordinary input provenance in process identity so gather
   consumers with different row-local bindings cannot be silently canonicalized.
 * Preserve parallel gather and ordinary port semantics in compiled cardinality

@@ -7,7 +7,7 @@ Used by ./aggregate.py
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Collection, cast
 
 import ubelt as ub
 
@@ -575,7 +575,7 @@ class ParamPlotter:
         plotter: Any,
         vantage: Any,
         pman: Any = None,
-        params_of_interest: Any = None,
+        params_of_interest: Collection[str] | None = None,
     ) -> list[Any]:
         """
         The main parameter inspection plots.
@@ -637,8 +637,13 @@ class ParamPlotter:
         from kwutil.util_yaml import Yaml
 
         if params_of_interest is None:
-            params_of_interest = Yaml.coerce(
-                plotter.plot_config.get('params_of_interest', None)
+            # Yaml.coerce returns an arbitrary decoded YAML value; the plot
+            # config is expected to hold a list of parameter names.
+            params_of_interest = cast(
+                'Collection[str] | None',
+                Yaml.coerce(
+                    plotter.plot_config.get('params_of_interest', None)
+                ),
             )
 
         if params_of_interest is not None:

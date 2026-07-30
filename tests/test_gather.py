@@ -877,3 +877,99 @@ def test_gather_can_refan_out_and_gather_again():
         ('b', 'accuracy'),
         ('b', 'f1'),
     ]
+
+
+def _enabled_conflict_rows(*, enabled_first, target='train'):
+    """Two rows with one identity and two ``__enabled__`` values, plus a peer.
+
+    The peer keeps the gather group non-degenerate so the conflict is the only
+    thing under test.
+    """
+
+    def row(fold, enabled=None):
+        config = {
+            'train.data_fpath': 'data.txt',
+            'train.algorithm': 'linear',
+            'train.seed': 0,
+            'train.fold': fold,
+            'ensemble.algorithm': 'linear',
+            'ensemble.seed': 0,
+        }
+        if enabled is not None:
+            config[f'{target}.__enabled__'] = enabled
+        return config
+
+    states = [True, False] if enabled_first else [False, True]
+    return [row(0, states[0]), row(0, states[1]), row(1)]
+
+
+@pytest.mark.parametrize('enabled_first', [True, False])
+def test_gather_rejects_conflicting_enabled_on_source(enabled_first):
+    """A gather source cannot be both enabled and disabled.
+
+    ``__enabled__`` is popped before process identity is computed, so without
+    an explicit check the winner is whichever row compiled first. A disabled
+    source would stay in the consumer's manifest membership while its output
+    is never produced.
+    """
+    rows = _enabled_conflict_rows(enabled_first=enabled_first, target='train')
+    dag = _demo_gather_pipeline()
+    with pytest.raises(ValueError) as excinfo:
+        dag.compile_configurations(rows, root_dpath='runs', cache=False)
+    message = str(excinfo.value)
+    assert '__enabled__' in message
+    assert "'train'" in message
+
+
+@pytest.mark.parametrize('enabled_first', [True, False])
+def test_gather_rejects_conflicting_enabled_on_consumer(enabled_first):
+    """The same guard applies to the gather consumer, not just the source."""
+    rows = _enabled_conflict_rows(
+        enabled_first=enabled_first, target='ensemble'
+    )
+    dag = _demo_gather_pipeline()
+    with pytest.raises(ValueError) as excinfo:
+        dag.compile_configurations(rows, root_dpath='runs', cache=False)
+    message = str(excinfo.value)
+    assert '__enabled__' in message
+    assert "'ensemble'" in message
+
+
+@pytest.mark.parametrize('enabled_first', [True, False])
+def test_gather_compilation_is_row_order_independent_when_enabled_agrees(
+    enabled_first,
+):
+    """Agreeing duplicates still collapse, and ``1`` matches ``True``.
+
+    Only truthiness and equality against ``'redo'`` are meaningful to
+    ``submit_jobs``, so equivalent spellings must not be reported as a
+    conflict.
+    """
+    states = [True, 1] if enabled_first else [1, True]
+    rows = [
+        {
+            'train.data_fpath': 'data.txt',
+            'train.algorithm': 'linear',
+            'train.seed': 0,
+            'train.fold': fold,
+            'train.__enabled__': enabled,
+            'ensemble.algorithm': 'linear',
+            'ensemble.seed': 0,
+        }
+        for fold, enabled in [(0, states[0]), (0, states[1]), (1, True)]
+    ]
+    dag = _demo_gather_pipeline()
+    compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
+    nodes_by_name = ub.group_items(
+        compiled.nodes.values(), key=lambda node: node.name
+    )
+    assert len(nodes_by_name['train']) == 2
+    assert all(node.enabled for node in nodes_by_name['train'])
+    members = (
+        nodes_by_name['ensemble'][0].inputs['checkpoints_fpath']._gather_members
+    )
+    assert members is not None
+    assert [member.parent.final_algo_config['fold'] for member in members] == [
+        0,
+        1,
+    ]

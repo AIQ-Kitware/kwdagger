@@ -1242,6 +1242,50 @@ def _sort_gather_members(
         )
 
 
+def _normalize_enabled(value: Any) -> Any:
+    """
+    Reduce an ``__enabled__`` value to how ``submit_jobs`` actually reads it.
+
+    ``submit_jobs`` only ever tests truthiness and equality against ``'redo'``,
+    so ``1`` and ``True`` are the same execution state and must not be reported
+    as a conflict.
+    """
+    if value == 'redo':
+        return 'redo'
+    return bool(value)
+
+
+def _check_enabled_agreement(
+    *,
+    canonical: 'ProcessNode',
+    duplicate: 'ProcessNode',
+    template_name: str,
+    process_id: str,
+    canonical_row_idx: int,
+    duplicate_row_idx: int,
+) -> None:
+    """
+    Reject matrix rows that share a process identity but disagree on state.
+
+    Silently keeping the first row's ``__enabled__`` would make compilation
+    depend on row order, and a disabled gather source stays in the consumer's
+    manifest membership while its output is never produced.
+    """
+    lhs = _normalize_enabled(canonical.enabled)
+    rhs = _normalize_enabled(duplicate.enabled)
+    if lhs == rhs:
+        return
+    raise ValueError(
+        f'Conflicting __enabled__ values for process {template_name!r}. '
+        f'Rows {canonical_row_idx} and {duplicate_row_idx} compile to the '
+        f'same process identity {process_id!r} but request '
+        f'{canonical.enabled!r} and {duplicate.enabled!r} respectively. '
+        'Process identity does not include __enabled__, so these rows cannot '
+        'be distinguished. Give them differing parameters, or make their '
+        '__enabled__ values agree.'
+    )
+
+
 def _compile_pipeline_configurations(
     template: Pipeline,
     *,
@@ -1264,6 +1308,7 @@ def _compile_pipeline_configurations(
     row_nodes: list[dict[str, ProcessNode]] = [dict() for _ in rows]
     instances_by_template: dict[str, dict[str, ProcessNode]] = defaultdict(dict)
     concrete_by_process_id: dict[str, ProcessNode] = {}
+    canonical_row_idx: dict[str, int] = {}
 
     for template_name in template_order:
         template_node = template.node_dict[template_name]
@@ -1371,6 +1416,21 @@ def _compile_pipeline_configurations(
                 canonical = node
                 concrete_by_process_id[process_id] = canonical
                 instances_by_template[template_name][process_id] = canonical
+                canonical_row_idx[process_id] = row_idx
+            else:
+                # ``__enabled__`` is popped off the config by ``configure``, so
+                # it does not participate in process identity. Rows that agree
+                # on identity but disagree on execution state would otherwise
+                # be resolved by whichever row happened to come first, making
+                # compilation row-order dependent.
+                _check_enabled_agreement(
+                    canonical=canonical,
+                    duplicate=node,
+                    template_name=template_name,
+                    process_id=process_id,
+                    canonical_row_idx=canonical_row_idx[process_id],
+                    duplicate_row_idx=row_idx,
+                )
             row_nodes[row_idx][template_name] = canonical
 
     proc_graph = nx.DiGraph()

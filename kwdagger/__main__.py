@@ -9,7 +9,11 @@ import scriptconfig as scfg
 
 class KWDaggerModal(scfg.ModalCLI):
     """
-    Your description here
+    KWDagger: define bash-centric DAGs and run large parameter sweeps.
+
+    Use ``schedule`` to expand a pipeline over a parameter matrix and execute
+    it on a serial, tmux, or Slurm backend, then ``aggregate`` to load the
+    completed runs and report on parameter/metric relationships.
     """
 
     from kwdagger.aggregate import AggregateEvluationConfig as aggregate
