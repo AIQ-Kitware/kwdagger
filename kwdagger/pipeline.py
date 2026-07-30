@@ -1116,7 +1116,10 @@ class CompiledPipeline:
         )
 
     def submit_jobs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        return Pipeline.submit_jobs(self, *args, **kwargs)
+        # This class intentionally satisfies the subset of Pipeline's runtime
+        # interface used by submit_jobs without inheriting from Pipeline.
+        pipeline = cast(Pipeline, self)
+        return Pipeline.submit_jobs(pipeline, *args, **kwargs)
 
     make_queue = submit_jobs
 
@@ -2830,6 +2833,7 @@ class ProcessNode(Node):
                         for member in input_node._gather_members
                     ],
                 }
+        assert isinstance(self.name, str)
         depends[self.name] = self.algo_id
         depends = ub.udict(sorted(depends.items()))
         return depends

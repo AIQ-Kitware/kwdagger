@@ -442,7 +442,8 @@ def load_yaml_pipeline(spec: Any, root_dpath: Any = None) -> Pipeline:
     unknown_top = set(data) - {'nodes', 'edges'}
     if unknown_top:
         raise ValueError(
-            f'unknown top-level pipeline key(s) {sorted(unknown_top)}; '
+            f'unknown top-level pipeline key(s) '
+            f'{sorted(unknown_top, key=repr)}; '
             'expected "nodes" and optionally "edges"'
         )
 

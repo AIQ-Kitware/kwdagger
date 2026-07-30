@@ -643,7 +643,7 @@ class ParamPlotter:
 
         if params_of_interest is not None:
             chosen_params = params_of_interest
-            params_of_interest = set(params_of_interest)  # ty: ignore[invalid-argument-type]
+            params_of_interest = set(params_of_interest)
             valid_params_of_interest = list(
                 resolved_params.columns.intersection(params_of_interest)
             )
