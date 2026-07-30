@@ -117,6 +117,8 @@ graph compilation, generated commands, or artifact layout.
   submission. Generated execution text should make manifest creation obvious.
 - **Deterministic identity:** gather policy, ordered logical membership, source
   process IDs, and source output keys participate in the consumer process hash.
+  Ordinary connected inputs also record the exact source process and source
+  port; an unordered ancestor set is not sufficient to identify a binding graph.
   Cache identity must not depend on cache-root location, filesystem enumeration
   order, or completion timing.
 - **Phase boundaries for discovery:** workflows with an unknown runtime candidate

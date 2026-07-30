@@ -626,7 +626,7 @@ def test_gather_compiler_preserves_input_forwarding():
     dag = Pipeline({'train': train, 'ensemble': ensemble})
     rows = [
         {
-            'train.data_fpath': 'data.txt',
+            'train.data_fpath': f'fold{fold}.txt',
             'train.algorithm': 'linear',
             'train.fold': fold,
             'ensemble.algorithm': 'linear',
@@ -634,11 +634,58 @@ def test_gather_compiler_preserves_input_forwarding():
         for fold in range(3)
     ]
     compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
-    ensembles = [
-        node for node in compiled.nodes.values() if node.name == 'ensemble'
+    ensembles = sorted(
+        (node for node in compiled.nodes.values() if node.name == 'ensemble'),
+        key=lambda node: str(node.inputs['data_fpath'].final_value),
+    )
+    assert len(ensembles) == 3
+    assert [
+        str(node.inputs['data_fpath'].final_value) for node in ensembles
+    ] == ['fold0.txt', 'fold1.txt', 'fold2.txt']
+    assert len({node.process_id for node in ensembles}) == 3
+    for node in ensembles:
+        source_port = node.inputs['data_fpath'].pred[0]
+        provenance = node.depends['__input__.data_fpath']
+        assert provenance == {
+            'source_process_id': source_port.parent.process_id,
+            'source_port': 'data_fpath',
+            'source_kind': 'input',
+        }
+        members = node.inputs['checkpoints_fpath']._gather_members
+        assert members is not None
+        assert len(members) == 3
+
+    records = compiled._edge_cardinality_records()
+    parallel_records = [
+        record
+        for record in records
+        if record['source'] == 'train' and record['target'] == 'ensemble'
     ]
-    assert len(ensembles) == 1
-    assert ensembles[0].inputs['data_fpath'].final_value == 'data.txt'
+    assert {
+        (
+            record['kind'],
+            record['source_port'],
+            record['target_port'],
+            record['edge_count'],
+        )
+        for record in parallel_records
+    } == {
+        ('ordinary', 'data_fpath', 'data_fpath', 3),
+        ('gather', 'checkpoint_fpath', 'checkpoints_fpath', 9),
+    }
+
+
+def test_compile_configurations_defaults_none_root_to_cwd():
+    node = ProcessNode(
+        name='node',
+        executable='python node.py',
+        out_paths={'result_fpath': 'result.txt'},
+    )
+    dag = Pipeline({'node': node})
+    compiled = dag.compile_configurations([{}], cache=False)
+    assert compiled.root_dpath == ub.Path('.')
+    concrete = ub.peek(compiled.nodes.values())
+    assert concrete.root_dpath == ub.Path('.')
 
 
 def test_multiple_gathered_inputs_are_aligned():
@@ -687,6 +734,21 @@ def test_multiple_gathered_inputs_are_aligned():
     assert [m.parent.process_id for m in checkpoint_members] == [
         m.parent.process_id for m in metric_members
     ]
+
+    gather_records = [
+        record
+        for record in compiled._edge_cardinality_records()
+        if record['kind'] == 'gather'
+    ]
+    assert len(gather_records) == 2
+    assert {
+        (record['source_port'], record['target_port'])
+        for record in gather_records
+    } == {
+        ('checkpoint_fpath', 'checkpoints_fpath'),
+        ('metric_fpath', 'metrics_fpath'),
+    }
+    assert all(record['relation'] == 'gather 4:1' for record in gather_records)
 
 
 def test_gather_compiler_preserves_dependency_only_edges():

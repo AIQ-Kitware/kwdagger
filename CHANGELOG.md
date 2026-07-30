@@ -23,6 +23,16 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   instead of producing the Bash arithmetic form ``(( ... ))``; generated
   commands retain explicit indentation while heredoc bodies remain column-zero.
 
+### Fixed
+
+* Include port-resolved ordinary input provenance in process identity so gather
+  consumers with different row-local bindings cannot be silently canonicalized.
+* Preserve parallel gather and ordinary port semantics in compiled cardinality
+  diagnostics.
+* Fall back to the current directory when compiling a pipeline whose template
+  nodes leave ``root_dpath`` unset.
+* Refresh dependency locks for the new runtime ``kwconf`` dependency.
+
 
 ## Version 0.2.5 - Released 2026-06-25
 

@@ -990,80 +990,132 @@ class CompiledPipeline:
         self.__slurm_options__ = dict(slurm_options or {})
 
     def _edge_cardinality_records(self) -> list[dict[str, Any]]:
-        """Summarize concrete edge multiplicity by logical process pair."""
-        gather_edges: set[tuple[str, str]] = set()
-        gather_meta: dict[tuple[str, str], dict[str, Any]] = {}
-        for target in self.nodes.values():
-            for input_node in target.inputs.values():
-                members = input_node._gather_members
-                if members is None:
-                    continue
-                connection = input_node._gather_connection
-                assert connection is not None
-                key = (connection.source.parent.name, target.name)
-                meta = gather_meta.setdefault(
-                    key,
-                    {
-                        'source_port': connection.source.name,
-                        'target_port': input_node.name,
-                        'spec': connection.spec,
-                        'member_counts': [],
-                    },
-                )
-                meta['member_counts'].append(len(members))
-                for member in members:
-                    gather_edges.add(
-                        (member.parent.process_id, target.process_id)
-                    )
+        """Summarize concrete edge multiplicity by logical port binding."""
+        grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
 
-        grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
-        for src_id, dst_id in self.proc_graph.edges():
-            src_node = self.proc_graph.nodes[src_id]['node']
-            dst_node = self.proc_graph.nodes[dst_id]['node']
-            kind = 'gather' if (src_id, dst_id) in gather_edges else 'ordinary'
-            key = (src_node.name, dst_node.name, kind)
+        def _record_for(
+            *,
+            source: ProcessNode,
+            target: ProcessNode,
+            kind: str,
+            source_port: str | None,
+            target_port: str | None,
+            spec: GatherSpec | None = None,
+        ) -> dict[str, Any]:
+            assert isinstance(source.name, str)
+            assert isinstance(target.name, str)
+            key = (
+                source.name,
+                source_port,
+                target.name,
+                target_port,
+                kind,
+                spec,
+            )
             record = grouped.setdefault(
                 key,
                 {
-                    'source': src_node.name,
-                    'target': dst_node.name,
+                    'source': source.name,
+                    'target': target.name,
                     'kind': kind,
+                    'source_port': source_port,
+                    'target_port': target_port,
                     'source_ids': set(),
                     'target_ids': set(),
-                    'edge_count': 0,
+                    'edge_pairs': set(),
+                    'member_counts': [],
+                    'spec': spec,
                 },
             )
-            record['source_ids'].add(src_id)
-            record['target_ids'].add(dst_id)
-            record['edge_count'] += 1
+            return record
+
+        for target in self.nodes.values():
+            for input_name, input_node in target.inputs.items():
+                members = input_node._gather_members
+                if members is not None:
+                    connection = input_node._gather_connection
+                    assert connection is not None
+                    if not members:
+                        continue
+                    source = members[0].parent
+                    record = _record_for(
+                        source=source,
+                        target=target,
+                        kind='gather',
+                        source_port=connection.source.name,
+                        target_port=input_name,
+                        spec=connection.spec,
+                    )
+                    record['target_ids'].add(target.process_id)
+                    record['member_counts'].append(len(members))
+                    for member in members:
+                        record['source_ids'].add(member.parent.process_id)
+                        record['edge_pairs'].add(
+                            (member.parent.process_id, target.process_id)
+                        )
+
+                for source_port_node in input_node.pred:
+                    source = source_port_node.parent
+                    record = _record_for(
+                        source=source,
+                        target=target,
+                        kind='ordinary',
+                        source_port=source_port_node.name,
+                        target_port=input_name,
+                    )
+                    record['source_ids'].add(source.process_id)
+                    record['target_ids'].add(target.process_id)
+                    record['edge_pairs'].add(
+                        (source.process_id, target.process_id)
+                    )
+
+            for source in target._pred_nodes_without_io_connection:
+                record = _record_for(
+                    source=source,
+                    target=target,
+                    kind='ordinary',
+                    source_port=None,
+                    target_port=None,
+                )
+                record['source_ids'].add(source.process_id)
+                record['target_ids'].add(target.process_id)
+                record['edge_pairs'].add((source.process_id, target.process_id))
+
+        def _sort_key(item: tuple[tuple[Any, ...], dict[str, Any]]) -> Any:
+            _, record = item
+            spec = record['spec']
+            spec_key = repr(spec.to_dict()) if spec is not None else ''
+            return (
+                record['source'],
+                record['source_port'] or '',
+                record['target'],
+                record['target_port'] or '',
+                record['kind'],
+                spec_key,
+            )
 
         records = []
-        for (source, target, kind), record in sorted(grouped.items()):
+        for _, record in sorted(grouped.items(), key=_sort_key):
             source_count = len(record.pop('source_ids'))
             target_count = len(record.pop('target_ids'))
+            edge_count = len(record.pop('edge_pairs'))
+            member_counts = record.pop('member_counts')
             record['source_count'] = source_count
             record['target_count'] = target_count
-            if kind == 'gather':
-                meta = gather_meta[(source, target)]
-                member_counts = meta['member_counts']
+            record['edge_count'] = edge_count
+            if record['kind'] == 'gather':
                 if len(set(member_counts)) == 1:
                     ratio = f'{member_counts[0]}:1'
                 else:
                     ratio = f'{min(member_counts)}-{max(member_counts)}:1'
                 record['relation'] = f'gather {ratio}'
-                record.update(
-                    {
-                        'source_port': meta['source_port'],
-                        'target_port': meta['target_port'],
-                        'spec': meta['spec'],
-                    }
-                )
             else:
+                record.pop('spec')
                 targets_per_source = (
-                    record['edge_count'] / source_count if source_count else 0
+                    edge_count / source_count if source_count else 0
                 )
                 sources_per_target = (
-                    record['edge_count'] / target_count if target_count else 0
+                    edge_count / target_count if target_count else 0
                 )
                 if targets_per_source > 1 and sources_per_target == 1:
                     relation = f'fan-out 1:{targets_per_source:g}'
@@ -1091,11 +1143,12 @@ class CompiledPipeline:
                 f'{record["relation"]} | '
                 f'{record["source_count"]} -> {record["target_count"]} instances'
             )
+            source_port = record['source_port']
+            target_port = record['target_port']
+            if source_port is not None or target_port is not None:
+                label += f' | {source_port} -> {target_port}'
             if record['kind'] == 'gather':
                 spec = record['spec']
-                label += (
-                    f' | {record["source_port"]} -> {record["target_port"]}'
-                )
                 if spec.group_by:
                     label += ' | group_by=' + ','.join(spec.group_by)
                 if spec.order_by:
@@ -1203,7 +1256,9 @@ def _compile_pipeline_configurations(
     rows = [dict(config) for config in configs]
     if root_dpath is None:
         template_nodes = list(template.node_dict.values())
-        root_dpath = template_nodes[0].root_dpath if template_nodes else '.'
+        root_dpath = (
+            template_nodes[0].root_dpath if template_nodes else None
+        ) or '.'
     root_dpath = ub.Path(root_dpath)
     template_order = list(nx.topological_sort(template.proc_graph))
     row_nodes: list[dict[str, ProcessNode]] = [dict() for _ in rows]
@@ -2534,6 +2589,38 @@ class ProcessNode(Node):
         final_config.update(self.final_algo_config)
         return final_config
 
+    def _ordinary_input_provenance(self) -> dict[str, Any]:
+        """Describe the exact upstream port bound to each ordinary input."""
+        provenance = {}
+        for input_name, input_node in self.inputs.items():
+            bindings = []
+            for source_port in input_node.pred:
+                assert isinstance(source_port, IONode)
+                if isinstance(source_port, OutputNode):
+                    source_kind = 'output'
+                else:
+                    assert isinstance(source_port, InputNode)
+                    source_kind = 'input'
+                bindings.append(
+                    {
+                        'source_process_id': source_port.parent.process_id,
+                        'source_port': source_port.name,
+                        'source_kind': source_kind,
+                    }
+                )
+            if bindings:
+                bindings.sort(
+                    key=lambda item: (
+                        item['source_process_id'],
+                        item['source_kind'],
+                        item['source_port'],
+                    )
+                )
+                provenance[input_name] = (
+                    bindings[0] if len(bindings) == 1 else bindings
+                )
+        return provenance
+
     def _depends_config(self) -> Any:
         """
         The dag config that specifies the parameters this node depends on.
@@ -2545,6 +2632,8 @@ class ProcessNode(Node):
             depends_config.update(
                 _add_prefix(depend_node.name + '.', depend_node.config)
             )
+        for input_name, binding in self._ordinary_input_provenance().items():
+            depends_config[f'__input__.{input_name}'] = binding
         for input_name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 connection = input_node._gather_connection
@@ -2824,8 +2913,7 @@ class ProcessNode(Node):
     @memoize_configured_property
     def depends(self) -> Any:
         """
-        The mapping from ancestor and self node names to their algorithm ids
-        Should probably rename.
+        Identity inputs for this process, including exact connected bindings.
         """
         ancestors = self.ancestor_process_nodes()
         # TODO:
@@ -2841,6 +2929,8 @@ class ProcessNode(Node):
             depends[name] = (
                 unique_ids[0] if len(unique_ids) == 1 else unique_ids
             )
+        for input_name, binding in self._ordinary_input_provenance().items():
+            depends[f'__input__.{input_name}'] = binding
         for input_name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 connection = input_node._gather_connection

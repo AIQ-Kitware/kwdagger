@@ -20,6 +20,8 @@ iniconfig==2.3.0
     # via pytest
 kwarray==0.7.1
     # via kwdagger
+kwconf==0.10.0
+    # via kwdagger
 kwutil==0.3.8
     # via
     #   cmd-queue
