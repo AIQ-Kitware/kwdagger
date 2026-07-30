@@ -615,10 +615,12 @@ def dump_yaml_pipeline(dag: Any) -> dict[str, Any]:
         out['edges'] = sorted(
             edges,
             key=lambda edge: (
-                'string',
-                edge,
-            )
-            if isinstance(edge, str)
-            else ('mapping', edge['src'], edge['dst']),
+                (
+                    'string',
+                    edge,
+                )
+                if isinstance(edge, str)
+                else ('mapping', edge['src'], edge['dst'])
+            ),
         )
     return out

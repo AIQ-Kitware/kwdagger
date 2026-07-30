@@ -102,7 +102,9 @@ def test_quoted_heredoc_avoids_argv_expansion(tmp_path):
 
     # This is intentionally much larger than a comfortable command argument
     # list. It remains script input rather than argv passed to ``cat``.
-    lines = [f'/tmp/model path/{idx:06d}/checkpoint.pkl' for idx in range(20000)]
+    lines = [
+        f'/tmp/model path/{idx:06d}/checkpoint.pkl' for idx in range(20000)
+    ]
     lines.extend(
         [
             r'/tmp/$HOME/checkpoint.pkl',
@@ -168,9 +170,7 @@ def test_gather_python_compile_static_graph():
         assert '\n    cat > ' in final_command
         assert ' &&\n' in final_command
         assert not final_command.startswith('(\n')
-        gather_info = ensemble._depends_config()[
-            '__gather__.checkpoints_fpath'
-        ]
+        gather_info = ensemble._depends_config()['__gather__.checkpoints_fpath']
         assert gather_info['group_by'] == ['algorithm', 'seed']
         assert len(gather_info['members']) == 3
 
@@ -185,8 +185,7 @@ def test_gather_python_compile_static_graph():
         [
             record
             for record in records
-            if record['source'] == 'ensemble'
-            and record['target'] == 'evaluate'
+            if record['source'] == 'ensemble' and record['target'] == 'evaluate'
         ]
     )
     assert gather_record['relation'] == 'gather 3:1'
@@ -252,7 +251,7 @@ def _write_gather_demo_script(dpath):
     script_fpath = dpath / 'gather_demo.py'
     script_fpath.write_text(
         ub.codeblock(
-            r'''
+            r"""
             import argparse
             import json
             from pathlib import Path
@@ -300,7 +299,7 @@ def _write_gather_demo_script(dpath):
                     'test_set': args.test_set,
                     'members': lines,
                 }))
-            '''
+            """
         )
     )
     return script_fpath
@@ -404,7 +403,7 @@ def test_gather_yaml_schedule_end_to_end():
     commands = queue.finalize_text()
     assert '_gather/checkpoints_fpath.txt' in commands
     assert '--checkpoints_fpath=' in commands
-    assert "cat > " in commands
+    assert 'cat > ' in commands
     assert "<<'KWDAGGER_GATHER_ENSEMBLE_CHECKPOINTS_FPATH_" in commands
     assert '# kwdagger gather:' in commands
     assert '# kwdagger bookkeeping only;' in commands
@@ -423,7 +422,7 @@ def test_gather_yaml_schedule_end_to_end():
     invoke_fpath = ensemble.final_node_dpath / 'invoke.sh'
     invoke_text = invoke_fpath.read_text()
     assert '# kwdagger gather:' in invoke_text
-    assert "cat > " in invoke_text
+    assert 'cat > ' in invoke_text
     manifest_fpath = ensemble.inputs['checkpoints_fpath'].gather_manifest_fpath
     manifest_fpath.delete()
     ensemble.final_out_paths['ensemble_fpath'].delete()
@@ -439,9 +438,11 @@ def test_dependent_heredoc_jobs_are_not_indented():
     import cmd_queue
 
     dag = _demo_gather_pipeline()
-    root = ub.Path.appdir(
-        'kwdagger/tests/gather/heredoc-indent'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir('kwdagger/tests/gather/heredoc-indent')
+        .delete()
+        .ensuredir()
+    )
     compiled = dag.compile_configurations(
         _demo_rows(), root_dpath=root, cache=False
     )
@@ -497,7 +498,7 @@ def test_gather_slurm_uses_short_file_backed_command():
         assert config_fpath.exists()
         invoke_text = invoke_fpath.read_text()
         assert '# kwdagger gather:' in invoke_text
-        assert "cat > " in invoke_text
+        assert 'cat > ' in invoke_text
         assert "<<'KWDAGGER_GATHER_ENSEMBLE_CHECKPOINTS_FPATH_" in invoke_text
 
         # The Slurm job receives only the short file-backed command. Even when
@@ -574,20 +575,18 @@ def test_gather_allows_global_group():
     )
     dag = Pipeline({'source': source, 'summarize': summarize})
     rows = [{'source.trial': trial} for trial in range(3)]
-    compiled = dag.compile_configurations(
-        rows, root_dpath='runs', cache=False
-    )
+    compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
     summaries = [
-        node
-        for node in compiled.nodes.values()
-        if node.name == 'summarize'
+        node for node in compiled.nodes.values() if node.name == 'summarize'
     ]
     assert len(summaries) == 1
     members = summaries[0].inputs['items']._gather_members
     assert members is not None
-    assert [
-        member.parent.final_algo_config['trial'] for member in members
-    ] == [0, 1, 2]
+    assert [member.parent.final_algo_config['trial'] for member in members] == [
+        0,
+        1,
+        2,
+    ]
 
 
 def test_gather_template_cannot_submit_without_compilation():
@@ -713,9 +712,7 @@ def test_gather_compiler_preserves_dependency_only_edges():
         gather=GatherSpec(group_by=[], order_by=['trial']),
     )
     summarize._pred_nodes_without_io_connection.append(prepare)
-    dag = Pipeline(
-        {'prepare': prepare, 'trial': trial, 'summarize': summarize}
-    )
+    dag = Pipeline({'prepare': prepare, 'trial': trial, 'summarize': summarize})
     rows = [{'trial.trial': trial_idx} for trial_idx in range(3)]
     compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
     summaries = [
@@ -783,9 +780,7 @@ def test_gather_can_refan_out_and_gather_again():
                         'score.metric': metric,
                     }
                 )
-    compiled = dag.compile_configurations(
-        rows, root_dpath='runs', cache=False
-    )
+    compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
     nodes_by_name = ub.group_items(
         compiled.nodes.values(), key=lambda node: node.name
     )
@@ -793,9 +788,9 @@ def test_gather_can_refan_out_and_gather_again():
     assert len(nodes_by_name['merge']) == 2
     assert len(nodes_by_name['score']) == 4
     assert len(nodes_by_name['summarize']) == 1
-    summary_members = nodes_by_name['summarize'][0].inputs[
-        'scores_fpath'
-    ]._gather_members
+    summary_members = (
+        nodes_by_name['summarize'][0].inputs['scores_fpath']._gather_members
+    )
     assert summary_members is not None
     assert [
         (

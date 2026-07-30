@@ -160,7 +160,10 @@ class ScheduleEvaluationConfig(CmdQueueConfigMixin):
     @staticmethod
     def main(argv: bool | list[str] = True, **kwargs: Any) -> None:
         config = ScheduleEvaluationConfig.cli(
-            argv=argv, data=kwargs, strict=True, special_options=True,
+            argv=argv,
+            data=kwargs,
+            strict=True,
+            special_options=True,
             verbose='auto',
         )
         build_schedule(config)

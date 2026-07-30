@@ -79,9 +79,13 @@ class GatherSpec:
         group_by_ = tuple(group_by)
         order_by_ = tuple(order_by or ())
         if not all(isinstance(k, str) and k for k in group_by_):
-            raise TypeError('GatherSpec.group_by items must be non-empty strings')
+            raise TypeError(
+                'GatherSpec.group_by items must be non-empty strings'
+            )
         if not all(isinstance(k, str) and k for k in order_by_):
-            raise TypeError('GatherSpec.order_by items must be non-empty strings')
+            raise TypeError(
+                'GatherSpec.order_by items must be non-empty strings'
+            )
         if len(set(group_by_)) != len(group_by_):
             raise ValueError('GatherSpec.group_by cannot contain duplicates')
         if len(set(order_by_)) != len(order_by_):
@@ -529,7 +533,9 @@ class Pipeline:
             marker = f'__gather_process_edge_{marker_idx}'
             graph.add_node(
                 marker,
-                label='[bright_magenta]' + ' ; '.join(labels) + '[/bright_magenta]',
+                label='[bright_magenta]'
+                + ' ; '.join(labels)
+                + '[/bright_magenta]',
             )
             graph.add_edge(src, marker)
             graph.add_edge(marker, dst)
@@ -1006,7 +1012,9 @@ class CompiledPipeline:
                 )
                 meta['member_counts'].append(len(members))
                 for member in members:
-                    gather_edges.add((member.parent.process_id, target.process_id))
+                    gather_edges.add(
+                        (member.parent.process_id, target.process_id)
+                    )
 
         grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
         for src_id, dst_id in self.proc_graph.edges():
@@ -1080,13 +1088,13 @@ class CompiledPipeline:
         for idx, record in enumerate(self._edge_cardinality_records()):
             marker = f'__cardinality_edge_{idx}'
             label = (
-                f"{record['relation']} | "
-                f"{record['source_count']} -> {record['target_count']} instances"
+                f'{record["relation"]} | '
+                f'{record["source_count"]} -> {record["target_count"]} instances'
             )
             if record['kind'] == 'gather':
                 spec = record['spec']
                 label += (
-                    f" | {record['source_port']} -> {record['target_port']}"
+                    f' | {record["source_port"]} -> {record["target_port"]}'
                 )
                 if spec.group_by:
                     label += ' | group_by=' + ','.join(spec.group_by)
@@ -1167,7 +1175,9 @@ def _sort_gather_members(
         return tuple(_node_param_value(node, key) for key in spec.order_by)
 
     try:
-        return sorted(members, key=lambda node: (keyfunc(node), node.process_id))
+        return sorted(
+            members, key=lambda node: (keyfunc(node), node.process_id)
+        )
     except TypeError:
         # Heterogeneous values are unusual but still need deterministic output.
         return sorted(
@@ -1374,10 +1384,13 @@ def bash_heredoc_write_command(
     output_fpath = os.fspath(output_fpath)
     parent = os.path.dirname(output_fpath) or '.'
     digest = hashlib.sha256(text.encode('utf8')).hexdigest()[:16].upper()
-    safe_label = ''.join(
-        char if char in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_' else '_'
-        for char in label.upper()
-    ).strip('_') or 'KWDAGGER_DATA'
+    safe_label = (
+        ''.join(
+            char if char in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_' else '_'
+            for char in label.upper()
+        ).strip('_')
+        or 'KWDAGGER_DATA'
+    )
     delimiter_base = f'{safe_label}_{digest}'
     delimiter = delimiter_base
     body_lines = set(text.splitlines())
@@ -1397,9 +1410,7 @@ def bash_heredoc_write_command(
     suffix = ' &&' if chain else ''
     return '\n'.join(
         [
-            command_indent
-            + f'mkdir -p -- {shlex.quote(parent)}'
-            + suffix,
+            command_indent + f'mkdir -p -- {shlex.quote(parent)}' + suffix,
             command_indent + cat_line + suffix,
             text + delimiter,
         ]
@@ -1646,13 +1657,19 @@ class IONode(Node):
     @property
     def gather_manifest_fpath(self) -> Any:
         if self._gather_members is None:
-            raise AttributeError(f'{self.key!r} is not a configured gather input')
+            raise AttributeError(
+                f'{self.key!r} is not a configured gather input'
+            )
         return self.parent.final_node_dpath / '_gather' / f'{self.name}.txt'
 
     def gather_manifest_text(self) -> str:
         if self._gather_members is None:
-            raise AttributeError(f'{self.key!r} is not a configured gather input')
-        paths = [os.fspath(member.final_value) for member in self._gather_members]
+            raise AttributeError(
+                f'{self.key!r} is not a configured gather input'
+            )
+        paths = [
+            os.fspath(member.final_value) for member in self._gather_members
+        ]
         for path in paths:
             if '\n' in path:
                 raise ValueError(
@@ -2821,7 +2838,9 @@ class ProcessNode(Node):
         depends: dict[str, Any] = {}
         for name, algo_ids in grouped_depends.items():
             unique_ids = sorted(set(algo_ids))
-            depends[name] = unique_ids[0] if len(unique_ids) == 1 else unique_ids
+            depends[name] = (
+                unique_ids[0] if len(unique_ids) == 1 else unique_ids
+            )
         for input_name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 connection = input_node._gather_connection
@@ -3092,9 +3111,7 @@ class ProcessNode(Node):
         """Normalize an executable command without touching heredoc bodies."""
         base_command = command.rstrip().rstrip('\\').rstrip()
         lines = base_command.split('\n')
-        return '\n'.join(
-            [line for line in lines if line.strip() != '\\']
-        )
+        return '\n'.join([line for line in lines if line.strip() != '\\'])
 
     def _invocation_script_text(self) -> str:
         """Build the complete standalone ``invoke.sh`` file contents."""
@@ -3109,7 +3126,7 @@ class ProcessNode(Node):
         else:
             invoke_lines.append('# Root node')
         invoke_lines.append(self.final_command())
-        return "\n".join(invoke_lines) + "\n"
+        return '\n'.join(invoke_lines) + '\n'
 
     def _raw_command_with_gather(self) -> Any:
         """Return a standalone command including any gather materialization."""
@@ -3125,9 +3142,7 @@ class ProcessNode(Node):
         # indented for readability, while heredoc bodies and terminators stay
         # in column zero as required by Bash.
         indented_raw_command = ub.indent(raw_command, '    ')
-        return '\n'.join(
-            ['{', *gather_commands, indented_raw_command, '}']
-        )
+        return '\n'.join(['{', *gather_commands, indented_raw_command, '}'])
 
     def final_command(self) -> Any:
         """
