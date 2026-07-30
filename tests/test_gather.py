@@ -676,16 +676,27 @@ def test_gather_compiler_preserves_input_forwarding():
 
 
 def test_compile_configurations_defaults_none_root_to_cwd():
-    node = ProcessNode(
-        name='node',
-        executable='python node.py',
+    source = ProcessNode(
+        name='source',
+        executable='python source.py',
         out_paths={'result_fpath': 'result.txt'},
     )
-    dag = Pipeline({'node': node})
+    collect = ProcessNode(
+        name='collect',
+        executable='python collect.py',
+        in_paths={'results_fpath'},
+        out_paths={'summary_fpath': 'summary.txt'},
+    )
+    source.outputs['result_fpath'].connect(
+        collect.inputs['results_fpath'],
+        gather=GatherSpec(group_by=[]),
+    )
+    dag = Pipeline({'source': source, 'collect': collect})
     compiled = dag.compile_configurations([{}], cache=False)
     assert compiled.root_dpath == ub.Path('.')
-    concrete = ub.peek(compiled.nodes.values())
-    assert concrete.root_dpath == ub.Path('.')
+    assert all(
+        node.root_dpath == ub.Path('.') for node in compiled.nodes.values()
+    )
 
 
 def test_multiple_gathered_inputs_are_aligned():
