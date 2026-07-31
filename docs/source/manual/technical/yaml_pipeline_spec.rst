@@ -98,7 +98,12 @@ A pipeline document is a mapping with the following keys:
     ``name``; do not also set ``name`` inside the spec.
 
 ``edges`` (optional, list)
-    Connections between node ports. Omit when the pipeline is a single node or
+    Connections between node ports. An edge may join an output to an input
+    (``a.out_fpath -> b.in_fpath``), an input to an input
+    (``a.in_fpath -> b.in_fpath``, forwarding a shared value), or an
+    algorithm parameter to an algorithm parameter
+    (``a.model_family -> b.model_family``, so a value every consumer needs
+    is declared once instead of restated per consumer in the matrix). Omit when the pipeline is a single node or
     when nodes are connected implicitly by shared port names (not recommended;
     prefer explicit edges).
 

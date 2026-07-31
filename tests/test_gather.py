@@ -1497,3 +1497,132 @@ def test_group_by_pair_round_trips_and_is_hashable():
 def test_group_by_rejects_a_malformed_pair():
     with pytest.raises(ValueError, match='"src" and "dst"'):
         GatherSpec(group_by=[{'src': 'a'}])
+
+
+# --------------------------------------------------------------------------
+# wired algorithm parameters
+# --------------------------------------------------------------------------
+
+MODEL_FAMILY = {
+    'resnet': 'cnn', 'convnext': 'cnn',
+    'vit': 'transformer', 'swin': 'transformer',
+    'mamba': 'ssm', 'hyena': 'ssm',
+}
+
+
+def _family_pipeline(consumers=('score',)):
+    detect = ProcessNode(
+        name='detect', executable='python detect.py',
+        in_paths={'dataset_fpath'}, out_paths={'dets_fpath': 'dets.json'},
+        algo_params={'model': 'resnet', 'model_family': 'cnn'})
+    nodes = {'detect': detect}
+    for name in consumers:
+        node = ProcessNode(
+            name=name, executable=f'python {name}.py',
+            in_paths={'dets_fpath'},
+            out_paths={f'{name}_fpath': f'{name}.json'},
+            algo_params={'model_family': 'cnn'})
+        detect.param_ports['model_family'].connect(
+            node.param_ports['model_family'])
+        detect.outputs['dets_fpath'].connect(
+            node.inputs['dets_fpath'],
+            gather=GatherSpec(group_by=['model_family'], order_by=['model']))
+        nodes[name] = node
+    dag = Pipeline(nodes)
+    dag.build_nx_graphs()
+    return dag
+
+
+def _family_rows():
+    # `include` carries only the correlation. No consumer appears in it,
+    # however many consumers there are.
+    return [
+        {'detect.dataset_fpath': '/d/t.json', 'detect.model': model,
+         'detect.model_family': family}
+        for model, family in MODEL_FAMILY.items()
+    ]
+
+
+def test_a_wired_algo_param_carries_its_value():
+    dag = _family_pipeline()
+    compiled = dag.compile_configurations(_family_rows(), root_dpath='runs',
+                                          cache=False)
+    scores = [n for n in compiled.nodes.values() if n.name == 'score']
+    families = sorted(n.final_algo_config['model_family'] for n in scores)
+    assert families == ['cnn', 'ssm', 'transformer']
+    # ...and reaches the command line, not just the config.
+    for node in scores:
+        assert (f"--model_family={node.final_algo_config['model_family']}"
+                in node.command)
+
+
+def test_a_wired_algo_param_is_identity_bearing():
+    # It is a parameter, so it belongs to the algorithm's identity -- unlike
+    # an input path, which belongs to the data's.
+    dag = _family_pipeline()
+    compiled = dag.compile_configurations(_family_rows(), root_dpath='runs',
+                                          cache=False)
+    scores = [n for n in compiled.nodes.values() if n.name == 'score']
+    assert len({n.algo_id for n in scores}) == 3
+    for node in scores:
+        assert 'model_family' not in node.final_input_config
+        assert 'model_family' not in node.final_in_paths
+
+
+def test_a_wired_algo_param_is_not_a_scheduling_dependency():
+    # Like an aliased input it carries a value, not a dependency. If it were
+    # a dependency the consumer would inherit the producer's fan-out over
+    # `model` and there would be six scores rather than three.
+    dag = _family_pipeline()
+    compiled = dag.compile_configurations(_family_rows(), root_dpath='runs',
+                                          cache=False)
+    scores = [n for n in compiled.nodes.values() if n.name == 'score']
+    assert len(scores) == 3
+    for node in scores:
+        # `detect` is an ancestor via the gather, not via the parameter.
+        via_param = [
+            pred for pred in node.param_ports['model_family'].pred
+        ]
+        assert via_param, 'the parameter really is wired'
+        assert all(p.parent not in node.predecessor_process_nodes()
+                   or node.inputs['dets_fpath']._gather_members
+                   for p in via_param)
+
+
+def test_wiring_a_param_does_not_grow_with_consumer_count():
+    # The point of the feature: `include` states the correlation once, and
+    # adding consumers costs nothing.
+    rows = _family_rows()
+    for consumers in [('score',), ('score', 'calib'),
+                      ('score', 'calib', 'recall_curve')]:
+        dag = _family_pipeline(consumers)
+        compiled = dag.compile_configurations(rows, root_dpath='runs',
+                                              cache=False)
+        for name in consumers:
+            nodes = [n for n in compiled.nodes.values() if n.name == name]
+            assert len(nodes) == 3, (name, consumers)
+            sizes = sorted(
+                len(n.inputs['dets_fpath']._gather_members) for n in nodes)
+            assert sizes == [2, 2, 2], (name, sizes)
+
+
+def test_param_ports_exist_for_every_declared_algo_param():
+    node = ProcessNode(
+        name='n', executable='python n.py', out_paths={'o_fpath': 'o.json'},
+        algo_params={'alpha': 1, 'beta': 2})
+    assert sorted(node.param_ports) == ['alpha', 'beta']
+    # and they are not inputs -- they are not data the node reads
+    assert 'alpha' not in node.inputs
+
+
+def test_wired_params_survive_a_yaml_round_trip():
+    # A dropped edge here would silently change what the consumer runs.
+    from kwdagger import dump_yaml_pipeline, load_yaml_pipeline
+
+    dag = _family_pipeline()
+    spec = dump_yaml_pipeline(dag)
+    assert 'detect.model_family -> score.model_family' in spec['edges']
+
+    restored = load_yaml_pipeline(spec)
+    assert restored.node_dict['score'].param_ports['model_family'].pred
+    assert dump_yaml_pipeline(restored) == spec

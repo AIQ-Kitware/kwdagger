@@ -1267,6 +1267,11 @@ def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
         output_node.pred = []
         output_node.succ = []
         output_node._gather_connections = []
+    for param_port in node.param_ports.values():
+        param_port.parent = node
+        param_port.pred = []
+        param_port.succ = []
+        param_port._final_value = None
     node._configured_cache.clear()
     return node
 
@@ -1565,6 +1570,16 @@ def _compile_pipeline_configurations(
                 gather_inputs.append(
                     (input_name, input_node._gather_connection)
                 )
+        # Wired algorithm parameters. Like an aliased input these carry a
+        # value rather than a dependency, so they are replicated onto each
+        # concrete instance but never become predecessors.
+        param_edges: list[tuple[str, str, str]] = []
+        for param_name, param_port in template_node.param_ports.items():
+            for pred in param_port.pred:
+                param_edges.append(
+                    (param_name, pred.parent.name, pred.name)
+                )
+
         dependency_only_predecessors = [
             pred.name
             for pred in template_node._pred_nodes_without_io_connection
@@ -1594,6 +1609,12 @@ def _compile_pipeline_configurations(
                 else:
                     source_port = source_node.inputs[source_port_name]
                 source_port.connect(node.inputs[input_name])
+
+            for param_name, source_name, source_param in param_edges:
+                source_node = row_nodes[row_idx][source_name]
+                source_node.param_ports[source_param].connect(
+                    node.param_ports[param_name]
+                )
 
             for predecessor_name in dependency_only_predecessors:
                 predecessor = row_nodes[row_idx][predecessor_name]
@@ -2823,6 +2844,13 @@ class ProcessNode(Node):
         for key in in_path_keys:
             self.inputs[key].final_value = self.config[key]
 
+        # Same for parameters that have ports. A consumer whose parameter is
+        # wired has no value in its own config, so its port stays unset and
+        # resolves through its predecessor instead.
+        for key, port in self.param_ports.items():
+            if key in self.config:
+                port.final_value = self.config[key]
+
         self._build_templates()
         self._finalize_templates()
 
@@ -3043,6 +3071,13 @@ class ProcessNode(Node):
             for k, v in self.algo_params.items():
                 if k not in final_algo_config:
                     final_algo_config[k] = v
+
+        # A wired parameter is supplied by its port, which outranks both the
+        # row config and the declared default. Applied after defaults so it
+        # is not overwritten by them.
+        for key, port in self.param_ports.items():
+            if port.pred:
+                final_algo_config[key] = port.final_value
         return final_algo_config
 
     @memoize_configured_property
@@ -3359,6 +3394,29 @@ class ProcessNode(Node):
         assert self.in_paths is not None
         inputs = {k: InputNode(name=k, parent=self) for k in self.in_paths}
         return inputs
+
+    @cached_property
+    def param_ports(self) -> dict[str, InputNode]:
+        """
+        Ports for algorithm parameters, so they can be wired between nodes.
+
+        ``in_paths`` and ``out_paths`` have always been connectable because
+        the IO graph was built to track files. An algorithm parameter had
+        no port, so there was nothing for an edge to attach to -- and a
+        value every consumer needs had to be restated for each of them in
+        the parameter grid, growing as consumers x values.
+
+        These are deliberately *not* part of :func:`inputs`. They are not
+        data the node reads, so they must not appear in ``final_in_paths``,
+        must not render as paths, and must not create a scheduling
+        dependency. A wired parameter is an alias: it carries a value, and
+        the value lands in ``final_algo_config`` like any other parameter.
+
+        Returns:
+            Dict[str, InputNode]
+        """
+        keys = self.algo_params if self.algo_params is not None else {}
+        return {k: InputNode(name=k, parent=self) for k in keys}
 
     @cached_property
     def outputs(self) -> dict[str, OutputNode]:

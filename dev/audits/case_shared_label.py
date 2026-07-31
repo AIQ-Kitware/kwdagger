@@ -1,9 +1,9 @@
 """
 Case: a non-path grouping key, declared once and wired.
 
-`model_family` is a label, not a file. It is declared as an *input port*
-rather than an algo param, which is what makes it shareable: ports can be
-connected, algo params cannot.
+`model_family` is a label, not a file, and not private to one node. It is
+an algo param with a *wired port*: algo params are connectable, so the
+value is declared once and flows.
 
     detect.model_family          <- the only place it is set
         |-> score.model_family        (input -> input)
@@ -13,12 +13,11 @@ connected, algo params cannot.
 is a `cnn` -- and says nothing about the consumers. Adding a third
 consumer requires no change to `include` at all.
 
-This case exists because it refutes an argument that was made at length
-during the audit: that gathering by a non-path key required a new
-"partition" compilation mode, on the grounds that a label could not be
-wired. It can. Nothing about `in_paths` requires a filesystem path, and
-once a value is a port it participates in aliasing, identity, and
-grouping like any other.
+This case drove the addition of parameter ports. Before them, an algo
+param could not be connected, so a value every consumer needed had to be
+restated for each of them in `include` -- growing as consumers x values.
+Declaring it an `in_path` instead would make it connectable but would be
+an abuse: `in_paths` are paths, and a label is not one.
 """
 
 from __future__ import annotations
@@ -40,18 +39,19 @@ MODELS = {
 def build(consumers=('score', 'calib')):
     detect = ProcessNode(
         name='detect', executable='python detect.py',
-        # model_family is an in_path purely so it can be wired.
-        in_paths={'dataset_fpath', 'model_family'},
+        in_paths={'dataset_fpath'},
         out_paths={'dets_fpath': 'dets.json'},
-        algo_params={'model': 'resnet'})
+        algo_params={'model': 'resnet', 'model_family': 'cnn'})
 
     nodes = {'detect': detect}
     for name in consumers:
         node = ProcessNode(
             name=name, executable=f'python {name}.py',
-            in_paths={'dets_fpath', 'model_family'},
-            out_paths={f'{name}_fpath': f'{name}.json'})
-        detect.inputs['model_family'].connect(node.inputs['model_family'])
+            in_paths={'dets_fpath'},
+            out_paths={f'{name}_fpath': f'{name}.json'},
+            algo_params={'model_family': 'cnn'})
+        detect.param_ports['model_family'].connect(
+            node.param_ports['model_family'])
         detect.outputs['dets_fpath'].connect(
             node.inputs['dets_fpath'],
             gather=GatherSpec(group_by=['model_family'], order_by=['model']))
@@ -73,8 +73,8 @@ INCLUDE = [
     for model, family in MODELS.items()
 ]
 
-#: What the same pipeline costs if model_family is an algo param instead:
-#: every consumer must be restated on every row.
+#: What the same pipeline costs without wiring: every consumer must be
+#: restated on every row.
 def include_without_wiring(consumers=('score', 'calib')):
     return [
         {'detect.model': model, 'detect.model_family': family,

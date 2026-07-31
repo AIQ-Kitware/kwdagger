@@ -337,7 +337,8 @@ def _resolve_endpoint(
     Resolve ``node_name.port`` to its IONode, preferring outputs over inputs.
 
     Checking outputs first lets ``a.out -> b.in`` connect an output to an input,
-    while ``a.in -> b.in`` forwards a shared input (both legal in the Python API).
+    while ``a.in -> b.in`` forwards a shared input and ``a.param -> b.param``
+    forwards an algorithm parameter (all legal in the Python API).
     """
     if node_name not in node_dict:
         raise ValueError(
@@ -349,9 +350,12 @@ def _resolve_endpoint(
         return node.outputs[port]
     if port in node.inputs:
         return node.inputs[port]
+    if port in node.param_ports:
+        return node.param_ports[port]
     raise ValueError(
         f'edge references unknown port {port!r} on node {node_name!r}; '
-        f'outputs={sorted(node.outputs)}, inputs={sorted(node.inputs)}'
+        f'outputs={sorted(node.outputs)}, inputs={sorted(node.inputs)}, '
+        f'params={sorted(node.param_ports)}'
     )
 
 
@@ -608,6 +612,14 @@ def dump_yaml_pipeline(dag: Any) -> dict[str, Any]:
                         'dst': inode.key,
                         'gather': connection.spec.to_dict(),
                     }
+                )
+        # Wired algorithm parameters are edges too. Omitting them would let a
+        # round-trip silently drop a value the consumer depends on.
+        for param_name, port in node.param_ports.items():
+            for pred in port.pred:
+                edges.append(
+                    f'{pred.parent.name}.{pred.name} -> '
+                    f'{node.name}.{param_name}'
                 )
 
     out: dict[str, Any] = {'nodes': nodes_spec}

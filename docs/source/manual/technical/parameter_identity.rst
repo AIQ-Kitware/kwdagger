@@ -12,9 +12,12 @@ The four kinds of parameter
 ---------------------------
 
 ``algo_params``
-    Feed ``final_algo_config`` and therefore ``algo_id``. **Cannot be
-    connected**: they have no node in the IO graph, so no edge can reach
-    them.
+    Feed ``final_algo_config`` and therefore ``algo_id``. Each one has a
+    port (:func:`ProcessNode.param_ports`), so it can be **wired** from
+    another node: ``a.param_ports['x'].connect(b.param_ports['x'])``. A
+    wired parameter carries a value, not a dependency -- the consumer does
+    not inherit the producer's fan-out -- and the value outranks both the
+    row config and the declared default.
 
 ``perf_params``
     Feed neither id. Deliberately not identity-bearing: changing
@@ -36,25 +39,16 @@ The four kinds of parameter
     fall is **not settled**. The mechanical consequences above are exact;
     the principle for choosing is not.
 
-    At least three separable concerns are currently decided by one switch:
+    ``perf_params`` in particular is a name for a mechanism rather than a
+    category: what it really means is *do not hash this*. Plenty of values
+    have that property without being about performance -- a verbosity flag
+    does not change results either, and calling it a performance parameter
+    is a stretch.
 
-    1. does this change what the algorithm does (should it reach
-       ``algo_id``)?
-    2. is this data the node reads (should it reach ``process_id`` as an
-       input)?
-    3. should other nodes be able to share this value (does it need to be
-       a port)?
-
-    ``in_paths`` answers 2 and 3 together, and ``algo_params`` answers 1.
-    A grouping label like ``model_family`` wants 3 without 1 or 2, and the
-    only way to get 3 is to declare it an input -- so it lands in input
-    identity, and the consumer's ``algo_id`` becomes empty. That may be
-    right (the script does the same thing regardless of family) or wrong
-    (the family arguably parameterizes it). Nobody has decided.
-
-    The working idiom, without claiming it is the principle: **declare as
-    an ``in_path`` anything another node may need to share; keep
-    ``algo_params`` for values private to one node.**
+    Sharing is no longer part of the distinction: both ``in_paths`` and
+    ``algo_params`` have ports and can be wired. What remains is which
+    identity a value belongs to -- the algorithm's or the data's -- and
+    that line is clear in the mechanism if not always in a given case.
 
 The three configs
 -----------------
@@ -228,16 +222,13 @@ exists:
     the value directly, so nothing needs naming across the gather.
 
 *Grouping by a non-path key forces ``include`` to restate every consumer.*
-    This was the strongest argument and it was simply wrong. It assumed a
-    label such as ``model_family`` had to be an ``algo_param`` and
-    therefore could not be wired. Nothing about ``in_paths`` requires a
-    filesystem path. Declare the label as an input port and it aliases
-    like anything else -- it renders on the command line, enters
-    ``final_input_config``, reaches ``depends``, and groups.
+    This was the real gap, and it was closed by making algorithm
+    parameters connectable rather than by changing how gathers compile.
+    Wire the parameter and the value is declared once.
     ``dev/audits/case_shared_label.py`` measures it: with wiring the
     ``include`` block is 12 entries and stays 12 no matter how many
-    consumers there are; as an algo param it is 24 entries for two
-    consumers and 30 for three.
+    consumers there are; without it, 24 entries for two consumers and 30
+    for three.
 
 The behaviour partitioning was meant to provide -- one target instance per
 distinct group -- already falls out of value-based identity. Six ``detect``
