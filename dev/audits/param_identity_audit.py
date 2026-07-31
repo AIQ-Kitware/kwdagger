@@ -29,13 +29,16 @@ from kwdagger.schedule import ScheduleEvaluationConfig, build_schedule
 # harness
 # --------------------------------------------------------------------------
 
-def compile_quiet(dag, matrix, root_dpath='/tmp/kwd_audit'):
+def compile_quiet(dag, matrix, root_dpath='/tmp/kwd_audit', include=None):
     """Compile a pipeline over a matrix without the scheduler's chatter."""
+    params = {'pipeline': dag, 'matrix': matrix}
+    if include is not None:
+        params['include'] = include
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         compiled, queue = build_schedule(
             ScheduleEvaluationConfig(
-                params={'pipeline': dag, 'matrix': matrix},
+                params=params,
                 root_dpath=root_dpath,
                 run=False,
             )
@@ -158,6 +161,7 @@ def main():
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import case_detect_segment as detseg
+    import case_shared_label as shared_label
     import case_wiring_equivalence as wiring
 
     def banner(text):
@@ -222,6 +226,25 @@ def main():
               f'{_short(dict(node.final_algo_config), 40)}')
     print('\n  All three agree: algo_id identifies the algorithm, not the')
     print('  wiring. Data identity lives in final_input_config / ancestors.')
+
+    banner('5. a non-path grouping key, declared once and wired')
+    print(shared_label.__doc__)
+    for consumers in [('score', 'calib'), ('score', 'calib', 'recall_curve')]:
+        compiled, _ = compile_quiet(
+            shared_label.build(consumers),
+            dict(shared_label.MATRIX),
+            f'/tmp/kwd_audit/label_{len(consumers)}',
+            include=shared_label.INCLUDE)
+        counts = {
+            name: len(instances(compiled, name))
+            for name in ('detect',) + consumers
+        }
+        wired = sum(len(row) for row in shared_label.INCLUDE)
+        unwired = sum(
+            len(row) for row in shared_label.include_without_wiring(consumers))
+        print(f'  {len(consumers)} consumers -> {counts}')
+        print(f'      include entries: wired={wired} (constant)  '
+              f'as-algo-param={unwired} (grows)')
 
 
 if __name__ == '__main__':

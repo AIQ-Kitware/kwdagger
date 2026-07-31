@@ -12,21 +12,49 @@ The four kinds of parameter
 ---------------------------
 
 ``algo_params``
-    Values that change what the computation produces. Identity-bearing.
+    Feed ``final_algo_config`` and therefore ``algo_id``. **Cannot be
+    connected**: they have no node in the IO graph, so no edge can reach
+    them.
 
 ``perf_params``
-    Values that change only how fast or how parallel the computation is.
-    Deliberately **not** identity-bearing: changing ``workers`` must not
-    invalidate a result.
+    Feed neither id. Deliberately not identity-bearing: changing
+    ``workers`` must not invalidate a result.
 
 ``in_paths``
-    Data the node reads. May be supplied three ways, and the way matters
-    (see `How an input is supplied`_).
+    Ports, so they **can** be connected. When nothing upstream produced
+    the value it feeds ``final_input_config`` and reaches ``process_id``
+    via ``depends``; it never reaches ``algo_id``. See `How an input is
+    supplied`_.
 
 ``out_paths``
-    Data the node writes. Never identity-bearing on their own -- their
-    location is *derived from* identity, so including them would be
-    circular.
+    Never identity-bearing on their own -- their location is *derived
+    from* identity, so including them would be circular.
+
+.. note::
+
+    Where exactly the line between ``algo_params`` and ``in_paths`` should
+    fall is **not settled**. The mechanical consequences above are exact;
+    the principle for choosing is not.
+
+    At least three separable concerns are currently decided by one switch:
+
+    1. does this change what the algorithm does (should it reach
+       ``algo_id``)?
+    2. is this data the node reads (should it reach ``process_id`` as an
+       input)?
+    3. should other nodes be able to share this value (does it need to be
+       a port)?
+
+    ``in_paths`` answers 2 and 3 together, and ``algo_params`` answers 1.
+    A grouping label like ``model_family`` wants 3 without 1 or 2, and the
+    only way to get 3 is to declare it an input -- so it lands in input
+    identity, and the consumer's ``algo_id`` becomes empty. That may be
+    right (the script does the same thing regardless of family) or wrong
+    (the family arguably parameterizes it). Nobody has decided.
+
+    The working idiom, without claiming it is the principle: **declare as
+    an ``in_path`` anything another node may need to share; keep
+    ``algo_params`` for values private to one node.**
 
 The three configs
 -----------------
@@ -172,17 +200,50 @@ Fixed by letting a group key name itself differently on each side::
 All three wirings of the audit's detection/segmentation case now compile
 to the same instance counts.
 
-Still open
-----------
+Rejected: partition semantics
+-----------------------------
 
-A gather *joins* its sources against a target axis that must already
-exist in the matrix. It could instead *partition* its sources and induce
-one target instance per group, which would remove the need for the target
-to be swept on the grouping key at all. That is a change to the
-compilation model rather than to the gather API -- the compile loop is
-per-row, with one instance per template per row, and inducing N targets
-from one row breaks that invariant -- so it is recorded rather than
-attempted.
+During the audit a case was argued at length for changing gathers to
+*partition* their sources -- grouping sources by the key and inducing one
+target instance per group -- instead of joining against a target axis that
+must already exist. It was rejected. It is recorded here with its
+counter-evidence so it is not proposed again.
+
+Four arguments were made for it. Each has a cheaper answer that already
+exists:
+
+*The sweep has to be declared once per consumer.*
+    It does not. Wire the consumers' ports to the one that carries the
+    value (``dev/audits/case_single_source_of_truth.py``). The dataset
+    list appears once; ``segment.dataset_fpath``,
+    ``score_det.truth_fpath`` and ``score_seg.truth_fpath`` are connected
+    to it rather than restated.
+
+*A restated axis can drift out of sync with the real one.*
+    Only if you restate it. With one source of truth there is nothing to
+    disagree.
+
+*A gather's target cannot reach its source, so it cannot name it.*
+    True, but a wire between them *is* a route. Aliasing gives the target
+    the value directly, so nothing needs naming across the gather.
+
+*Grouping by a non-path key forces ``include`` to restate every consumer.*
+    This was the strongest argument and it was simply wrong. It assumed a
+    label such as ``model_family`` had to be an ``algo_param`` and
+    therefore could not be wired. Nothing about ``in_paths`` requires a
+    filesystem path. Declare the label as an input port and it aliases
+    like anything else -- it renders on the command line, enters
+    ``final_input_config``, reaches ``depends``, and groups.
+    ``dev/audits/case_shared_label.py`` measures it: with wiring the
+    ``include`` block is 12 entries and stays 12 no matter how many
+    consumers there are; as an algo param it is 24 entries for two
+    consumers and 30 for three.
+
+The behaviour partitioning was meant to provide -- one target instance per
+distinct group -- already falls out of value-based identity. Six ``detect``
+instances produce three ``score`` instances because ``model_family`` takes
+three distinct values and is identity-bearing. No compilation mode is
+required.
 
 Reproducing
 -----------
