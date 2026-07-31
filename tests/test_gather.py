@@ -644,13 +644,18 @@ def test_gather_compiler_preserves_input_forwarding():
     ] == ['fold0.txt', 'fold1.txt', 'fold2.txt']
     assert len({node.process_id for node in ensembles}) == 3
     for node in ensembles:
-        source_port = node.inputs['data_fpath'].pred[0]
+        # A forwarded input is an alias: the upstream node consumes the
+        # same value rather than producing it. The wiring is recorded, but
+        # deliberately without a source_process_id -- the value itself is
+        # in final_algo_config and carries the identity. Recording the
+        # source instance instead would fan this node out over the source's
+        # sweep axes even when the forwarded value is identical.
         provenance = node.depends['__input__.data_fpath']
         assert provenance == {
-            'source_process_id': source_port.parent.process_id,
             'source_port': 'data_fpath',
             'source_kind': 'input',
         }
+        assert 'data_fpath' in node.final_algo_config
         members = node.inputs['checkpoints_fpath']._gather_members
         assert members is not None
         assert len(members) == 3
@@ -1093,3 +1098,199 @@ def test_gather_tutorial_include_form_compiles_identically():
     assert compile_fingerprint('params.yaml') == compile_fingerprint(
         'params-include.yaml'
     )
+def _fanout_pipeline(group_by, report_port='data_fpath'):
+    """prepare fans out over ``dataset``; score and report both consume it.
+
+    This is the shape a sweep normally has: exactly one node carries the
+    parameter that varies, and every consumer inherits that identity through
+    an edge instead of redeclaring it.
+    """
+    prepare = ProcessNode(
+        name='prepare',
+        executable='python prepare.py',
+        out_paths={'data_fpath': 'data.json'},
+        algo_params={'dataset': 'cats'},
+    )
+    score = ProcessNode(
+        name='score',
+        executable='python score.py',
+        in_paths={'data_fpath'},
+        out_paths={'score_fpath': 'score.json'},
+        algo_params={'model': 'm1'},
+    )
+    report = ProcessNode(
+        name='report',
+        executable='python report.py',
+        in_paths={report_port, 'scores_fpath'},
+        out_paths={'report_fpath': 'report.json'},
+    )
+    prepare.outputs['data_fpath'].connect(score.inputs['data_fpath'])
+    prepare.outputs['data_fpath'].connect(report.inputs[report_port])
+    score.outputs['score_fpath'].connect(
+        report.inputs['scores_fpath'],
+        gather=GatherSpec(group_by=list(group_by), order_by=['model']),
+    )
+    dag = Pipeline({'prepare': prepare, 'score': score, 'report': report})
+    dag.build_nx_graphs()
+    return dag
+
+
+def _compile(dag, root_dpath, matrix=None):
+    config = schedule.ScheduleEvaluationConfig(
+        params={
+            'pipeline': dag,
+            'matrix': matrix or {
+                'prepare.dataset': ['cats', 'dogs'],
+                'score.model': ['m1', 'm2'],
+            },
+        },
+        root_dpath=root_dpath,
+        run=False,
+    )
+    compiled, _queue = schedule.build_schedule(config)
+    return compiled
+
+
+def _instances(dag, name):
+    return [n for n in dag.nodes.values() if n.name == name]
+
+
+def _assert_partitioned_by_dataset(dag):
+    reports = _instances(dag, 'report')
+    assert len(reports) == 2, 'one report per prepared dataset'
+    for report in reports:
+        members = report.inputs['scores_fpath']._gather_members
+        assert len(members) == 2, 'both models, and only this dataset'
+
+
+def test_gather_groups_on_a_qualified_upstream_parameter(tmp_path):
+    # The preferred form: name the node the value lives on, exactly as a
+    # matrix key does. Only `prepare` declares `dataset`; the consumers
+    # inherit that identity through their edges.
+    _assert_partitioned_by_dataset(
+        _compile(_fanout_pipeline(['prepare.dataset']), tmp_path / 'a')
+    )
+
+
+def test_gather_groups_on_a_qualified_output_path(tmp_path):
+    # The produced path is itself a fine identity to group on.
+    _assert_partitioned_by_dataset(
+        _compile(_fanout_pipeline(['prepare.data_fpath']), tmp_path / 'b')
+    )
+
+
+def test_gather_qualified_key_must_name_a_node_both_ends_can_see(tmp_path):
+    # A grouping key is resolved on the source instances *and* on the target,
+    # so it has to name a node reachable from both -- in practice a common
+    # ancestor. Naming the target's own connected input does not work: the
+    # value is produced upstream, so it is not part of the target's own
+    # identity, and the sources cannot see the target at all.
+    dag = _fanout_pipeline(['report.data_fpath'])
+    with pytest.raises(KeyError) as excinfo:
+        _compile(dag, tmp_path / 'c')
+    assert 'data_fpath' in str(excinfo.value)
+
+
+def test_gather_groups_on_a_connected_input_path(tmp_path):
+    # A connected in_path is excluded from final_algo_config so hashing does
+    # not double-count identity already captured by ancestor hashing. That
+    # exclusion is right for hashing and wrong for grouping, and the common
+    # ancestor's port names the same path from both ends.
+    _assert_partitioned_by_dataset(
+        _compile(_fanout_pipeline(['prepare.data_fpath']), tmp_path / 'c2')
+    )
+
+
+def test_gather_groups_on_an_unqualified_ancestor_parameter(tmp_path):
+    # Backwards-compatible bare form. Here the consumer holds the producer's
+    # output under a *different* port name, so the path is not resolvable by
+    # name, but the ancestor still carries the parameter that varies.
+    _assert_partitioned_by_dataset(
+        _compile(
+            _fanout_pipeline(['dataset'], report_port='ctx_fpath'),
+            tmp_path / 'd',
+        )
+    )
+
+
+def test_gather_qualified_key_rejects_an_unreachable_node(tmp_path):
+    dag = _fanout_pipeline(['nonexistent.dataset'])
+    with pytest.raises(KeyError, match='not this node nor one of its ancestors'):
+        _compile(dag, tmp_path / 'e')
+
+
+def test_gather_key_error_names_every_place_it_looked(tmp_path):
+    # The consumer has no ordinary edge to prepare, so its only route to the
+    # fanned-out node is the gather being resolved. Nothing to group on.
+    prepare = ProcessNode(
+        name='prepare',
+        executable='python prepare.py',
+        out_paths={'data_fpath': 'data.json'},
+        algo_params={'dataset': 'cats'},
+    )
+    score = ProcessNode(
+        name='score',
+        executable='python score.py',
+        in_paths={'data_fpath'},
+        out_paths={'score_fpath': 'score.json'},
+        algo_params={'model': 'm1'},
+    )
+    report = ProcessNode(
+        name='report',
+        executable='python report.py',
+        in_paths={'scores_fpath'},
+        out_paths={'report_fpath': 'report.json'},
+    )
+    prepare.outputs['data_fpath'].connect(score.inputs['data_fpath'])
+    score.outputs['score_fpath'].connect(
+        report.inputs['scores_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['model']),
+    )
+    dag = Pipeline({'prepare': prepare, 'score': score, 'report': report})
+    dag.build_nx_graphs()
+
+    with pytest.raises(KeyError) as excinfo:
+        _compile(dag, tmp_path / 'f')
+
+    message = str(excinfo.value)
+    for expected in ('algo=', 'inputs=', 'ancestors=', '<node>.<param>'):
+        assert expected in message, message
+
+
+def test_gather_unqualified_key_refuses_to_guess_between_ancestors(tmp_path):
+    # Two ancestors declaring the same parameter with different values would
+    # otherwise silently group on whichever was visited first.
+    left = ProcessNode(
+        name='left', executable='python left.py',
+        out_paths={'left_fpath': 'left.json'}, algo_params={'split': 'train'},
+    )
+    right = ProcessNode(
+        name='right', executable='python right.py',
+        out_paths={'right_fpath': 'right.json'}, algo_params={'split': 'val'},
+    )
+    score = ProcessNode(
+        name='score', executable='python score.py',
+        in_paths={'left_fpath', 'right_fpath'},
+        out_paths={'score_fpath': 'score.json'}, algo_params={'model': 'm1'},
+    )
+    report = ProcessNode(
+        name='report', executable='python report.py',
+        in_paths={'left_fpath', 'right_fpath', 'scores_fpath'},
+        out_paths={'report_fpath': 'report.json'},
+    )
+    for producer, port in ((left, 'left_fpath'), (right, 'right_fpath')):
+        producer.outputs[port].connect(score.inputs[port])
+        producer.outputs[port].connect(report.inputs[port])
+    score.outputs['score_fpath'].connect(
+        report.inputs['scores_fpath'],
+        gather=GatherSpec(group_by=['split'], order_by=['model']),
+    )
+    dag = Pipeline(
+        {'left': left, 'right': right, 'score': score, 'report': report}
+    )
+    dag.build_nx_graphs()
+
+    matrix = {'left.split': ['train'], 'right.split': ['val'],
+              'score.model': ['m1', 'm2']}
+    with pytest.raises(ValueError, match='Qualify it as'):
+        _compile(dag, tmp_path / 'g', matrix=matrix)

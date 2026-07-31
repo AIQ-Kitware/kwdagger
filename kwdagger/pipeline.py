@@ -1211,15 +1211,164 @@ def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
     return node
 
 
+def _dependency_preds(input_node: Any) -> list:
+    """
+    Predecessors of an input that represent a real data dependency.
+
+    An ``input -> input`` edge is an *alias*: the upstream node does not
+    produce this value, it merely consumes the same one. Treating that as a
+    dependency would make the consumer inherit the producer's identity --
+    including sweep axes it never reads -- so aliases are excluded here.
+    """
+    return [pred for pred in input_node.pred if not isinstance(pred, InputNode)]
+
+
+def _alias_preds(input_node: Any) -> list:
+    """Predecessors of an input that only share its value."""
+    return [pred for pred in input_node.pred if isinstance(pred, InputNode)]
+
+
 def _node_param_value(node: 'ProcessNode', key: str) -> Any:
-    """Resolve a configured algorithm parameter value on a concrete node."""
-    config = node.final_algo_config
-    if key not in config:
+    """
+    Resolve a gather grouping key against a concrete node.
+
+    A grouping key names whatever identifies which slice of the sweep an
+    instance belongs to. The preferred form is **qualified**, naming the
+    node the value lives on, exactly as matrix keys do::
+
+        group_by: ['prepare.dataset']
+
+    A qualified key is resolved on the named node -- ``node`` itself if the
+    names match, otherwise the ancestor with that name. This is what lets a
+    fan-out be expressed the natural way: give the one node that varies the
+    parameter, and let every consumer inherit that identity through an edge.
+
+    Resolving only against a node's *own* algorithm parameters forces every
+    consumer to redeclare the parameter purely to satisfy the gather, which
+    creates a second, independent sweep axis. kwdagger then takes the
+    product of the two, producing instances whose declared parameter value
+    and actual upstream input disagree.
+
+    On the resolved node the value is looked up in its algorithm config and
+    then its output ports. Output paths are eligible deliberately: naming a
+    producer's port is the direct way to say "group by which upstream made
+    this". Unconnected and aliased inputs already appear in the algorithm
+    config, so they need no special case.
+
+    An unqualified key stays supported for backwards compatibility. It
+    resolves against the node itself, then unambiguously against ancestors.
+
+    Args:
+        node (ProcessNode): the concrete instance to resolve against.
+        key (str): ``'<node>.<param>'``, or a bare parameter name.
+
+    Returns:
+        Any: the resolved value. Paths are returned as ``str`` so that a
+            ``Path`` on one node compares equal to a ``str`` on another.
+
+    Raises:
+        KeyError: if the key resolves nowhere, or names an unreachable node.
+        ValueError: if an unqualified key resolves to conflicting values on
+            different ancestors. Qualify the key to disambiguate.
+    """
+    if '.' in key:
+        node_name, param = key.split('.', 1)
+        resolved = _resolve_named_node(node, node_name)
+        value = _lookup_on_node(resolved, param)
+        if value is _MISSING:
+            raise KeyError(
+                f'Node {node_name!r} has no parameter, input, or output '
+                f'{param!r} (resolving group key {key!r} for '
+                f'{node.name!r}); algo={sorted(resolved.final_algo_config)} '
+                f'inputs={sorted(resolved.inputs)} '
+                f'outputs={sorted(resolved.outputs)}'
+            )
+        return value
+
+    value = _lookup_on_node(node, key)
+    if value is not _MISSING:
+        return value
+
+    # Unqualified fallback: look through ancestors, but refuse to guess if
+    # they disagree.
+    ancestor_values = {}
+    for ancestor in node.ancestor_process_nodes():
+        found = _lookup_on_node(ancestor, key)
+        if found is not _MISSING:
+            ancestor_values[ancestor.name] = found
+
+    if ancestor_values:
+        distinct = set(ancestor_values.values())
+        if len(distinct) > 1:
+            raise ValueError(
+                f'Ambiguous group key {key!r} for node {node.name!r}: '
+                f'ancestors disagree ({ancestor_values!r}). Qualify it as '
+                f'"<node>.{key}" to say which one you mean.'
+            )
+        return next(iter(distinct))
+
+    raise KeyError(
+        f'Node {node.name!r} has no parameter, input, or ancestor providing '
+        f'{key!r}; algo={sorted(node.final_algo_config)} '
+        f'inputs={sorted(node.inputs)} '
+        f'ancestors={sorted(n.name for n in node.ancestor_process_nodes())}. '
+        f'Qualify the key as "<node>.<param>" to group on another node.'
+    )
+
+
+class _Missing:
+    """Sentinel distinguishing "absent" from a legitimately ``None`` value."""
+
+    def __repr__(self) -> str:
+        return '<missing>'
+
+
+_MISSING = _Missing()
+
+
+def _resolve_named_node(node: 'ProcessNode', node_name: str) -> 'ProcessNode':
+    """Find ``node_name`` relative to ``node``: itself, or an ancestor."""
+    if node.name == node_name:
+        return node
+    ancestors = [a for a in node.ancestor_process_nodes() if a.name == node_name]
+    if not ancestors:
         raise KeyError(
-            f'Node {node.name!r} has no configured algorithm parameter {key!r}; '
-            f'available={sorted(config)}'
+            f'Cannot group {node.name!r} by a parameter of {node_name!r}: '
+            f'it is not this node nor one of its ancestors '
+            f'({sorted(n.name for n in node.ancestor_process_nodes())}). '
+            f'Note that a gather\'s own source is not yet an ancestor while '
+            f'that gather is being resolved.'
         )
-    return config[key]
+    # Instances are per-configuration, so at most one ancestor carries a
+    # given template name on any concrete path.
+    return ancestors[0]
+
+
+def _lookup_on_node(node: 'ProcessNode', param: str) -> Any:
+    """Look ``param`` up in a node's algo config, then its output ports."""
+    config = node.final_algo_config
+    if param in config:
+        return _hashable_group_value(config[param])
+
+    port = node.outputs.get(param)
+    if port is not None:
+        return _hashable_group_value(port.final_value)
+
+    return _MISSING
+
+
+def _hashable_group_value(value: Any) -> Any:
+    """
+    Normalize a resolved grouping value so equal identities compare equal.
+
+    Paths are stringified (a ``Path`` on one node must match a ``str`` on
+    another) and list values are made hashable for set-based comparison.
+    """
+    if isinstance(value, (list, tuple)):
+        return tuple(_hashable_group_value(v) for v in value)
+    if isinstance(value, os.PathLike):
+        return str(value)
+    return value
 
 
 def _sort_gather_members(
@@ -2674,21 +2823,34 @@ class ProcessNode(Node):
             for source_port in input_node.pred:
                 assert isinstance(source_port, IONode)
                 if isinstance(source_port, OutputNode):
-                    source_kind = 'output'
+                    # A produced value: identity lives in the producing
+                    # instance, which ancestor hashing captures.
+                    bindings.append(
+                        {
+                            'source_process_id': source_port.parent.process_id,
+                            'source_port': source_port.name,
+                            'source_kind': 'output',
+                        }
+                    )
                 else:
+                    # An alias. The value is already part of this node's
+                    # final_algo_config (nothing upstream produced it), so
+                    # the wiring is recorded for provenance but the source
+                    # *instance* is deliberately not: including it would
+                    # make two consumers reading the identical value
+                    # distinct, fanning the consumer out over sweep axes it
+                    # never reads.
                     assert isinstance(source_port, InputNode)
-                    source_kind = 'input'
-                bindings.append(
-                    {
-                        'source_process_id': source_port.parent.process_id,
-                        'source_port': source_port.name,
-                        'source_kind': source_kind,
-                    }
-                )
+                    bindings.append(
+                        {
+                            'source_port': source_port.name,
+                            'source_kind': 'input',
+                        }
+                    )
             if bindings:
                 bindings.sort(
                     key=lambda item: (
-                        item['source_process_id'],
+                        item.get('source_process_id', ''),
                         item['source_kind'],
                         item['source_port'],
                     )
@@ -2763,7 +2925,13 @@ class ProcessNode(Node):
         # algorithm config
         unconnected_inputs = []
         for input_node in self.inputs.values():
-            if not input_node.pred and input_node._gather_members is None:
+            # An aliased input counts as unconnected: no upstream node
+            # produced it, so its value is part of *this* node's identity
+            # rather than being captured by ancestor hashing.
+            if (
+                not _dependency_preds(input_node)
+                and input_node._gather_members is None
+            ):
                 unconnected_inputs.append(input_node.name)
 
         # OK... so previous design decisions have made things weird here.  The
@@ -2920,7 +3088,9 @@ class ProcessNode(Node):
         Process nodes that this one depends on.
         """
         nodes = [
-            pred.parent for k, v in self.inputs.items() for pred in v.pred
+            pred.parent
+            for k, v in self.inputs.items()
+            for pred in _dependency_preds(v)
         ] + self._pred_nodes_without_io_connection
         for input_node in self.inputs.values():
             if input_node._gather_members is not None:
@@ -2979,7 +3149,7 @@ class ProcessNode(Node):
                 nodes = [
                     pred.parent
                     for k, v in node.inputs.items()
-                    for pred in v.pred
+                    for pred in _dependency_preds(v)
                 ]
                 # nodes = node.predecessor_process_nodes()
                 stack.extend(nodes)

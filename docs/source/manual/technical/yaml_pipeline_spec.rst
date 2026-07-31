@@ -369,12 +369,40 @@ The mapping edge form accepts a ``gather`` specification::
           require: all_success
 
 ``group_by`` (required)
-    Parameter names shared by the source and target nodes. For each concrete
-    target instance, kwdagger selects all source instances with equal values for
-    these parameters. This follows the dataframe group-by intuition: one target
-    collection is formed per distinct group. Source parameters not listed in
-    ``group_by`` vary within the collection. An empty list gathers every source
-    instance into one collection for each otherwise-distinct target instance.
+    Keys identifying which slice of the sweep an instance belongs to. For each
+    concrete target instance, kwdagger selects all source instances whose keys
+    resolve to equal values. This follows the dataframe group-by intuition: one
+    target collection is formed per distinct group. Source parameters not listed
+    in ``group_by`` vary within the collection. An empty list gathers every
+    source instance into one collection for each otherwise-distinct target
+    instance.
+
+    Prefer the **qualified** ``<node>.<param>`` form, which names the node the
+    value lives on exactly as a matrix key does::
+
+        group_by: [prepare.dataset]
+
+    A qualified key is resolved on the named node -- the instance itself if the
+    names match, otherwise its ancestor of that name -- looking in that node's
+    algorithm parameters, then its input ports, then its output ports. Input and
+    output paths are eligible deliberately: a connected path is excluded from a
+    node's algorithm config so hashing does not double-count identity already
+    captured by ancestor hashing, but that path is precisely the upstream
+    identity a gather wants to group on.
+
+    Because the key is resolved on the sources *and* on the target, it must name
+    a node reachable from both -- in practice a common ancestor. Naming the
+    target itself will not resolve on the sources, which are upstream of it.
+    Note also that a gather's own source does not become an ancestor of its
+    target until that gather is resolved, so the target needs an independent
+    edge to whatever it groups by.
+
+    An unqualified name stays supported. It resolves against the node itself and
+    then against its ancestors, and raises if ancestors disagree rather than
+    guessing. Prefer qualifying: declaring the same parameter on several nodes
+    so an unqualified key resolves creates a second, independent sweep axis,
+    and kwdagger takes the product of the two -- producing instances whose
+    declared parameter value and actual upstream input disagree.
 
 ``order_by`` (optional)
     Source algorithm parameters used to order the paths in the generated
