@@ -686,7 +686,11 @@ class Pipeline:
                 'gres': None,
             }
             queue_kw = ub.udict(default_queue_kw) | queue
-            queue = cmd_queue.Queue.create(**queue_kw)
+            # The merged mapping is heterogeneous, so its inferred value type
+            # is too wide for ``create``'s ``backend: str``. Pull the backend
+            # out by hand rather than relying on how a checker widens the merge.
+            backend = cast('str', queue_kw.pop('backend'))
+            queue = cmd_queue.Queue.create(backend=backend, **queue_kw)
 
         node_order = list(nx.topological_sort(self.proc_graph))
 

@@ -829,7 +829,11 @@ class ResultAnalysis(ub.NiceRepr):
         moments.index.name = param_group_name
         moments.columns.name = metric_key
         ranking = moments['mean'].index.to_list()
-        param_to_rank = ub.invert_dict(dict(enumerate(ranking)))
+        # Built directly rather than via ub.invert_dict, whose return type is
+        # ``Dict[VT, KT] | Dict[VT, Set[KT]]`` depending on ``unique_vals``.
+        # Checkers cannot narrow that on the default argument, and how wide it
+        # lands varies by version; a comprehension is unambiguously int-valued.
+        param_to_rank = {value: rank for rank, value in enumerate(ranking)}
 
         # Determine a set of value pairs to do pairwise comparisons on
         value_pairs: Any = ub.oset()
@@ -888,8 +892,8 @@ class ResultAnalysis(ub.NiceRepr):
                 metric_vals1 = value_to_metric[param_val1]
                 metric_vals2 = value_to_metric[param_val2]
 
-                rank1: int = cast(int, param_to_rank[param_val1])
-                rank2: int = cast(int, param_to_rank[param_val2])
+                rank1: int = param_to_rank[param_val1]
+                rank2: int = param_to_rank[param_val2]
                 pair_stats['winner'] = (
                     param_val1 if rank1 < rank2 else param_val2
                 )
@@ -1849,7 +1853,10 @@ def aggregate_stats(data: Any, suffix: str = '', group_keys: Any = None) -> Any:
     non_stats_cols = list(ub.oset(data.columns) - stats_cols)  # type: ignore
     if group_keys is None:
         group_keys = non_stats_cols
-    non_group_keys = list(ub.oset(non_stats_cols) - group_keys)  # ty: ignore[unsupported-operator]
+    # Order-preserving difference written without oset's ``-`` operator,
+    # whose resolution varies by checker version (see _normalize_attrs).
+    _group_key_set = set(group_keys)
+    non_group_keys = [c for c in non_stats_cols if c not in _group_key_set]
 
     new_rows = []
     for group_vals, group in list(data.groupby(group_keys)):
