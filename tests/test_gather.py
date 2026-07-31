@@ -644,17 +644,19 @@ def test_gather_compiler_preserves_input_forwarding():
     ] == ['fold0.txt', 'fold1.txt', 'fold2.txt']
     assert len({node.process_id for node in ensembles}) == 3
     for node in ensembles:
-        # A forwarded input is an alias: the upstream node consumes the
-        # same value rather than producing it. The wiring is recorded, but
-        # deliberately without a source_process_id -- the value itself
-        # carries the identity, via final_input_config. Recording the
-        # source instance instead would fan this node out over the source's
-        # sweep axes even when the forwarded value is identical.
-        provenance = node.depends['__input__.data_fpath']
+        # A forwarded input is provenance, not process lineage. The
+        # resolved value is already represented by final_input_config, so
+        # changing from direct configuration to forwarding must not change
+        # the process hash.
+        provenance = node._depends_config()['__input__.data_fpath']
         assert provenance == {
+            'source': 'train.data_fpath',
+            'target': 'ensemble.data_fpath',
             'source_port': 'data_fpath',
             'source_kind': 'input',
+            'value': node.inputs['data_fpath'].final_value,
         }
+        assert '__input__.data_fpath' not in node.depends
         # Nothing upstream produced it, so it is identity-bearing here.
         assert 'data_fpath' in node.final_input_config
         assert 'data_fpath' not in node.final_algo_config
@@ -679,7 +681,7 @@ def test_gather_compiler_preserves_input_forwarding():
         )
         for record in parallel_records
     } == {
-        ('ordinary', 'data_fpath', 'data_fpath', 3),
+        ('shared_input', 'data_fpath', 'data_fpath', 3),
         ('gather', 'checkpoint_fpath', 'checkpoints_fpath', 9),
     }
 

@@ -246,6 +246,8 @@ class Pipeline:
         self, nodes: Any = None, config: Any = None, root_dpath: Any = None
     ) -> None:
         self.proc_graph: nx.DiGraph = nx.DiGraph()
+        self.config_graph: nx.DiGraph = nx.DiGraph()
+        self.value_graph: nx.DiGraph = nx.DiGraph()
         self.io_graph: nx.DiGraph = nx.DiGraph()
         if nodes is None:
             nodes = []
@@ -344,11 +346,79 @@ class Pipeline:
             for p in node.predecessor_process_nodes():
                 self.proc_graph.add_edge(p.name, node.name)
 
+            # This list is mutated directly by the legacy API, so a cached
+            # predecessor query may predate the append. Record these explicit
+            # ordering dependencies from their source of truth as well.
+            for p in node._pred_nodes_without_io_connection:
+                self.proc_graph.add_edge(p.name, node.name)
+
         for connection in self.gather_connections:
             self.proc_graph.add_edge(
                 connection.source.parent.name,
                 connection.target.parent.name,
                 gather=connection.spec,
+            )
+
+        # Configuration-value relationships are not process dependencies, but
+        # their sources must be configured before their targets can resolve a
+        # shared value. Keep that ordering separate from ``proc_graph`` so an
+        # alias does not create execution or lineage dependency.
+        self.config_graph = self.proc_graph.copy()
+        for _src, _dst, edge_data in self.config_graph.edges(data=True):
+            edge_data['config_kinds'] = ('process_dependency',)
+
+        self.value_graph = nx.DiGraph()
+
+        def _add_config_edge(source: Any, target: Any, kind: str) -> None:
+            self.value_graph.add_edge(
+                source.key, target.key, kind=kind, source=source, target=target
+            )
+            src_name = source.parent.name
+            dst_name = target.parent.name
+            if src_name == dst_name:
+                # All local values are assigned before a ProcessNode finalizes
+                # its command, so same-node forwarding needs no node ordering.
+                return
+            if self.config_graph.has_edge(src_name, dst_name):
+                edge_data = self.config_graph.edges[src_name, dst_name]
+                kinds = set(edge_data.get('config_kinds', ()))
+                kinds.add(kind)
+                edge_data['config_kinds'] = tuple(sorted(kinds))
+            else:
+                self.config_graph.add_edge(
+                    src_name, dst_name, config_kinds=(kind,)
+                )
+
+        for node in node_dict.values():
+            for input_node in node.inputs.values():
+                for source in _alias_preds(input_node):
+                    _add_config_edge(source, input_node, 'shared_input')
+            for param_port in node.param_ports.values():
+                for source in param_port.pred:
+                    _add_config_edge(source, param_port, 'shared_parameter')
+
+        if not nx.is_directed_acyclic_graph(self.value_graph):
+            cycle = nx.find_cycle(self.value_graph)
+            details = []
+            for src, dst in cycle:
+                kind = self.value_graph.edges[src, dst]['kind']
+                details.append(f'{src} -{kind}-> {dst}')
+            raise ValueError(
+                'Pipeline shared-value relationships contain a cycle: '
+                + ' ; '.join(details)
+            )
+
+        if not nx.is_directed_acyclic_graph(self.config_graph):
+            cycle = nx.find_cycle(self.config_graph)
+            details = []
+            for src, dst in cycle:
+                kinds = self.config_graph.edges[src, dst].get(
+                    'config_kinds', ('process_dependency',)
+                )
+                details.append(f'{src} -{",".join(kinds)}-> {dst}')
+            raise ValueError(
+                'Pipeline configuration relationships contain a cycle: '
+                + ' ; '.join(details)
             )
 
         self.io_graph = nx.DiGraph()
@@ -366,6 +436,10 @@ class Pipeline:
                 self.io_graph.add_node(
                     onode.key, node=onode, node_clsname=onode.__class__.__name__
                 )
+            for pname, pnode in node.param_ports.items():
+                self.io_graph.add_node(
+                    pnode.key, node=pnode, node_clsname=pnode.__class__.__name__
+                )
 
         # Next add edges
         for name, node in node_dict.items():
@@ -373,7 +447,9 @@ class Pipeline:
                 self.io_graph.add_edge(inode.key, node.key)
                 # Account for input/input connections
                 for succ in inode.succ:
-                    self.io_graph.add_edge(inode.key, succ.key)
+                    self.io_graph.add_edge(
+                        inode.key, succ.key, shared_kind='input'
+                    )
             for oname, onode in node.outputs.items():
                 self.io_graph.add_edge(node.key, onode.key)
                 for oi_node in onode.succ:
@@ -383,6 +459,12 @@ class Pipeline:
                         onode.key,
                         connection.target.key,
                         gather=connection.spec,
+                    )
+            for pname, pnode in node.param_ports.items():
+                self.io_graph.add_edge(pnode.key, node.key, parameter=True)
+                for succ in pnode.succ:
+                    self.io_graph.add_edge(
+                        pnode.key, succ.key, shared_kind='parameter'
                     )
             # hack for nodes that dont have an io dependency
             # but still must run after one another
@@ -520,14 +602,14 @@ class Pipeline:
 
             # Set the configuration for each node in this pipeline.
             dotconfig = util_dotdict.DotDict(config)
-            for node_name in nx.topological_sort(self.proc_graph):
-                node = self.proc_graph.nodes[node_name]['node']
+            for node_name in nx.topological_sort(self.config_graph):
+                node = self.config_graph.nodes[node_name]['node']
                 node_config = dict(dotconfig.prefix_get(node.name, {}))
                 node.configure(node_config, cache=cache)
         else:
             # Hack: if config is not given, update the cache state only.
-            for node_name in nx.topological_sort(self.proc_graph):
-                node = self.proc_graph.nodes[node_name]['node']
+            for node_name in nx.topological_sort(self.config_graph):
+                node = self.config_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
 
     def compile_configurations(
@@ -612,27 +694,31 @@ class Pipeline:
         marker_idx = 0
         for src, dst, edge_data in list(graph.edges(data=True)):
             spec = edge_data.get('gather')
-            if spec is None:
+            shared_kind = edge_data.get('shared_kind')
+            if spec is None and shared_kind is None:
                 continue
             graph.remove_edge(src, dst)
-            label = 'gather N:1 -> path manifest'
-            if spec.group_by:
-                label += ' | group_by=' + ','.join(spec.display_keys())
+            if spec is not None:
+                label = 'gather N:1 -> path manifest'
+                if spec.group_by:
+                    label += ' | group_by=' + ','.join(spec.display_keys())
+                else:
+                    label += ' | group_by=<all>'
+                if spec.order_by:
+                    label += ' | order_by=' + ','.join(spec.order_by)
+                marker = f'__gather_io_edge_{marker_idx}'
+                styled_label = f'[bright_magenta]{label}[/bright_magenta]'
+                target_label = graph.nodes[dst].get('label', dst)
+                if '(collection)' not in target_label:
+                    graph.nodes[dst]['label'] = target_label + ' (collection)'
             else:
-                label += ' | group_by=<all>'
-            if spec.order_by:
-                label += ' | order_by=' + ','.join(spec.order_by)
-            marker = f'__gather_io_edge_{marker_idx}'
+                label = f'shared {shared_kind} | configuration only'
+                marker = f'__shared_io_edge_{marker_idx}'
+                styled_label = f'[bright_blue]{label}[/bright_blue]'
             marker_idx += 1
-            graph.add_node(
-                marker,
-                label=f'[bright_magenta]{label}[/bright_magenta]',
-            )
+            graph.add_node(marker, label=styled_label)
             graph.add_edge(src, marker)
             graph.add_edge(marker, dst)
-            target_label = graph.nodes[dst].get('label', dst)
-            if '(collection)' not in target_label:
-                graph.nodes[dst]['label'] = target_label + ' (collection)'
         return graph
 
     def print_process_graph(
@@ -1120,12 +1206,33 @@ class CompiledPipeline:
 
                 for source_port_node in input_node.pred:
                     source = source_port_node.parent
+                    kind = (
+                        'shared_input'
+                        if isinstance(source_port_node, InputNode)
+                        else 'ordinary'
+                    )
                     record = _record_for(
                         source=source,
                         target=target,
-                        kind='ordinary',
+                        kind=kind,
                         source_port=source_port_node.name,
                         target_port=input_name,
+                    )
+                    record['source_ids'].add(source.process_id)
+                    record['target_ids'].add(target.process_id)
+                    record['edge_pairs'].add(
+                        (source.process_id, target.process_id)
+                    )
+
+            for param_name, param_port in target.param_ports.items():
+                for source_port in param_port.pred:
+                    source = source_port.parent
+                    record = _record_for(
+                        source=source,
+                        target=target,
+                        kind='shared_parameter',
+                        source_port=source_port.name,
+                        target_port=param_name,
                     )
                     record['source_ids'].add(source.process_id)
                     record['target_ids'].add(target.process_id)
@@ -1217,6 +1324,8 @@ class CompiledPipeline:
                     label += ' | group_by=' + ','.join(spec.display_keys())
                 if spec.order_by:
                     label += ' | order_by=' + ','.join(spec.order_by)
+            elif record['kind'].startswith('shared_'):
+                label += ' | configuration only'
             graph.add_node(
                 marker,
                 label=f'[bright_magenta]{label}[/bright_magenta]'
@@ -1261,7 +1370,7 @@ def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
         input_node.succ = []
         input_node._gather_connection = None
         input_node._gather_members = None
-        input_node._final_value = None
+        input_node._final_value = _UNSET
     for output_node in node.outputs.values():
         output_node.parent = node
         output_node.pred = []
@@ -1271,7 +1380,7 @@ def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
         param_port.parent = node
         param_port.pred = []
         param_port.succ = []
-        param_port._final_value = None
+        param_port._final_value = _UNSET
     node._configured_cache.clear()
     return node
 
@@ -1338,17 +1447,36 @@ def _node_param_value(node: 'ProcessNode', key: str) -> Any:
     """
     if '.' in key:
         node_name, param = key.split('.', 1)
-        resolved = _resolve_named_node(node, node_name)
-        value = _lookup_on_node(resolved, param)
-        if value is _MISSING:
-            raise KeyError(
-                f'Node {node_name!r} has no parameter, input, or output '
-                f'{param!r} (resolving group key {key!r} for '
-                f'{node.name!r}); algo={sorted(resolved.final_algo_config)} '
-                f'inputs={sorted(resolved.inputs)} '
-                f'outputs={sorted(resolved.outputs)}'
+        resolved_nodes = _resolve_named_nodes(node, node_name)
+        resolved_values = []
+        for resolved in resolved_nodes:
+            value = _lookup_on_node(resolved, param)
+            if value is _MISSING:
+                raise KeyError(
+                    f'Node {node_name!r} has no parameter, input, or output '
+                    f'{param!r} (resolving group key {key!r} for '
+                    f'{node.name!r}); algo={sorted(resolved.final_algo_config)} '
+                    f'inputs={sorted(resolved.inputs)} '
+                    f'outputs={sorted(resolved.outputs)}'
+                )
+            resolved_values.append((resolved, value))
+        distinct = {value for _resolved, value in resolved_values}
+        if len(distinct) > 1:
+            details = {
+                resolved.process_id: value
+                for resolved, value in resolved_values
+            }
+            raise ValueError(
+                f'Ambiguous qualified group key {key!r} for '
+                f'{node.name!r}: concrete {node_name!r} ancestors disagree '
+                f'({details!r})'
             )
-        return value
+        if not resolved_values:
+            raise KeyError(
+                f'No concrete node named {node_name!r} is reachable from '
+                f'{node.name!r}'
+            )
+        return resolved_values[0][1]
 
     value = _lookup_on_node(node, key)
     if value is not _MISSING:
@@ -1356,18 +1484,22 @@ def _node_param_value(node: 'ProcessNode', key: str) -> Any:
 
     # Unqualified fallback: look through ancestors, but refuse to guess if
     # they disagree.
-    ancestor_values = {}
+    ancestor_values = []
     for ancestor in node.ancestor_process_nodes():
         found = _lookup_on_node(ancestor, key)
         if found is not _MISSING:
-            ancestor_values[ancestor.name] = found
+            ancestor_values.append((ancestor, found))
 
     if ancestor_values:
-        distinct = set(ancestor_values.values())
+        distinct = {value for _ancestor, value in ancestor_values}
         if len(distinct) > 1:
+            details = {
+                f'{ancestor.name}:{ancestor.process_id}': value
+                for ancestor, value in ancestor_values
+            }
             raise ValueError(
                 f'Ambiguous group key {key!r} for node {node.name!r}: '
-                f'ancestors disagree ({ancestor_values!r}). Qualify it as '
+                f'ancestors disagree ({details!r}). Qualify it as '
                 f'"<node>.{key}" to say which one you mean.'
             )
         return next(iter(distinct))
@@ -1391,10 +1523,12 @@ class _Missing:
 _MISSING = _Missing()
 
 
-def _resolve_named_node(node: 'ProcessNode', node_name: str) -> 'ProcessNode':
-    """Find ``node_name`` relative to ``node``: itself, or an ancestor."""
+def _resolve_named_nodes(
+    node: 'ProcessNode', node_name: str
+) -> list['ProcessNode']:
+    """Find all concrete ``node_name`` instances visible from ``node``."""
     if node.name == node_name:
-        return node
+        return [node]
     ancestors = [a for a in node.ancestor_process_nodes() if a.name == node_name]
     if not ancestors:
         raise KeyError(
@@ -1404,9 +1538,7 @@ def _resolve_named_node(node: 'ProcessNode', node_name: str) -> 'ProcessNode':
             f'Note that a gather\'s own source is not yet an ancestor while '
             f'that gather is being resolved.'
         )
-    # Instances are per-configuration, so at most one ancestor carries a
-    # given template name on any concrete path.
-    return ancestors[0]
+    return ancestors
 
 
 def _lookup_on_node(node: 'ProcessNode', param: str) -> Any:
@@ -1547,7 +1679,7 @@ def _compile_pipeline_configurations(
             template_nodes[0].root_dpath if template_nodes else None
         ) or '.'
     root_dpath = ub.Path(root_dpath)
-    template_order = list(nx.topological_sort(template.proc_graph))
+    template_order = list(nx.topological_sort(template.config_graph))
     row_nodes: list[dict[str, ProcessNode]] = [dict() for _ in rows]
     instances_by_template: dict[str, dict[str, ProcessNode]] = defaultdict(dict)
     concrete_by_process_id: dict[str, ProcessNode] = {}
@@ -1878,6 +2010,20 @@ class Node(ub.NiceRepr):
         TODO: cleanup, these rules are too complex and confusing.
         There is a reasonable subset here; find and restrict to that.
         """
+        # Keep parameter forwarding distinct from filesystem IO. The generic
+        # connection machinery predates parameter ports and otherwise accepts
+        # nonsensical output->parameter or parameter->input edges that only
+        # fail later during configuration.
+        if isinstance(self, ParamNode) or isinstance(other, ParamNode):
+            if not isinstance(self, ParamNode) or not isinstance(
+                other, ParamNode
+            ):
+                raise TypeError(
+                    'Algorithm parameter ports may only connect to other '
+                    f'algorithm parameter ports; got {self.key!r} -> '
+                    f'{other.key!r}'
+                )
+
         # TODO: CLEANUP
         # print(f'Connect {type(self).__name__} {self.name} to '
         #       f'{type(other).__name__} {other.name}')
@@ -1995,36 +2141,109 @@ class Node(ub.NiceRepr):
         return self.name
 
 
+class _UnsetValue:
+    """Singleton sentinel for a port with no explicit local value."""
+
+    def __deepcopy__(self, memo: Any) -> '_UnsetValue':
+        return self
+
+    def __repr__(self) -> str:
+        return '<unset>'
+
+
+_UNSET = _UnsetValue()
+
+
+def _coerce_comparable_value(value: Any) -> Any:
+    """Normalize common path-like values before conflict checks."""
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    return value
+
+
+def _config_values_equal(left: Any, right: Any) -> bool:
+    """Robust equality for values used by shared configuration ports."""
+    left = _coerce_comparable_value(left)
+    right = _coerce_comparable_value(right)
+    try:
+        equal = left == right
+        if isinstance(equal, bool):
+            return equal
+        if hasattr(equal, 'all'):
+            return bool(equal.all())
+        return bool(equal)
+    except Exception:
+        return repr(left) == repr(right)
+
+
 class IONode(Node):
     __node_type__ = 'io'
 
-    def __init__(self, name: str, parent: Any) -> None:
+    def __init__(
+        self, name: str, parent: Any, default_value: Any = _UNSET
+    ) -> None:
         super().__init__(name)
         self.parent = parent
-        self._final_value = None
+        self.default_value = default_value
+        self._final_value = _UNSET
         self._template_value = None
         self._gather_connection: GatherConnection | None = None
         self._gather_members: list[Any] | None = None
+
+    def _shared_value_predecessors(self) -> list[Any]:
+        """Predecessors that forward an already-known configuration value."""
+        return []
+
+    def _shared_value(self) -> Any:
+        predecessors = self._shared_value_predecessors()
+        if not predecessors:
+            return _UNSET
+        values = [pred.final_value for pred in predecessors]
+        first = values[0]
+        if not all(_config_values_equal(first, value) for value in values[1:]):
+            bindings = {
+                pred.key: value for pred, value in zip(predecessors, values)
+            }
+            raise ValueError(
+                f'Conflicting shared values for {self.key!r}: {bindings!r}'
+            )
+        return first
 
     @property
     def final_value(self) -> Any:
         if self._gather_members is not None:
             return self.gather_manifest_fpath
-        value = self._final_value
-        if value is None:
-            preds = list(self.pred)
-            if preds:
-                if len(preds) != 1:
-                    # Handle Multi-Inputs
-                    value = [p.final_value for p in preds]
-                    # raise AssertionError(ub.paragraph(
-                    #     f'''
-                    #     Expected len(preds) == 1, but got {len(preds)}
-                    #     {preds}
-                    #     '''))
-                else:
-                    value = preds[0].final_value
-        return value
+        local_value = self._final_value
+        shared_value = self._shared_value()
+        if local_value is not _UNSET and shared_value is not _UNSET:
+            if not _config_values_equal(local_value, shared_value):
+                source_values = {
+                    pred.key: pred.final_value
+                    for pred in self._shared_value_predecessors()
+                }
+                raise ValueError(
+                    f'Conflicting explicit and shared values for {self.key!r}: '
+                    f'explicit={local_value!r}, shared={source_values!r}'
+                )
+            return local_value
+        if local_value is not _UNSET:
+            return local_value
+        if shared_value is not _UNSET:
+            return shared_value
+
+        # Produced inputs preserve the historical behavior: one predecessor
+        # forwards one path, and multiple predecessors form a collection.
+        shared_predecessors = self._shared_value_predecessors()
+        produced_preds = [
+            pred for pred in self.pred if pred not in shared_predecessors
+        ]
+        if produced_preds:
+            if len(produced_preds) == 1:
+                return produced_preds[0].final_value
+            return [pred.final_value for pred in produced_preds]
+        if self.default_value is not _UNSET:
+            return self.default_value
+        return None
 
     @final_value.setter
     def final_value(self, value: Any) -> None:
@@ -2059,7 +2278,16 @@ class IONode(Node):
         return ''.join(path + '\n' for path in paths)
 
 
-class InputNode(IONode): ...
+class InputNode(IONode):
+    def _shared_value_predecessors(self) -> list[Any]:
+        return [pred for pred in self.pred if isinstance(pred, InputNode)]
+
+
+class ParamNode(IONode):
+    """A connectable algorithm parameter, distinct from a filesystem input."""
+
+    def _shared_value_predecessors(self) -> list[Any]:
+        return [pred for pred in self.pred if isinstance(pred, ParamNode)]
 
 
 class OutputNode(IONode):
@@ -2818,6 +3046,13 @@ class ProcessNode(Node):
         """
         self.cache = cache
         self._configured_cache.clear()  # Reset memoization caches
+        # ProcessNode is deliberately reused across matrix rows. Port-local
+        # values therefore must be reset before applying each row, otherwise
+        # an omitted value inherits state from the previously configured row.
+        for input_node in self.inputs.values():
+            input_node._final_value = _UNSET
+        for param_port in self.param_ports.values():
+            param_port._final_value = _UNSET
         if config is None:
             config = {}
         # print(f'config = {ub.urepr(config, nl=1)}')
@@ -2831,13 +3066,6 @@ class ProcessNode(Node):
         )
         self.__slurm_options__ = dict(self.slurm_options)
         self.config = ub.udict(config)
-
-        if isinstance(self.in_paths, dict):
-            # In the case where the in paths is a dictionary, we can
-            # prepopulate some of the config options.
-            non_specified = ub.udict(self.in_paths) - self.config
-            for key in non_specified:
-                self.inputs[key].final_value = non_specified[key]
 
         # self.algo_params = set(self.config) - non_algo_keys
         in_path_keys = self.config & set(self.in_paths)  # type: ignore
@@ -2939,18 +3167,19 @@ class ProcessNode(Node):
                         }
                     )
                 else:
-                    # An alias. The value is already part of this node's
-                    # final_algo_config (nothing upstream produced it), so
-                    # the wiring is recorded for provenance but the source
-                    # *instance* is deliberately not: including it would
-                    # make two consumers reading the identical value
-                    # distinct, fanning the consumer out over sweep axes it
-                    # never reads.
+                    # An alias carries a configured value, not a process
+                    # dependency. Record the fully-qualified binding and
+                    # effective value, but deliberately omit a process id.
                     assert isinstance(source_port, InputNode)
                     bindings.append(
                         {
+                            'source': source_port.key,
+                            'target': input_node.key,
                             'source_port': source_port.name,
                             'source_kind': 'input',
+                            'value': _jsonable_config_value(
+                                source_port.final_value
+                            ),
                         }
                     )
             if bindings:
@@ -2962,6 +3191,30 @@ class ProcessNode(Node):
                     )
                 )
                 provenance[input_name] = (
+                    bindings[0] if len(bindings) == 1 else bindings
+                )
+        return provenance
+
+    def _parameter_provenance(self) -> dict[str, Any]:
+        """Describe shared algorithm-parameter bindings on this node."""
+        provenance = {}
+        for param_name, param_port in self.param_ports.items():
+            bindings = []
+            for source_port in param_port.pred:
+                assert isinstance(source_port, ParamNode)
+                bindings.append(
+                    {
+                        'source': source_port.key,
+                        'target': param_port.key,
+                        'source_kind': 'parameter',
+                        'value': _jsonable_config_value(
+                            source_port.final_value
+                        ),
+                    }
+                )
+            if bindings:
+                bindings.sort(key=lambda item: item['source'])
+                provenance[param_name] = (
                     bindings[0] if len(bindings) == 1 else bindings
                 )
         return provenance
@@ -2979,6 +3232,28 @@ class ProcessNode(Node):
             )
         for input_name, binding in self._ordinary_input_provenance().items():
             depends_config[f'__input__.{input_name}'] = binding
+            bindings = binding if isinstance(binding, list) else [binding]
+            alias_bindings = [
+                item for item in bindings if item['source_kind'] == 'input'
+            ]
+            if alias_bindings:
+                # The target value is part of the requested process
+                # configuration even though the source process is not part of
+                # its execution lineage.
+                depends_config.setdefault(
+                    f'{self.name}.{input_name}',
+                    _jsonable_config_value(
+                        self.inputs[input_name].final_value
+                    ),
+                )
+        for param_name, binding in self._parameter_provenance().items():
+            depends_config[f'__parameter__.{param_name}'] = binding
+            depends_config.setdefault(
+                f'{self.name}.{param_name}',
+                _jsonable_config_value(
+                    self.param_ports[param_name].final_value
+                ),
+            )
         for input_name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 connection = input_node._gather_connection
@@ -3279,7 +3554,28 @@ class ProcessNode(Node):
                 unique_ids[0] if len(unique_ids) == 1 else unique_ids
             )
         for input_name, binding in self._ordinary_input_provenance().items():
-            depends[f'__input__.{input_name}'] = binding
+            bindings = binding if isinstance(binding, list) else [binding]
+            produced = [
+                item for item in bindings if item['source_kind'] == 'output'
+            ]
+            if produced:
+                # Output bindings identify a materialized producer. Input
+                # aliases are intentionally omitted: their resolved value is
+                # already represented by ``__inputs__``, so direct and aliased
+                # forms of the same command reuse the same process directory.
+                identity_bindings = [
+                    {
+                        'source_process_id': item['source_process_id'],
+                        'source_port': item['source_port'],
+                        'source_kind': item['source_kind'],
+                    }
+                    for item in produced
+                ]
+                depends[f'__input__.{input_name}'] = (
+                    identity_bindings[0]
+                    if len(identity_bindings) == 1
+                    else identity_bindings
+                )
         for input_name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 connection = input_node._gather_connection
@@ -3297,6 +3593,14 @@ class ProcessNode(Node):
         input_config = self.final_input_config
         if input_config:
             depends['__inputs__'] = dict(sorted(input_config.items()))
+        dependency_only: dict[str, list[str]] = defaultdict(list)
+        for predecessor in self._pred_nodes_without_io_connection:
+            dependency_only[predecessor.name].append(predecessor.process_id)
+        for name, process_ids in dependency_only.items():
+            unique_ids = sorted(set(process_ids))
+            depends[f'__dependency__.{name}'] = (
+                unique_ids[0] if len(unique_ids) == 1 else unique_ids
+            )
         assert isinstance(self.name, str)
         depends[self.name] = self.algo_id
         depends = ub.udict(sorted(depends.items()))
@@ -3392,11 +3696,19 @@ class ProcessNode(Node):
             Dict[str, InputNode]
         """
         assert self.in_paths is not None
-        inputs = {k: InputNode(name=k, parent=self) for k in self.in_paths}
+        defaults = self.in_paths if isinstance(self.in_paths, dict) else {}
+        inputs = {
+            k: InputNode(
+                name=k,
+                parent=self,
+                default_value=defaults.get(k, _UNSET),
+            )
+            for k in self.in_paths
+        }
         return inputs
 
     @cached_property
-    def param_ports(self) -> dict[str, InputNode]:
+    def param_ports(self) -> dict[str, ParamNode]:
         """
         Ports for algorithm parameters, so they can be wired between nodes.
 
@@ -3413,10 +3725,18 @@ class ProcessNode(Node):
         the value lands in ``final_algo_config`` like any other parameter.
 
         Returns:
-            Dict[str, InputNode]
+            Dict[str, ParamNode]
         """
         keys = self.algo_params if self.algo_params is not None else {}
-        return {k: InputNode(name=k, parent=self) for k in keys}
+        defaults = self.algo_params if isinstance(self.algo_params, dict) else {}
+        return {
+            k: ParamNode(
+                name=k,
+                parent=self,
+                default_value=defaults.get(k, _UNSET),
+            )
+            for k in keys
+        }
 
     @cached_property
     def outputs(self) -> dict[str, OutputNode]:
@@ -3703,11 +4023,13 @@ def _labelize_graph(
         'ProcessNode': 'yellow',
         'InputNode': 'bright_cyan',
         'OutputNode': 'bright_yellow',
+        'ParamNode': 'bright_green',
     }
     clsname_to_typename = {
         'ProcessNode': 'proc',
         'InputNode': 'in',
         'OutputNode': 'out',
+        'ParamNode': 'param',
     }
 
     all_names = []
@@ -3760,14 +4082,24 @@ def _add_prefix(prefix: str, dict_: Any) -> dict[str, Any]:
     return {prefix + k: v for k, v in dict_.items()}
 
 
+def _jsonable_config_value(value: Any) -> Any:
+    """Convert common configuration values into JSON-compatible forms."""
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    if isinstance(value, dict):
+        return {
+            key: _jsonable_config_value(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_jsonable_config_value(item) for item in value]
+    return value
+
+
 def _fixup_config_serializability(config: Any) -> dict[str, Any]:
     # Do minor chanes to make the config json serializable.
     fixed_config = {}
     for k, v in config.items():
-        if isinstance(v, os.PathLike):
-            fixed_config[k] = os.fspath(v)
-        else:
-            fixed_config[k] = v
+        fixed_config[k] = _jsonable_config_value(v)
     return fixed_config
 
 
