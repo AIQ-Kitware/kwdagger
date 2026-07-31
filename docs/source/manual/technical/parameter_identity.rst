@@ -55,7 +55,8 @@ The three configs
 
 ``final_algo_config``
     What algorithm the node runs: ``config`` minus ``out_paths``,
-    ``perf_params`` and ``in_paths``, plus ``algo_params`` defaults.
+    ``perf_params`` and ``in_paths``, plus ``algo_params`` defaults, plus
+    the value of any parameter whose port is wired (which outranks both).
     Deliberately contains no paths.
 
 ``final_input_config``
@@ -86,6 +87,43 @@ The two ids
     nothing produced), connected-input provenance, and gather membership.
     Node output directories are named from it.
 
+The three kinds of edge
+-----------------------
+
+Every edge connects two ports, but they mean different things and only one
+of them creates a scheduling dependency.
+
+``a.outputs['x'] -> b.inputs['y']`` -- **production**
+    ``a`` writes the file ``b`` reads. ``b`` waits for ``a``, and ``a``
+    becomes an ancestor, so ``a``'s identity folds into ``b``'s
+    ``process_id``. This is the only edge that orders execution.
+
+``a.inputs['x'] -> b.inputs['y']`` -- **shared input**
+    Both nodes read the same file; neither produces it. No dependency, no
+    ancestry. ``b`` gets the value, and the value -- not the instance it
+    came from -- is what enters ``b``'s identity. Declare a path once and
+    wire it rather than restating it per consumer.
+
+``a.param_ports['x'] -> b.param_ports['y']`` -- **shared parameter**
+    Same semantics as a shared input, but for a value that is not data.
+    It reaches ``final_algo_config`` and therefore ``algo_id``, because a
+    parameter belongs to the algorithm's identity rather than the data's.
+    Declare a label once and wire it rather than restating it per consumer
+    in ``include``.
+
+.. warning::
+
+    A shared edge deliberately does **not** make its source an ancestor.
+    Recording the source *instance* would make two consumers that read an
+    identical value distinct, fanning the consumer out over sweep axes it
+    never reads. Only the value is identity-bearing.
+
+    The consequence worth internalising: a shared edge does not order
+    execution. If ``b`` must wait for ``a``, connect an output to an input.
+
+All three round-trip through the declarative YAML form; see
+:doc:`yaml_pipeline_spec`.
+
 How an input is supplied
 ------------------------
 
@@ -114,6 +152,22 @@ Three wirings, which classify differently:
     ``process_id``, so using it would be circular. Membership enters
     identity through ``depends['__gather__.<port>']`` instead.
 
+How a parameter is supplied
+---------------------------
+
+``from the matrix``
+    The row config gives it. Lands in ``final_algo_config``, reaches
+    ``algo_id``.
+
+``from a declared default``
+    ``algo_params={'k': v}`` supplies it when the row does not. Same
+    destination; the row outranks the default.
+
+``wired`` (``a.param_ports['k'].connect(b.param_ports['k'])``)
+    A peer supplies it. Outranks both the row and the default, so a
+    consumer needs no entry of its own in the matrix or in ``include``.
+    Carries a value, not a dependency.
+
 Measured behaviour
 ------------------
 
@@ -121,22 +175,27 @@ From ``dev/audits/`` on a detection + segmentation pipeline where the
 dataset path is simultaneously a predictor input, the gather key, and the
 truth a scorer measures against:
 
-===============================  ==============  ================
-perturbation                     ``algo_id``     ``process_id``
-===============================  ==============  ================
-``detect.workers`` (perf)        unchanged       unchanged
-``detect.thresh`` (algo)         detect only     detect + all downstream
-``score_det.iou_thresh``         score_det only  score_det + summarize
-add a model to the cohort        **unchanged**   consumers only
-sibling branch parameter         unchanged       that branch + summarize
-===============================  ==============  ================
+===============================  =================  =======================
+perturbation                     ``algo_id``        ``process_id``
+===============================  =================  =======================
+``detect.workers`` (perf)        unchanged          unchanged
+``detect.thresh`` (algo)         detect only        detect + downstream
+``score_det.iou_thresh``         score_det only     score_det + summarize
+add a model to the cohort        **unchanged**      consumers only
+sibling branch parameter         unchanged          that branch + summarize
+relabel a wired parameter        source + consumer  source + consumer
+===============================  =================  =======================
 
-Two properties worth naming, because they are the point of the design:
+Three properties worth naming, because they are the point of the design:
 
 * A perf param moves nothing.
 * Adding a cohort member leaves every existing instance's ids untouched,
   so previously computed work stays valid. Only the consumers that now
   gather one more member move.
+* A wired parameter moves the consumer's ``algo_id``, not just its
+  ``process_id``. That is the intended difference from a shared input: the
+  consumer really is running a differently-parameterized algorithm, where
+  a node handed a different file is running the same one on other data.
 
 Resolved inconsistencies
 ------------------------
@@ -194,6 +253,11 @@ Fixed by letting a group key name itself differently on each side::
 All three wirings of the audit's detection/segmentation case now compile
 to the same instance counts.
 
+``src``/``dst`` is a convenience, not the main answer. Where the two ends
+share a value, wiring it -- an input for a path, a parameter port for a
+label -- is usually better: the correspondence is then stated once, by the
+edge, instead of restated by name in the gather spec.
+
 Rejected: partition semantics
 -----------------------------
 
@@ -242,3 +306,17 @@ Reproducing
 .. code:: bash
 
     python dev/audits/param_identity_audit.py
+
+.. note::
+
+    Run the test suite with the environment's ``python`` on ``PATH``.
+    Generated job scripts invoke ``python`` unqualified, so four tests that
+    actually execute a scheduled job fail with an empty result table if it
+    does not resolve -- which looks like an aggregation bug rather than a
+    missing interpreter::
+
+        # 4 failed
+        /path/to/venv/bin/python -m pytest tests/
+
+        # 99 passed
+        PATH="/path/to/venv/bin:$PATH" /path/to/venv/bin/python -m pytest tests/

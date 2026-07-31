@@ -356,6 +356,35 @@ only in how each node's CLI is invoked (the YAML form uses ``python -m
 example_user_module.cli....`` rather than an absolute script path, since a static
 document cannot compute one).
 
+Shared value edges
+------------------
+
+An edge between two *inputs*, or between two *parameter ports*, shares a
+value rather than declaring a dependency::
+
+    edges:
+      - detect.dataset_fpath -> score.truth_fpath      # shared input
+      - detect.model_family  -> score.model_family     # shared parameter
+
+Neither makes the source an ancestor of the target: the target does not
+wait for it, and does not inherit its identity. Only the *value* is
+identity-bearing. That is deliberate -- recording the source instance
+would make two consumers that read an identical value distinct, fanning
+the consumer out over sweep axes it never reads.
+
+The point of both is to declare a value once. Without them, every consumer
+needs its own entry in the matrix (for a path) or its own line on every
+row of ``include`` (for a correlated parameter), which grows as consumers
+x values and can drift out of step with the value it copies.
+
+A shared **input** edge carries a path; the value reaches ``process_id``,
+because it identifies data. A shared **parameter** edge carries anything
+else; the value reaches ``algo_id``, because it identifies the algorithm.
+See :doc:`parameter_identity` for what that distinction buys.
+
+Because a shared edge does not order execution, use an output-to-input
+edge whenever the target genuinely must wait for the source.
+
 Compile-time gather edges
 -------------------------
 
