@@ -666,7 +666,10 @@ class ArtistManager:
         if 'color' in attrs:
             attrs['color'] = kwimage.Color.coerce(attrs['color']).as01()
         if 'hashid' in attrs:
-            attrs = attrs - {'hashid'}  # ty: ignore[unsupported-operator]
+            # ``attrs`` is already a fresh udict copy, so deleting in place is
+            # equivalent to udict's set-difference without depending on whether
+            # a checker resolves ``udict.__sub__``.
+            del attrs['hashid']
         hashid = ub.hash_data(sorted(attrs.items()))[0:8]
         return hashid, attrs
 

@@ -1,0 +1,48 @@
+pipeline: ./pipeline.yaml
+
+# Each matrix fixes one algorithm/seed group. Fold fans out before the gather,
+# while test_set fans out after it.
+matrices:
+  - matrix:
+      train.data_fpath: [data.txt]
+      train.algorithm: [linear]
+      train.seed: [0]
+      train.fold: [0, 1, 2]
+      build_ensemble.algorithm: [linear]
+      build_ensemble.seed: [0]
+      evaluate.algorithm: [linear]
+      evaluate.seed: [0]
+      evaluate.test_set: [clean, shifted]
+
+  - matrix:
+      train.data_fpath: [data.txt]
+      train.algorithm: [linear]
+      train.seed: [1]
+      train.fold: [0, 1, 2]
+      build_ensemble.algorithm: [linear]
+      build_ensemble.seed: [1]
+      evaluate.algorithm: [linear]
+      evaluate.seed: [1]
+      evaluate.test_set: [clean, shifted]
+
+  - matrix:
+      train.data_fpath: [data.txt]
+      train.algorithm: [forest]
+      train.seed: [0]
+      train.fold: [0, 1, 2]
+      build_ensemble.algorithm: [forest]
+      build_ensemble.seed: [0]
+      evaluate.algorithm: [forest]
+      evaluate.seed: [0]
+      evaluate.test_set: [clean, shifted]
+
+  - matrix:
+      train.data_fpath: [data.txt]
+      train.algorithm: [forest]
+      train.seed: [1]
+      train.fold: [0, 1, 2]
+      build_ensemble.algorithm: [forest]
+      build_ensemble.seed: [1]
+      evaluate.algorithm: [forest]
+      evaluate.seed: [1]
+      evaluate.test_set: [clean, shifted]

@@ -116,7 +116,6 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
-    Union,
 )
 
 import numpy as np
@@ -504,9 +503,13 @@ class QueryPlan:
 # ----------------------------
 
 
-def _coerce_value_to_groups(val: Union[str, Sequence, Dict]) -> List[Group]:
+def _coerce_value_to_groups(val: Any) -> List[Group]:
     """
     Normalize a node's YAML value into a list of Groups.
+
+    Accepts any decoded YAML value -- callers pass through whatever the user
+    wrote -- and raises TypeError for shapes that have no grouping meaning.
+
     - str               -> [("and", [str])]
     - list[str|dict]    -> flatten: str -> AND; dict -> and/or keys
     - dict              -> keys may be 'and' and/or 'or'

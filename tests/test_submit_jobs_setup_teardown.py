@@ -28,6 +28,7 @@ Following ``test_submit_jobs_log_flag.py``, we only verify the rendered
 script here; the execution semantics (teardown runs on success / failure
 / signal; setup gates the command) are covered by cmd_queue's own tests.
 """
+
 from __future__ import annotations
 
 import inspect

@@ -21,6 +21,7 @@ BashJob) is render-tested in ``test_submit_jobs_setup_teardown.py``; this
 module checks the *runtime* behavior, and requires a cmd_queue new enough to
 support setup/teardown (>= 0.3.1) -- skipped otherwise.
 """
+
 from __future__ import annotations
 
 import inspect

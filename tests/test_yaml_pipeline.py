@@ -742,6 +742,28 @@ def test_dump_yaml_pipeline_round_trips():
     )
 
 
+def test_plain_process_node_round_trip_uses_yaml_process_node():
+    """Plain ProcessNode data reloads through the declarative node class."""
+    from kwdagger.pipeline import Pipeline, ProcessNode
+    from kwdagger.yaml_pipeline import YamlProcessNode, load_yaml_pipeline
+
+    node = ProcessNode(
+        name='plain',
+        executable='python plain.py',
+        in_paths={'src'},
+        out_paths={'dst': 'out.txt'},
+        algo_params={'alpha': 1},
+    )
+    dag = Pipeline({'plain': node})
+    reloaded = load_yaml_pipeline(dag.to_yaml_spec())
+
+    assert type(reloaded.node_dict['plain']) is YamlProcessNode
+    assert reloaded.node_dict['plain'].executable == node.executable
+    assert reloaded.node_dict['plain'].in_paths == node.in_paths
+    assert reloaded.node_dict['plain'].out_paths == node.out_paths
+    assert reloaded.node_dict['plain'].algo_params == node.algo_params
+
+
 def test_dump_rejects_unimportable_node_class():
     """A node class defined in a local scope cannot be serialized."""
     import pytest
@@ -816,7 +838,8 @@ def test_yaml_setup_teardown_round_trip():
     assert node2.teardown == ['release_lease', 'log_done']
 
     # A node without setup/teardown does not gain the keys on dump.
-    plain = dump_yaml_pipeline(load_yaml_pipeline(
-        {'nodes': {'a': {'executable': 'echo a'}}}))
+    plain = dump_yaml_pipeline(
+        load_yaml_pipeline({'nodes': {'a': {'executable': 'echo a'}}})
+    )
     assert 'setup' not in plain['nodes']['a']
     assert 'teardown' not in plain['nodes']['a']

@@ -39,6 +39,8 @@ kwarray==0.7.1
     #   kwdagger
     #   kwimage
     #   kwplot
+kwconf==0.10.0
+    # via kwdagger
 kwimage==0.11.6
     # via kwplot
 kwplot==0.5.4

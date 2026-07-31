@@ -28,6 +28,12 @@ Welcome to kwdagger's documentation!
    manual/technical/yaml_pipeline_spec
    manual/technical/hashing_scheme
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Tutorials
+
+   manual/tutorials/gather_cross_validation/README
+
 
 Indices and tables
 ==================

@@ -63,6 +63,23 @@ CASES = [
             'score_boxes.iou_thresh': 0.5,
         },
     ),
+    (
+        'gather_cross_validation',
+        'pipelines',
+        'build_pipeline',
+        'pipeline.yaml',
+        {
+            'train.data_fpath': 'data.txt',
+            'train.algorithm': 'linear',
+            'train.seed': 0,
+            'train.fold': 0,
+            'build_ensemble.algorithm': 'linear',
+            'build_ensemble.seed': 0,
+            'evaluate.algorithm': 'linear',
+            'evaluate.seed': 0,
+            'evaluate.test_set': 'clean',
+        },
+    ),
 ]
 
 # Runs inside the subprocess; compares the Python and YAML pipelines.
@@ -127,7 +144,14 @@ assert sorted(rt_dag.proc_graph.edges()) == sorted(py_dag.proc_graph.edges()), '
 rt_dag.configure(config=row, root_dpath=root, cache=False)
 for name in py_dag.node_dict:
     pn, rn = py_dag.node_dict[name], rt_dag.node_dict[name]
-    assert type(pn).__name__ == type(rn).__name__, f'{name}: round-trip class differs'
+    # A plain ProcessNode is serialized as pure data and intentionally reloads
+    # through YamlProcessNode. Custom subclasses retain an exact class reference.
+    if type(pn) is kwdagger.ProcessNode:
+        assert type(rn) is kwdagger.yaml_pipeline.YamlProcessNode, (
+            f'{name}: plain ProcessNode should reload as YamlProcessNode'
+        )
+    else:
+        assert type(pn) is type(rn), f'{name}: round-trip class differs'
     assert pn.process_id == rn.process_id, f'{name}: round-trip process_id differs'
     assert pn.final_command() == rn.final_command(), f'{name}: round-trip command differs'
     assert norm_metrics(pn) == norm_metrics(rn), f'{name}: round-trip metrics differ'
