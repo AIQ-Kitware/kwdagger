@@ -30,10 +30,10 @@ Python path produces.
 .. note::
 
     The Python API is **not** deprecated. Anything the YAML format cannot
-    express (custom ``command`` construction, bespoke result parsing, dynamic
-    node generation) is still best done in Python. The YAML format is the
-    recommended default for the common case where nodes are CLI tools invoked
-    with ``--key value`` arguments.
+    express (custom ``command`` construction, bespoke result parsing, or
+    programmatic node generation) is still best done in Python. YAML is a
+    convenient data representation for straightforward nodes; it is not a
+    requirement that existing programs adopt one command-line convention.
 
 
 Where a YAML pipeline can be specified
@@ -129,19 +129,21 @@ Every field of a node spec maps directly to a keyword argument of
     the hashed node directory; you only specify the leaf name.
 
 ``primary_out_key`` (string)
-    Which output is the node's principal product (used for DAG chaining and for
-    the generic result loader). Defaults to the sole entry when ``out_paths`` has
-    exactly one key.
+    Which output is the node's principal product. It provides a practical
+    completion check and is used by the generic result loader. Defaults to the
+    sole entry when ``out_paths`` has exactly one key.
 
 ``algo_params`` (mapping)
-    Algorithm knobs and their defaults. These **affect the node's hash**: two
-    runs that differ in an ``algo_param`` get distinct output directories. This
-    is what you usually sweep in the matrix.
+    Parameters and defaults that the current implementation treats as
+    identity-bearing. Two runs that differ in an ``algo_param`` normally receive
+    distinct output directories. The name is historical rather than a complete
+    theory of what constitutes an algorithm.
 
 ``perf_params`` (mapping)
-    Performance knobs (workers, device, batch size) and their defaults. These do
-    **not** affect the hash, so changing them does not invalidate cached
-    outputs.
+    Parameters and defaults that are passed to the command but deliberately
+    excluded from operational result identity. Workers are a common example,
+    but the mechanism also covers non-performance values such as verbosity.
+    Kwdagger assumes these values do not materially change the result.
 
 ``group`` (string)
     Optional subdirectory under the DAG root for organizing this node's outputs.
@@ -149,8 +151,9 @@ Every field of a node spec maps directly to a keyword argument of
 ``slurm_options`` (mapping)
     Optional per-node SLURM options (``partition``, ``qos``, ``time``, ...).
 
-The following fields are specific to the YAML format and support **evaluation
-nodes** without requiring Python (see `Evaluation nodes`_):
+The following optional fields support the built-in aggregation workflow for
+**evaluation nodes** without requiring Python (see `Evaluation nodes`_). They
+are secondary to scheduling and command construction:
 
 ``metrics`` (list of mappings)
     Metric metadata used by ``kwdagger aggregate``. Each entry:
@@ -179,17 +182,26 @@ nodes** without requiring Python (see `Evaluation nodes`_):
 Edges
 -----
 
-An edge connects an **output port** of one node to an **input port** of another
-(the usual case), or an input port of one node to an input port of another
-(input *forwarding* -- reusing the same data for two inputs). Each endpoint is
-written ``node_name.port_name``. When resolving a port, the loader checks the
-node's outputs first, then its inputs, so::
+Each endpoint is written ``node_name.port_name``. There are two broad semantic
+classes:
+
+* **Produced artifact edges** connect an output to an input. The source writes
+  the file the target reads, so the edge creates execution ordering and
+  persistent process lineage.
+* **Shared known-value edges** connect input to input or algorithm parameter to
+  algorithm parameter. The source port provides a value that is already known
+  during configuration. Sharing it should not by itself create execution
+  ordering, ``.pred`` lineage, or fan-out over unrelated source sweep axes.
+
+For example::
 
     edges:
-      # output -> input: predictions feed the evaluator
+      # produced artifact: predictions feed the evaluator
       - predict.dst_fpath -> evaluate.pred_fpath
-      # input -> input: the evaluator reuses the predictor's source as ground truth
+      # shared input: both nodes read the same externally supplied data
       - predict.src_fpath -> evaluate.true_fpath
+      # shared parameter: one campaign choice is reused by both nodes
+      - predict.model_family -> evaluate.model_family
 
 The string form ``"src.port -> dst.port"`` is preferred for readability. A more
 explicit mapping form is also accepted and is easier to validate
@@ -200,8 +212,11 @@ programmatically::
       # or the compact dotted variant:
       - {src: predict.dst_fpath, dst: evaluate.pred_fpath}
 
-This mirrors the Python API exactly. ``predict.dst_fpath -> evaluate.pred_fpath``
-is the data-level spelling of::
+Port names should be unambiguous within a node. The loader currently resolves
+outputs, then inputs, then parameter ports; avoid reusing one name across those
+categories in YAML-facing nodes.
+
+The output-to-input example mirrors the Python API::
 
     nodes['predict'].outputs['dst_fpath'].connect(nodes['evaluate'].inputs['pred_fpath'])
 
@@ -209,10 +224,11 @@ is the data-level spelling of::
 Evaluation nodes
 ----------------
 
-The one capability that genuinely needs Python in the class-based API is
+For aggregation, the capability that normally requires custom Python is
 ``load_result`` -- the method an evaluation node implements to extract metrics
 and context from its output for ``kwdagger aggregate``. The YAML format provides
-a **generic** ``load_result`` so that the common case needs no Python:
+a **generic** ``load_result`` so that the common JSON case needs no custom
+subclass:
 
 1. It reads the node's primary output file (``out_paths[primary_out_key]``),
    which must be JSON.
@@ -359,31 +375,35 @@ document cannot compute one).
 Shared value edges
 ------------------
 
-An edge between two *inputs*, or between two *parameter ports*, shares a
-value rather than declaring a dependency::
+An edge between two *inputs*, or between two *algorithm parameter ports*,
+shares a value rather than a produced artifact::
 
     edges:
       - detect.dataset_fpath -> score.truth_fpath      # shared input
       - detect.model_family  -> score.model_family     # shared parameter
 
-Neither makes the source an ancestor of the target: the target does not
-wait for it, and does not inherit its identity. Only the *value* is
-identity-bearing. That is deliberate -- recording the source instance
-would make two consumers that read an identical value distinct, fanning
-the consumer out over sweep axes it never reads.
+Use these relationships when the equality is part of the pipeline itself. They
+allow one canonical value to be reused without repeating it for every consumer
+in the matrix or every row of ``include``.
 
-The point of both is to declare a value once. Without them, every consumer
-needs its own entry in the matrix (for a path) or its own line on every
-row of ``include`` (for a correlated parameter), which grows as consumers
-x values and can drift out of step with the value it copies.
+The intended contract is:
 
-A shared **input** edge carries a path; the value reaches ``process_id``,
-because it identifies data. A shared **parameter** edge carries anything
-else; the value reaches ``algo_id``, because it identifies the algorithm.
-See :doc:`parameter_identity` for what that distinction buys.
+* the target receives the source port's effective value;
+* the source process does not become an execution predecessor merely because it
+  names that value;
+* the target does not inherit unrelated source sweep axes; and
+* the requested record retains fully qualified source and target names so the
+  sharing remains understandable.
 
-Because a shared edge does not order execution, use an output-to-input
-edge whenever the target genuinely must wait for the source.
+Treat the source as canonical. Do not independently configure a contradictory
+target value; implementations should reject disagreement rather than silently
+choosing one side. A shared relationship may need configuration-resolution
+ordering internally, but it must not be represented as false process lineage.
+
+Use an output-to-input edge whenever the target genuinely requires a file that
+the source process must materialize first.
+
+See :doc:`parameter_identity` for the broader execution and identity model.
 
 Compile-time gather edges
 -------------------------
@@ -391,6 +411,11 @@ Compile-time gather edges
 A gather edge connects many configured instances of one source output to one
 collection-valued target input. Membership is resolved when the entire parameter
 matrix is compiled; no jobs are discovered or created at runtime.
+
+Gather is a newer feature than the historical row-at-a-time scheduler. Its
+whole-matrix compilation path should be treated as an implementation cost to
+validate against established command generation, result reuse, and lineage
+behavior, not as a reason to redefine ordinary scheduling around gather.
 
 The mapping edge form accepts a ``gather`` specification::
 
@@ -443,12 +468,13 @@ The mapping edge form accepts a ``gather`` specification::
     gathering predictions, say -- because a qualified ``<node>.<param>`` cannot
     name a node the target cannot reach.
 
-    An unqualified name stays supported. It resolves against the node itself and
-    then against its ancestors, and raises if ancestors disagree rather than
-    guessing. Prefer qualifying: declaring the same parameter on several nodes
-    so an unqualified key resolves creates a second, independent sweep axis,
-    and kwdagger takes the product of the two -- producing instances whose
-    declared parameter value and actual upstream input disagree.
+    An unqualified name remains supported as shorthand, but it is a footgun:
+    extending the pipeline can introduce a new candidate that did not exist when
+    the specification was written. Prefer qualified names, require unique
+    resolution, and use the fully qualified form in diagnostics or stored
+    compiled representations. Declaring similarly named parameters on several
+    nodes can also create independent sweep axes and unintended Cartesian
+    products.
 
 ``order_by`` (optional)
     Source algorithm parameters used to order the paths in the generated

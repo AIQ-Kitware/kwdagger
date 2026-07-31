@@ -15,20 +15,31 @@ Kwdagger
 
 Overview
 --------
-KWDagger is a lightweight framework for defining bash-centric DAGs and running
-large parameter sweeps. It builds on top of
+KWDagger turns parameterized definitions of existing command-line programs into
+static, inspectable graphs of shell commands and hashed result directories. It
+builds on
 `cmd_queue <https://gitlab.kitware.com/computer-vision/cmd_queue>`_ and
 `scriptconfig <https://gitlab.kitware.com/utils/scriptconfig>`_ to provide:
 
 * Reusable ``kwdagger.pipeline.Pipeline`` and ``kwdagger.pipeline.ProcessNode``
-  abstractions for wiring inputs / outputs together.
-* A scheduling CLI (``kwdagger.schedule``) that materializes pipeline
-  definitions over a parameter grid and executes them via Slurm, tmux, or a
-  serial backend.
-* An aggregation CLI (``kwdagger.aggregate``) that loads job outputs, computes
-  metrics, and optionally plots parameter/metric relationships.
-* A self-contained demo pipeline in ``kwdagger.demo.demodata`` that is used
-  in CI and serves as a reference implementation.
+  abstractions for constructing commands and wiring produced artifacts.
+* Parameter-matrix expansion with operational deduplication of equivalent
+  requested work.
+* Per-process ``invoke.sh`` files and a navigable ``.pred`` / ``.succ`` symlink
+  graph, so generated work can be inspected, rerun, or invalidated without
+  remaining inside the kwdagger runtime.
+* A scheduling CLI (``kwdagger.schedule``) that hands the static command graph
+  to serial, tmux, or Slurm cmd_queue backends. The tmux backend is the most
+  commonly used interactive runner.
+* An optional aggregation CLI (``kwdagger.aggregate``) that loads completed
+  results, requested and resolved parameters, and metrics into analytical
+  tables and reports.
+* A self-contained demo pipeline in ``kwdagger.demo.demodata`` that is used in
+  CI and serves as a reference implementation.
+
+Kwdagger wraps ordinary scripts rather than replacing them. A node may use the
+default named-argument command convention or subclass ``ProcessNode`` to support
+an existing positional or otherwise specialized CLI.
 
 Repository layout
 -----------------
@@ -84,14 +95,16 @@ Run the demo pipeline locally to see the CLI workflow end-to-end:
             concise: 1
         "
 
-The scheduler will generate per-node job directories with ``invoke.sh`` and
-``job_config.json`` metadata. The aggregator then consolidates results,
-computes parameter hash IDs, and prints a concise report.
+The scheduler generates per-node job directories with ``invoke.sh`` and
+``job_config.json`` metadata. Each ``invoke.sh`` is intended to be a usable
+recomputation command even when kwdagger is not involved in the rerun. The
+aggregator is then one optional way to consolidate results and print a report.
 
-A novel graph based symlink structure allows for navigation of dependencies
-within a node. The ``.succ`` folder holds symlinks to successors (i.e. results
-that depend on the current results), and ``.pred`` holds symlinks to folders of
-results that the current folder depends on.
+The hashed result tree contains a graph-based symlink structure for navigating
+produced-artifact dependencies. The ``.succ`` folder links to results that
+depend on the current result, and ``.pred`` links to results consumed by the
+current process. This makes downstream inspection and invalidation possible
+after the original scheduling command has finished.
 
 For more in-depth information see tutorials:
 

@@ -1,322 +1,326 @@
-Parameter Classification and Node Identity
-==========================================
+Process Parameters, Result Identity, and Shared Values
+=====================================================
 
-What a node carries, which of it becomes identity, and which identity.
+This page describes the current execution model and the design priorities that
+should guide changes to kwdagger.  It intentionally distinguishes the stable
+user-facing ideas from historical parameter names and current implementation
+details.
 
-This is the model the scheduler relies on for caching and for deciding
-which jobs are the "same" job. It is worth reading before adding a
-parameter to a node, because *which kind* you choose determines whether
-changing it invalidates prior work.
+The center of the system
+------------------------
 
-The four kinds of parameter
----------------------------
+Kwdagger turns parameterized definitions of existing command-line programs into
+a static graph of shell commands and hashed result directories.  Its primary
+products are:
 
-``algo_params``
-    Feed ``final_algo_config`` and therefore ``algo_id``. Each one has a
-    port (:func:`ProcessNode.param_ports`), so it can be **wired** from
-    another node: ``a.param_ports['x'].connect(b.param_ports['x'])``. A
-    wired parameter carries a value, not a dependency -- the consumer does
-    not inherit the producer's fan-out -- and the value outranks both the
-    row config and the declared default.
+* the command that each process should run;
+* the ordering between commands that exchange produced artifacts;
+* a stable result directory for each requested computation;
+* an ``invoke.sh`` that can rerun an individual process without kwdagger;
+* ``.pred`` and ``.succ`` links that preserve the realized result graph; and
+* enough requested configuration to understand how the graph was constructed.
 
-``perf_params``
-    Feed neither id. Deliberately not identity-bearing: changing
-    ``workers`` must not invalidate a result.
+Kwdagger normally hands the commands to :mod:`cmd_queue`, most commonly using
+the tmux backend, but execution is deliberately separable from kwdagger.  A user
+should be able to inspect, copy, rerun, or invalidate pieces of the generated
+result graph using ordinary shell tools.
+
+Aggregation is an important optional consumer of this result graph.  It is not
+the definition of the core execution model, and SMART/geowatch-specific
+aggregation conventions should not unnecessarily constrain scheduling.
+
+``ProcessNode`` and command construction
+----------------------------------------
+
+A :class:`~kwdagger.pipeline.ProcessNode` describes how one kind of program is
+invoked.  Given its current parameters, one of its most important jobs is to
+produce the complete command string and the paths associated with that command.
+
+The default convention emits named command-line arguments, but users may
+subclass ``ProcessNode`` when an existing program uses positional arguments,
+subcommands, conditional flags, or another convention.  Kwdagger wraps existing
+programs; it should not require those programs to become kwdagger-specific.
+
+The historical parameter groups
+--------------------------------
+
+The current API divides node values into four groups.  These names are useful
+for describing today's behavior, but they are historical and should not be
+mistaken for a final ontology.
 
 ``in_paths``
-    Ports, so they **can** be connected. When nothing upstream produced
-    the value it feeds ``final_input_config`` and reaches ``process_id``
-    via ``depends``; it never reaches ``algo_id``. See `How an input is
-    supplied`_.
+    Data on disk that the program reads.  A value may be supplied directly or
+    may name an artifact produced by another process.
 
 ``out_paths``
-    Never identity-bearing on their own -- their location is *derived
-    from* identity, so including them would be circular.
+    Data written by the program.  At least one output should be designated by
+    ``primary_out_key`` (or be the only output) so kwdagger has a practical
+    completion check for the process.
 
-.. note::
+``algo_params``
+    Parameters that kwdagger currently assumes can affect the computation or
+    its result.  They therefore participate in operational result identity.
+    The name is imperfect: input data also affects a computation, and the
+    boundary between executable parameters and data is not always conceptually
+    clean.
 
-    Where exactly the line between ``algo_params`` and ``in_paths`` should
-    fall is **not settled**. The mechanical consequences above are exact;
-    the principle for choosing is not.
+``perf_params``
+    Parameters that kwdagger currently assumes do not define a different
+    logical result.  They are passed to the command but excluded from result
+    identity.  The name is also imperfect: verbosity is not performance, and a
+    nominally operational setting such as CPU count can sometimes perturb a
+    result.  The current system deliberately treats those effects as negligible
+    unless the user models them with an identity-bearing parameter.
 
-    ``perf_params`` in particular is a name for a mechanism rather than a
-    category: what it really means is *do not hash this*. Plenty of values
-    have that property without being about performance -- a verbosity flag
-    does not change results either, and calling it a performance parameter
-    is a stretch.
+These groups may eventually be renamed or generalized.  Near-term changes
+should preserve compatibility rather than attempting a taxonomy redesign.
 
-    Sharing is no longer part of the distinction: both ``in_paths`` and
-    ``algo_params`` have ports and can be wired. What remains is which
-    identity a value belongs to -- the algorithm's or the data's -- and
-    that line is clear in the mechanism if not always in a given case.
+Requested, effective, and resolved values
+-----------------------------------------
 
-The three configs
------------------
+It is useful to distinguish several views of a process configuration.
 
-``final_algo_config``
-    What algorithm the node runs: ``config`` minus ``out_paths``,
-    ``perf_params`` and ``in_paths``, plus ``algo_params`` defaults, plus
-    the value of any parameter whose port is wired (which outranks both).
-    Deliberately contains no paths.
+Requested values
+    Values explicitly supplied by the matrix, ``include`` rules, or another
+    scheduling configuration.  ``job_config.json`` primarily records this
+    requested experiment description and its dotted parameter lineage; omitted
+    defaults need not appear as explicitly specified values.
 
-``final_input_config``
-    The resolved value of every input **no ancestor produced** --
-    ``unconnected`` and ``aliased``. These have no producing instance to
-    speak for them, so they enter identity here.
+Effective command values
+    Values used by ``ProcessNode`` to construct the command after declared
+    defaults and shared-value connections are resolved.
 
-``final_perf_config``
-    The ``perf_params``. Feeds the command line, never an id.
+Resolved runtime values
+    Values the executable reports that it actually used, often through
+    ``ProcessContext`` metadata.  Script defaults, normalization, environment,
+    and runtime-derived settings may appear here.
 
-``depends``
-    What ``process_id`` hashes: every ancestor's ``algo_id``, this node's
-    own ``algo_id``, the provenance of each connected input, and for a
-    gathered input its spec and the exact member process ids.
+Requested and resolved values need not be identical.  Aggregation can preserve
+both.  However, the requested record should still make it possible to understand
+which node-qualified values and sharing declarations produced the command.
 
-The two ids
------------
+Matrix correlation and pipeline relationships
+----------------------------------------------
 
-``algo_id`` = ``hash({'__node__': name, **final_algo_config})``
-    Which algorithm this is, independent of the DAG *and of how its data
-    was wired in*. Two pipelines running the same computation share an
-    ``algo_id`` even if one takes its dataset from the matrix and the
-    other from an upstream node.
+The matrix language describes an experiment campaign.  ``matrix``, ``include``,
+and ``exclude`` are important mechanisms for independent variation and
+conditional correlation.  ``submatrices`` are also useful, especially for
+inheriting common parent values, but they began as a pragmatic extension and
+should not be treated as the only or final way to express correlation.
 
-``process_id`` = ``hash(depends)``
-    Identity of this computation *in this DAG*: every ancestor's
-    ``algo_id``, this node's own ``algo_id``, ``__inputs__`` (the inputs
-    nothing produced), connected-input provenance, and gather membership.
-    Node output directories are named from it.
+A useful distinction is:
 
-The three kinds of edge
------------------------
+* a relationship that is always true for a pipeline belongs naturally in the
+  pipeline definition; and
+* a relationship that is specific to one campaign belongs naturally in the
+  matrix or an ``include`` rule.
 
-Every edge connects two ports, but they mean different things and only one
-of them creates a scheduling dependency.
+For example, if two ports always represent the same conceptual input, an edge is
+clearer than repeating both values in every matrix.  A model-specific threshold
+used only by one campaign is usually better expressed by ``include``.
 
-``a.outputs['x'] -> b.inputs['y']`` -- **production**
-    ``a`` writes the file ``b`` reads. ``b`` waits for ``a``, and ``a``
-    becomes an ancestor, so ``a``'s identity folds into ``b``'s
-    ``process_id``. This is the only edge that orders execution.
+Edge semantics
+--------------
 
-``a.inputs['x'] -> b.inputs['y']`` -- **shared input**
-    Both nodes read the same file; neither produces it. No dependency, no
-    ancestry. ``b`` gets the value, and the value -- not the instance it
-    came from -- is what enters ``b``'s identity. Declare a path once and
-    wire it rather than restating it per consumer.
+Produced artifact edges
+~~~~~~~~~~~~~~~~~~~~~~~
 
-``a.param_ports['x'] -> b.param_ports['y']`` -- **shared parameter**
-    Same semantics as a shared input, but for a value that is not data.
-    It reaches ``final_algo_config`` and therefore ``algo_id``, because a
-    parameter belongs to the algorithm's identity rather than the data's.
-    Declare a label once and wire it rather than restating it per consumer
-    in ``include``.
+``a.outputs['x'] -> b.inputs['y']`` means that ``a`` writes the artifact that
+``b`` reads.  This relationship has all of the following consequences:
 
-.. warning::
+* ``b`` receives the concrete output path from ``a``;
+* ``b`` must execute after that concrete instance of ``a``;
+* the source process is part of the target's operational lineage; and
+* the realized result graph records the relationship through ``.pred`` and
+  ``.succ`` links.
 
-    A shared edge deliberately does **not** make its source an ancestor.
-    Recording the source *instance* would make two consumers that read an
-    identical value distinct, fanning the consumer out over sweep axes it
-    never reads. Only the value is identity-bearing.
+A produced artifact edge is both data flow and execution dependency.
 
-    The consequence worth internalising: a shared edge does not order
-    execution. If ``b`` must wait for ``a``, connect an output to an input.
+Shared known-value edges
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-All three round-trip through the declarative YAML form; see
-:doc:`yaml_pipeline_spec`.
+``a.inputs['x'] -> b.inputs['y']`` shares an already-known path.  The source
+process does not produce that path.  Likewise,
+``a.param_ports['x'] -> b.param_ports['y']`` shares an already-known parameter
+value.
 
-How an input is supplied
-------------------------
+The intended semantics are:
 
-Three wirings, which classify differently:
+* the value can be declared once and reused by consumers;
+* sharing the value does not by itself require the source process to execute;
+* the source process is not part of the consumer's process lineage merely
+  because its port supplied the value; and
+* unrelated sweep axes on the source node must not fan out the consumer.
 
-``unconnected``
-    The matrix supplies the path. No predecessor. The value lands in
-    ``final_input_config`` and reaches ``process_id`` via
-    ``depends['__inputs__']``. It is **not** part of ``algo_id``.
+These are configuration relationships, not produced-artifact relationships.
+They may require an internal configuration-resolution order, but that order must
+not be confused with execution order or persistent ``.pred`` lineage.
 
-``aliased`` (``a.inputs['x'].connect(b.inputs['x'])``)
-    Another node consumes the same value; nothing produces it. Treated
-    exactly like ``unconnected`` -- the value is in
-    ``final_input_config``, and the source instance is deliberately *not*
-    part of identity.
-    (Recording the source instance made the consumer fan out over sweep
-    axes it never reads.)
+Treat the source as the canonical value.  A target should either omit its local
+value or specify the same value.  Contradictory values should be rejected rather
+than silently selecting one side.
 
-``connected`` (``a.outputs['x'].connect(b.inputs['x'])``)
-    An ancestor produced it. The value is excluded from both configs,
-    because the producing instance's identity is already folded into
-    ``process_id`` via ancestor hashing. Including it would double-count.
+Configuration resolution must also be independent of node insertion order and
+of values left over from a previously configured matrix row.  This is especially
+important because the established non-gather scheduler repeatedly mutates and
+reconfigures the same node objects.
 
-``gathered``
-    Excluded from ``final_algo_config``: the manifest path is derived from
-    ``process_id``, so using it would be circular. Membership enters
-    identity through ``depends['__gather__.<port>']`` instead.
+Gather edges
+~~~~~~~~~~~~
 
-How a parameter is supplied
+A gather edge is a static many-to-one produced-artifact relationship.  Kwdagger
+selects a known collection of concrete source outputs, writes a path manifest,
+and passes that manifest to an ordinary consumer input.
+
+Gather is intentionally not runtime directory discovery.  The membership must
+be fixed before the consumer runs.  The current implementation obtains that
+knowledge by compiling the complete matrix before submission, which is a newer
+and more expensive path than the historical row-at-a-time scheduler.  Gather is
+still a relatively new feature, so changes should be validated against the
+established command, identity, and result-graph behavior rather than treating
+its current implementation as settled architecture.
+
+For grouping keys, prefer fully qualified ``node.parameter`` names.  An
+unqualified name is convenient shorthand but can become ambiguous when a
+pipeline grows.  A compiled or stored representation should use the qualified
+name once resolution is known.
+
+Operational result identity
 ---------------------------
 
-``from the matrix``
-    The row config gives it. Lands in ``final_algo_config``, reaches
-    ``algo_id``.
+The most important identity is the one used to decide whether requested work
+can reuse an existing result directory.
 
-``from a declared default``
-    ``algo_params={'k': v}`` supplies it when the row does not. Same
-    destination; the row outranks the default.
+``process_id``
+    Names a concrete requested computation under kwdagger's declared
+    configuration and lineage model.  It is used in hashed directory names and
+    queue deduplication.
 
-``wired`` (``a.param_ports['k'].connect(b.param_ports['k'])``)
-    A peer supplies it. Outranks both the row and the default, so a
-    consumer needs no entry of its own in the matrix or in ``include``.
-    Carries a value, not a dependency.
+``algo_id``
+    A current implementation component derived from a node's identity-bearing
+    non-output parameters.  It can be useful for constructing ``process_id`` or
+    for ad-hoc queries, but it does not yet have a strong, stable standalone
+    semantic contract.  Documentation and new code should not elevate it above
+    the observable result-reuse behavior.
 
-Measured behaviour
-------------------
+The hashes are operational proxies, not content hashes or determinism proofs.
+Kwdagger generally hashes declared values and paths, not the bytes stored at
+those paths.  Equal IDs mean that kwdagger considers two requests reusable under
+its model; they do not prove that an external file is unchanged or that the
+program is deterministic.
 
-From ``dev/audits/`` on a detection + segmentation pipeline where the
-dataset path is simultaneously a predictor input, the gather key, and the
-truth a scorer measures against:
+When repeated stochastic realizations are desired, the user must include an
+explicit seed, repetition, or enumeration parameter that changes identity, or
+choose a different root directory.
 
-===============================  =================  =======================
-perturbation                     ``algo_id``        ``process_id``
-===============================  =================  =======================
-``detect.workers`` (perf)        unchanged          unchanged
-``detect.thresh`` (algo)         detect only        detect + downstream
-``score_det.iou_thresh``         score_det only     score_det + summarize
-add a model to the cohort        **unchanged**      consumers only
-sibling branch parameter         unchanged          that branch + summarize
-relabel a wired parameter        source + consumer  source + consumer
-===============================  =================  =======================
+The result directory graph
+--------------------------
 
-Three properties worth naming, because they are the point of the design:
+The hashed directory structure is a defining kwdagger feature.  A process
+directory normally contains or participates in:
 
-* A perf param moves nothing.
-* Adding a cohort member leaves every existing instance's ids untouched,
-  so previously computed work stays valid. Only the consumers that now
-  gather one more member move.
-* A wired parameter moves the consumer's ``algo_id``, not just its
-  ``process_id``. That is the intended difference from a shared input: the
-  consumer really is running a differently-parameterized algorithm, where
-  a node handed a different file is running the same one on other data.
+* one or more outputs, including a primary completion output;
+* ``invoke.sh`` with the complete command needed to recompute the process;
+* ``job_config.json`` with requested configuration and lineage information;
+* logs and runtime metadata;
+* ``.pred`` links to results this process consumed; and
+* ``.succ`` links to results that consume this process.
 
-Resolved inconsistencies
+The links make the graph navigable after scheduling has finished.  They also
+make downstream invalidation practical: when a result is removed or judged
+invalid, users can discover which later results depended on it.
+
+Re-running ``invoke.sh`` reproduces the requested command.  A nondeterministic
+program can still produce different bytes, so recomputation guarantees should
+be described in terms of the request rather than bitwise identity.
+
+Dotted parameter lineage
 ------------------------
 
-These three were found by the audit and have since been fixed. They are
-kept here because the reasoning explains why the model looks the way it
-does.
+Node-qualified dotted keys are the concise representation used to join a
+process with the requested parameters of its lineage.  This is important even
+outside the built-in aggregator because it permits result directories to be
+loaded into a table where each concrete result is a row and each relevant
+node-qualified value is a column.
 
-Finding 1: ``algo_id`` was wiring-dependent
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A shared known value should therefore remain understandable in the requested
+record even though its source process is not an execution ancestor.  Recording
+the fully qualified source and target ports, and the value supplied, preserves
+that distinction without inventing false process lineage.
 
-Running the identical algorithm on the identical data used to produce a
-different ``algo_id`` depending on whether the path came from the matrix
-or from an upstream node -- and in the latter case the algo config held no
-data at all. ``algo_ids`` were therefore not comparable across pipelines
-that wired a computation differently.
-
-The cause was structural rather than accidental: an unconnected input has
-no ancestor to carry its identity, so ``final_algo_config`` was the only
-place it could live. ``depends`` carried a TODO naming exactly this gap.
-
-Fixed by splitting the concept. ``final_algo_config`` is now algorithm
-parameters only; ``final_input_config`` holds the inputs nothing produced,
-and ``depends['__inputs__']`` carries them into ``process_id``. All three
-wirings now share one ``algo_id``, and two runs over different data still
-get different ``process_ids`` and different output directories.
-
-Finding 2: empty algo configs hashed identically everywhere
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``algo_id`` hashed ``final_algo_config`` alone, with the node name only a
-*prefix* on the resulting string, so any two nodes with empty algo configs
-shared the hash portion across unrelated pipelines. The prefix kept full
-ids distinct, so this was not a correctness bug, but the hash portion was
-unusable on its own.
-
-Fixed by hashing the node name as part of the payload.
-
-Finding 3: the two ends of a gather had to agree on a port name
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-While a gather is being resolved its source is not yet an ancestor of its
-target, so ``group_by`` cannot name the source node. On a realistic
-detection + segmentation pipeline the scorer has no ordinary edge to the
-predictor, and the only formulation that compiled required both nodes to
-use the *same port name* -- a coupling that showed up only at compile
-time.
-
-Fixed by letting a group key name itself differently on each side::
-
-    group_by:
-      - src: dataset_fpath      # what the predictor calls it
-        dst: truth_fpath        # what the scorer calls it
-
-All three wirings of the audit's detection/segmentation case now compile
-to the same instance counts.
-
-``src``/``dst`` is a convenience, not the main answer. Where the two ends
-share a value, wiring it -- an input for a path, a parameter port for a
-label -- is usually better: the correspondence is then stated once, by the
-edge, instead of restated by name in the gather spec.
-
-Rejected: partition semantics
------------------------------
-
-During the audit a case was argued at length for changing gathers to
-*partition* their sources -- grouping sources by the key and inducing one
-target instance per group -- instead of joining against a target axis that
-must already exist. It was rejected. It is recorded here with its
-counter-evidence so it is not proposed again.
-
-Four arguments were made for it. Each has a cheaper answer that already
-exists:
-
-*The sweep has to be declared once per consumer.*
-    It does not. Wire the consumers' ports to the one that carries the
-    value (``dev/audits/case_single_source_of_truth.py``). The dataset
-    list appears once; ``segment.dataset_fpath``,
-    ``score_det.truth_fpath`` and ``score_seg.truth_fpath`` are connected
-    to it rather than restated.
-
-*A restated axis can drift out of sync with the real one.*
-    Only if you restate it. With one source of truth there is nothing to
-    disagree.
-
-*A gather's target cannot reach its source, so it cannot name it.*
-    True, but a wire between them *is* a route. Aliasing gives the target
-    the value directly, so nothing needs naming across the gather.
-
-*Grouping by a non-path key forces ``include`` to restate every consumer.*
-    This was the real gap, and it was closed by making algorithm
-    parameters connectable rather than by changing how gathers compile.
-    Wire the parameter and the value is declared once.
-    ``dev/audits/case_shared_label.py`` measures it: with wiring the
-    ``include`` block is 12 entries and stays 12 no matter how many
-    consumers there are; without it, 24 entries for two consumers and 30
-    for three.
-
-The behaviour partitioning was meant to provide -- one target instance per
-distinct group -- already falls out of value-based identity. Six ``detect``
-instances produce three ``score`` instances because ``model_family`` takes
-three distinct values and is identity-bearing. No compilation mode is
-required.
-
-Reproducing
+Aggregation
 -----------
 
-.. code:: bash
+``kwdagger aggregate`` is one way to query the accumulated result graph.  It can
+load requested and resolved parameters, flatten dotted lineage, parse metrics,
+and construct comparison tables.  Metrics, vantage points, region-aware
+macros, and analytical parameter hashes are valuable capabilities, but many of
+them originated in the SMART/geowatch workflow and are secondary to the core
+scheduling and result-directory contract.
 
-    python dev/audits/param_identity_audit.py
+The result graph should remain useful to custom scripts, shell tools, notebooks,
+databases, and future inspection interfaces that do not use the built-in
+aggregator.
 
-.. note::
+Current implementation names
+----------------------------
 
-    Run the test suite with the environment's ``python`` on ``PATH``.
-    Generated job scripts invoke ``python`` unqualified, so four tests that
-    actually execute a scheduled job fail with an empty result table if it
-    does not resolve -- which looks like an aggregation bug rather than a
-    missing interpreter::
+The current code uses several intermediate properties:
 
-        # 4 failed
-        /path/to/venv/bin/python -m pytest tests/
+``final_algo_config``
+    Identity-bearing executable parameters after defaults and parameter sharing
+    are resolved.  The current branch excludes ``in_paths`` from this mapping.
 
-        # 99 passed
-        PATH="/path/to/venv/bin:$PATH" /path/to/venv/bin/python -m pytest tests/
+``final_input_config``
+    Input values not produced by a concrete upstream process, including directly
+    supplied and shared inputs.
+
+``final_perf_config``
+    Non-identity values that still enter the command.
+
+``depends``
+    The payload used to construct ``process_id``.  It summarizes the node's own
+    identity-bearing values, produced-artifact lineage, externally supplied
+    inputs, and gather membership.
+
+These names document today's mechanics.  They should be evaluated by whether
+they produce the right commands, reuse boundaries, result directories, and
+lineage—not treated as the permanent conceptual foundation of kwdagger.
+
+Design priorities for future changes
+------------------------------------
+
+When modifying parameters, hashing, matrix compilation, or edges, preserve these
+priorities:
+
+#. Produce a complete, inspectable static command plan before execution.
+#. Keep execution separable from kwdagger and preserve useful ``invoke.sh``
+   files.
+#. Reuse exactly the work that the declared configuration and produced-artifact
+   lineage say is equivalent.
+#. Preserve the navigable hashed directory graph and correct ``.pred`` / ``.succ``
+   relationships.
+#. Keep dotted requested lineage understandable without inventing process
+   dependencies for values that did not require materialization.
+#. Maintain the established row-at-a-time configuration path unless a feature
+   explicitly requires whole-matrix knowledge.
+#. Treat aggregation as an important consumer, but do not let one historical
+   reporting workflow define the entire execution model.
+#. Prefer compatibility and concrete exhibitions over broad taxonomy redesigns.
+
+Open questions
+--------------
+
+The following remain legitimate design questions rather than resolved doctrine:
+
+* whether the four historical parameter groups should eventually be renamed or
+  replaced;
+* whether ``algo_id`` merits a stable public contract or should remain an
+  implementation detail;
+* whether whole-matrix compilation should remain gather-specific or eventually
+  become the general scheduler path;
+* how compute-resource declarations should interact with cmd_queue and Slurm;
+* whether future experiment-level labels are needed beyond node parameters and
+  matrix correlations; and
+* how best to represent shared and gathered values in generic result-querying
+  tools.

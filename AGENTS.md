@@ -5,9 +5,10 @@ in this repository. It summarizes the project layout, development environment,
 common workflows, and testing/documentation practices.
 
 ## Project overview
-- **Purpose:** `kwdagger` defines bash-centric DAG pipelines that can be expanded
-  over parameter grids, scheduled on multiple backends (serial, tmux, Slurm),
-  and aggregated for reporting.
+- **Purpose:** `kwdagger` turns parameterized definitions of existing command-line
+  programs into static graphs of shell commands and hashed result directories.
+  It can dispatch those commands through serial, tmux, or Slurm backends, while
+  preserving inspectable `invoke.sh` files and a navigable result graph.
 - **Primary CLIs:**
   - `python -m kwdagger.schedule` / `kwdagger schedule` – schedule a pipeline via `ScheduleEvaluationConfig`.
   - `python -m kwdagger.aggregate` / `kwdagger aggregate` – aggregate completed runs via `AggregateEvluationConfig` and generate text/plot reports.
@@ -65,69 +66,90 @@ common workflows, and testing/documentation practices.
 - Build the HTML docs locally with `make -C docs html` (requires
   `requirements/docs.txt`). Generated output is placed under `docs/build/html`.
 
-## Core pipeline invariants and value proposition
+## Core execution model and priorities
 
-Treat these as architectural constraints, especially when changing scheduling,
-graph compilation, generated commands, or artifact layout.
+Treat these as the primary constraints when changing scheduling, graph
+compilation, generated commands, hashing, or artifact layout.
 
-- **Static DAG:** all process instances and dependency memberships are fixed at
-  compile time. Nodes may make data-dependent decisions internally, but they
-  must map those decisions into statically declared outputs. Do not add runtime
-  task discovery or scheduler-side DAG mutation without an explicit redesign.
-- **Bash is a first-class product:** kwdagger constructs the graph, but execution
-  must be separable from kwdagger. A generated cmd-queue Bash script or the
-  exported script bundle rooted at its node ``invoke.sh`` files must contain
-  the complete commands needed to execute the work. Static scripts and configs
-  may be materialized during compilation when a backend requires file-backed
-  commands, but they must be visible, portable artifacts rather than opaque
-  in-memory state.
-- **Ordinary CLI contracts:** nodes consume named ``--key=value`` arguments.
-  Existing programs should require only mild CLI adaptation. Avoid positional
-  conventions and avoid expanding large collections into command-line argument
-  lists.
-- **Preserve the node model:** new features should compose the existing
-  ``algo_params``, ``in_paths``, and ``out_paths`` concepts instead of creating
-  a parallel parameter or artifact language.
-- **Gather is compile-time edge semantics:** use
-  ``GatherSpec(group_by=[...], order_by=[...], require='all_success')``. The
-  compiler partitions known source instances with dataframe-like ``group_by``
-  semantics, orders each group deterministically, and passes one path-manifest
-  filename to an ordinary consumer node. Gather is not a special user program
-  and not a runtime-discovery node. Parameters omitted from ``group_by`` vary
-  within the group; do not add a second ``across``/``over`` membership control.
-- **Portable gather manifests:** collection membership is written with a quoted
-  heredoc inside the consumer's complete command and ``invoke.sh``. This avoids
-  ``ARG_MAX`` when Bash reads a script because member paths are script input
-  rather than argv. Backends that transport commands through an argument, most
-  notably Slurm's ``sbatch --wrap``, must submit a short file-backed command such
-  as ``bash invoke.sh`` instead of placing the heredoc in ``--wrap``. The
-  newline-delimited format rejects paths containing newlines.
-- **Heredoc delimiters stay at column zero:** cmd_queue normally indents
-  dependency-guarded job bodies for display. Any serial or tmux job containing
-  a generated heredoc must set ``allow_indent=False``; otherwise Bash will not
-  recognize the closing delimiter and the exported script becomes invalid.
-  Preserve readability by explicitly indenting ordinary commands inside a brace
-  group while leaving only heredoc bodies and terminators at column zero.
-  Heredoc-bearing commands must not begin with ``(``: cmd_queue may add its own
-  logging subshell, and the combination becomes Bash arithmetic syntax
-  ``((...))``. Prefer ``{ ...; }`` with explicit ``&&`` chaining.
-- **Visible cardinality:** logical Process and IO graphs must visibly distinguish
-  gather fan-in and collection-valued inputs. After matrix compilation, report
-  concrete direct, fan-out, fan-in, and many-to-many cardinalities before queue
-  submission. Generated execution text should make manifest creation obvious.
-- **Deterministic identity:** gather policy, ordered logical membership, source
-  process IDs, and source output keys participate in the consumer process hash.
-  Ordinary connected inputs also record the exact source process and source
-  port; an unordered ancestor set is not sufficient to identify a binding graph.
-  Cache identity must not depend on cache-root location, filesystem enumeration
-  order, or completion timing.
-- **Phase boundaries for discovery:** workflows with an unknown runtime candidate
-  set should materialize and freeze that set, then compile a new static
-  downstream pipeline. Do not weaken ordinary gather semantics to mean
-  "whatever outputs happen to exist."
-- **Aggregation is separate:** ``aggregate`` queries historical results; gather
-  connects known outputs inside one compiled pipeline. Keep these concepts and
-  implementations distinct.
+- **The command is the primary product:** a `ProcessNode` must be able to turn
+  its current parameters into the complete shell command and associated paths.
+  The default named-argument convention is convenient, but subclasses may
+  support positional arguments, subcommands, or other existing CLI conventions.
+  Kwdagger wraps ordinary programs; it should not lock users into a bespoke
+  execution ecosystem.
+- **Static planning:** all concrete commands and produced-artifact dependencies
+  are determined before execution. Nodes may make data-dependent decisions
+  internally, but scheduler-side runtime DAG mutation requires an explicit
+  phase boundary and a newly compiled downstream pipeline.
+- **Execution remains separable:** cmd_queue is the normal execution mechanism,
+  with tmux the most commonly used interactive backend, but generated commands
+  and per-node `invoke.sh` files must remain usable without kwdagger. Do not hide
+  essential execution state only in Python objects or scheduler internals.
+- **The hashed result graph is a defining feature:** preserve stable result
+  directories, a practical primary-output completion check, and correct `.pred`
+  / `.succ` links. Users rely on this graph for inspection, independent reruns,
+  and downstream invalidation after scheduling has finished.
+- **Produced artifacts define execution lineage:** an output-to-input edge means
+  the source must execute and materialize data before the target. It therefore
+  creates queue ordering, process lineage, and persistent predecessor/successor
+  links.
+- **Known-value sharing is not execution lineage:** input-to-input forwarding and
+  algorithm-parameter sharing reuse an already-known value. They may require
+  configuration resolution, but they should not by themselves create execution
+  dependencies, `.pred` links, or fan-out over unrelated source sweep axes.
+  Configuration resolution must be independent of node insertion order and of
+  stale values from a previously configured matrix row.
+- **Matrix correlation is first-class:** `matrix`, `include`, and `exclude` are
+  established mechanisms for describing an experiment campaign. `submatrices`
+  are useful but historically pragmatic. Put relationships that are always true
+  in the pipeline; put campaign-specific correlations in the matrix.
+- **The parameter taxonomy is historical:** `in_paths`, `out_paths`,
+  `algo_params`, and `perf_params` describe current mechanics, not a settled
+  ontology. In particular, `perf_params` means “excluded from operational result
+  identity,” even for values such as verbosity that are not performance knobs.
+  Preserve compatibility now; do not redesign the taxonomy incidentally.
+- **Operational identity is a reuse mechanism:** `process_id` decides result
+  directory and queue reuse under kwdagger's declared parameters, paths, and
+  lineage. It is not a content hash or a proof of determinism. `algo_id` is a
+  current implementation component without a strong standalone public contract;
+  do not optimize the architecture around it at the expense of observable
+  command, reuse, or lineage behavior.
+- **Preserve dotted requested lineage:** `job_config.json` records the requested
+  experiment description, while executables may separately report resolved
+  runtime parameters. Shared values should remain understandable with fully
+  qualified source/target names even when they do not create process ancestry.
+- **Gather is new compile-time many-to-one semantics:** gather selects a known
+  set of source outputs, writes a manifest, and passes one manifest path to an
+  ordinary consumer. It is not historical result discovery. The current
+  implementation compiles the complete matrix before submission; validate that
+  path against the established row-at-a-time workflow rather than treating it
+  as settled architecture.
+- **Prefer qualified grouping keys:** unqualified gather keys are shorthand and
+  can become ambiguous when a pipeline expands. Resolve them uniquely or fail,
+  and prefer storing/printing the canonical qualified form.
+- **Aggregation is an optional consumer:** metrics, vantage points, analytical
+  hashes, and SMART/geowatch-specific conventions matter, but they are secondary
+  to command generation and the result directory graph. Keep the filesystem
+  useful to custom scripts and other inspection tools.
+
+### Current gather shell constraints
+
+The following are implementation constraints of the current gather mechanism,
+not the general conceptual definition of kwdagger:
+
+- Gather membership and policy participate in consumer identity, while absolute
+  cache-root paths must not.
+- Collection membership is written as a newline-delimited manifest using a
+  quoted heredoc in the consumer's `invoke.sh`; paths containing newlines are
+  rejected.
+- Heredoc delimiters must remain at column zero. Serial/tmux jobs containing a
+  generated heredoc use `allow_indent=False`, and the shell wrapper must avoid a
+  leading `(` that could combine with cmd_queue logging syntax.
+- Slurm should submit a short file-backed command such as `bash invoke.sh`
+  instead of placing a large heredoc in `sbatch --wrap`.
+- Logical and compiled graph diagnostics should make gather fan-in and manifest
+  creation visible without pretending that a gather marker is an executable
+  node.
 
 ## Extending or refactoring
 - **Pipelines:** new pipelines should compose `ProcessNode` instances with

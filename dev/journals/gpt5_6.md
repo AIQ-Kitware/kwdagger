@@ -88,3 +88,25 @@ commands visibly indented. Only heredoc contents and closing delimiters remain
 at column zero, which is the unavoidable syntax requirement for quoted
 heredocs. Tests now assert the generated consumer begins with ``{``, contains
 fail-fast chaining, and serializes as ``({ ... })`` rather than ``(( ... ))``.
+
+## 2026-07-31 14:18:00 -0400
+
+Reframed the documentation around the established kwdagger workflow after
+reviewing the pre-LLM geowatch.mlops lineage and the maintainer's corrections.
+The previous parameter-identity document treated a recent implementation as a
+settled theory, including strong claims about `algo_id`, parameter categories,
+and rejected gather alternatives. That emphasis was misleading.
+
+The revised documentation makes command construction, static planning, hashed
+result directories, standalone `invoke.sh` files, and navigable `.pred` / `.succ`
+lineage the primary product. It records the four parameter groups as historical
+mechanisms rather than a final ontology, treats aggregation as an important but
+secondary consumer, and documents shared input/parameter edges as configuration
+relationships that must not invent execution lineage. Gather is explicitly
+called out as new and still requiring validation against the historical
+row-at-a-time scheduler.
+
+I am confident this is a substantially better statement of priorities. The
+remaining risk is that some normative shared-value guarantees described here
+are not yet satisfied by the current code; that is intentional for this
+documentation-first overlay and should guide the next implementation patch.
