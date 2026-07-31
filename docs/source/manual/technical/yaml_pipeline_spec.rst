@@ -397,6 +397,18 @@ The mapping edge form accepts a ``gather`` specification::
     target until that gather is resolved, so the target needs an independent
     edge to whatever it groups by.
 
+    When the two ends name the same value differently, say so rather than
+    renaming a port::
+
+        group_by:
+          - src: dataset_fpath
+            dst: truth_fpath
+
+    ``src`` is resolved on the source instances and ``dst`` on the target. This
+    matters when the target has no ordinary edge to the source -- a scorer
+    gathering predictions, say -- because a qualified ``<node>.<param>`` cannot
+    name a node the target cannot reach.
+
     An unqualified name stays supported. It resolves against the node itself and
     then against its ancestors, and raises if ancestors disagree rather than
     guessing. Prefer qualifying: declaring the same parameter on several nodes

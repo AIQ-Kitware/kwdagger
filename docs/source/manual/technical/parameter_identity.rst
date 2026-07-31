@@ -32,10 +32,14 @@ The three configs
 -----------------
 
 ``final_algo_config``
-    ``config`` minus ``out_paths`` and ``perf_params``, plus
-    ``algo_params`` defaults, **plus the resolved value of every input
-    that is not produced by an ancestor**. That last clause is the
-    surprising one; see `Finding 1`_.
+    What algorithm the node runs: ``config`` minus ``out_paths``,
+    ``perf_params`` and ``in_paths``, plus ``algo_params`` defaults.
+    Deliberately contains no paths.
+
+``final_input_config``
+    The resolved value of every input **no ancestor produced** --
+    ``unconnected`` and ``aliased``. These have no producing instance to
+    speak for them, so they enter identity here.
 
 ``final_perf_config``
     The ``perf_params``. Feeds the command line, never an id.
@@ -48,12 +52,17 @@ The three configs
 The two ids
 -----------
 
-``algo_id`` = ``hash(final_algo_config)``
-    Documented as "does NOT have a dependency on the larger DAG".
+``algo_id`` = ``hash({'__node__': name, **final_algo_config})``
+    Which algorithm this is, independent of the DAG *and of how its data
+    was wired in*. Two pipelines running the same computation share an
+    ``algo_id`` even if one takes its dataset from the matrix and the
+    other from an upstream node.
 
 ``process_id`` = ``hash(depends)``
-    Identity of this computation *in this DAG*, including everything
-    upstream. Node output directories are named from it.
+    Identity of this computation *in this DAG*: every ancestor's
+    ``algo_id``, this node's own ``algo_id``, ``__inputs__`` (the inputs
+    nothing produced), connected-input provenance, and gather membership.
+    Node output directories are named from it.
 
 How an input is supplied
 ------------------------
@@ -62,20 +71,21 @@ Three wirings, which classify differently:
 
 ``unconnected``
     The matrix supplies the path. No predecessor. The value lands in
-    ``final_algo_config``, so it is part of ``algo_id``.
+    ``final_input_config`` and reaches ``process_id`` via
+    ``depends['__inputs__']``. It is **not** part of ``algo_id``.
 
 ``aliased`` (``a.inputs['x'].connect(b.inputs['x'])``)
     Another node consumes the same value; nothing produces it. Treated
-    exactly like ``unconnected`` -- the value is in ``final_algo_config``,
-    and the source instance is deliberately *not* part of identity.
+    exactly like ``unconnected`` -- the value is in
+    ``final_input_config``, and the source instance is deliberately *not*
+    part of identity.
     (Recording the source instance made the consumer fan out over sweep
     axes it never reads.)
 
 ``connected`` (``a.outputs['x'].connect(b.inputs['x'])``)
-    An ancestor produced it. The value is excluded from
-    ``final_algo_config``, because the producing instance's identity is
-    already folded into ``process_id`` via ancestor hashing. Including it
-    would double-count.
+    An ancestor produced it. The value is excluded from both configs,
+    because the producing instance's identity is already folded into
+    ``process_id`` via ancestor hashing. Including it would double-count.
 
 ``gathered``
     Excluded from ``final_algo_config``: the manifest path is derived from
@@ -106,74 +116,73 @@ Two properties worth naming, because they are the point of the design:
   so previously computed work stays valid. Only the consumers that now
   gather one more member move.
 
-Known inconsistencies
----------------------
+Resolved inconsistencies
+------------------------
 
-.. _Finding 1:
+These three were found by the audit and have since been fixed. They are
+kept here because the reasoning explains why the model looks the way it
+does.
 
-Finding 1: ``algo_id`` is wiring-dependent
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Finding 1: ``algo_id`` was wiring-dependent
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Run the identical algorithm on the identical data, wired three ways
-(``dev/audits/case_wiring_equivalence.py``):
+Running the identical algorithm on the identical data used to produce a
+different ``algo_id`` depending on whether the path came from the matrix
+or from an upstream node -- and in the latter case the algo config held no
+data at all. ``algo_ids`` were therefore not comparable across pipelines
+that wired a computation differently.
 
-=============  =====================================  ============
-variant        ``final_algo_config``                  ``algo_id``
-=============  =====================================  ============
-unconnected    ``{model, data_fpath}``                ``xaudwts5o0``
-aliased        ``{model, data_fpath}``                ``xaudwts5o0``
-produced       ``{model}`` -- no data at all          ``c45qpqiscp``
-=============  =====================================  ============
+The cause was structural rather than accidental: an unconnected input has
+no ancestor to carry its identity, so ``final_algo_config`` was the only
+place it could live. ``depends`` carried a TODO naming exactly this gap.
 
-So ``algo_id`` answers "this algorithm on this data" when the path comes
-from the matrix, and "this algorithm" when an upstream node produced it.
-Two pipelines running the same computation cannot be compared by
-``algo_id`` if they wire it differently.
+Fixed by splitting the concept. ``final_algo_config`` is now algorithm
+parameters only; ``final_input_config`` holds the inputs nothing produced,
+and ``depends['__inputs__']`` carries them into ``process_id``. All three
+wirings now share one ``algo_id``, and two runs over different data still
+get different ``process_ids`` and different output directories.
 
-The reason is structural rather than accidental: for an unconnected input
-there is no ancestor to carry the data identity, so ``final_algo_config``
-is the only place it can live. ``depends`` carries a TODO acknowledging
-exactly this -- *"We need to know what input paths have not been
-represented"*.
+Finding 2: empty algo configs hashed identically everywhere
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A resolution consistent with the name ``algo_id`` would be to split the
-concept:
+``algo_id`` hashed ``final_algo_config`` alone, with the node name only a
+*prefix* on the resulting string, so any two nodes with empty algo configs
+shared the hash portion across unrelated pipelines. The prefix kept full
+ids distinct, so this was not a correctness bug, but the hash portion was
+unusable on its own.
 
-* ``final_algo_config`` -- algorithm parameters only, no paths.
-* ``final_input_config`` -- resolved values of inputs no ancestor
-  produced (unconnected and aliased).
-* ``depends`` gains the latter, replacing the TODO.
+Fixed by hashing the node name as part of the payload.
 
-``algo_id`` then becomes wiring-independent and comparable across
-pipelines, while ``process_id`` keeps distinguishing datasets exactly as
-it does now. All three variants above would share one ``algo_id``.
+Finding 3: the two ends of a gather had to agree on a port name
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Finding 2: an empty ``final_algo_config`` hashes identically everywhere
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+While a gather is being resolved its source is not yet an ancestor of its
+target, so ``group_by`` cannot name the source node. On a realistic
+detection + segmentation pipeline the scorer has no ordinary edge to the
+predictor, and the only formulation that compiled required both nodes to
+use the *same port name* -- a coupling that showed up only at compile
+time.
 
-``algo_id`` hashes ``final_algo_config`` alone; the node name is only a
-*prefix* on the resulting string. Any two nodes with empty algo configs
-therefore share the hash portion -- ``summarize`` in one pipeline and
-``report`` in an unrelated one both yield ``...rbmqz8lzuq5f``. The prefix
-keeps full ids distinct, so this is not a correctness bug, but it makes
-the hash portion useless as a standalone key and is surprising when
-reading two runs side by side.
+Fixed by letting a group key name itself differently on each side::
 
-Finding 3: a gather's target cannot reach its own source
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    group_by:
+      - src: dataset_fpath      # what the predictor calls it
+        dst: truth_fpath        # what the scorer calls it
 
-While a gather is being resolved, its source is not yet an ancestor of
-its target, so ``group_by`` cannot name it. On a realistic pipeline --
-predictors fanning out over a dataset, scorers gathering them -- the
-scorer has *no* ordinary edge to the predictor, so
-``group_by: [detect.dataset_fpath]`` raises.
+All three wirings of the audit's detection/segmentation case now compile
+to the same instance counts.
 
-The working formulation requires the two nodes to use the **same port
-name** so an unqualified key resolves independently on each side. That
-reintroduces a naming coupling the qualified form was meant to remove,
-and it is invisible until compile time. Worth revisiting: a gather could
-plausibly *partition* its sources and induce one target per group, rather
-than joining against a target axis that must already exist.
+Still open
+----------
+
+A gather *joins* its sources against a target axis that must already
+exist in the matrix. It could instead *partition* its sources and induce
+one target instance per group, which would remove the need for the target
+to be swept on the grouping key at all. That is a change to the
+compilation model rather than to the gather API -- the compile loop is
+per-row, with one instance per template per row, and inducing N targets
+from one row breaks that invariant -- so it is recorded rather than
+attempted.
 
 Reproducing
 -----------

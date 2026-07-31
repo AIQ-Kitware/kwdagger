@@ -179,10 +179,9 @@ def main():
         except Exception as ex:
             print(f'  truth wiring {label:<10} REJECTED: '
                   f'{type(ex).__name__}: {str(ex)[:90]}')
-    print('\n  Only `sameport` compiles. The scorer has no ordinary edge to the')
-    print('  predictor, so a qualified key cannot name it, and the two nodes')
-    print('  must share a port name for an unqualified key to resolve. See')
-    print('  Finding 3 in docs/.../parameter_identity.rst')
+    print('\n  All three compile. The scorer has no ordinary edge to the')
+    print('  predictor, so a qualified key cannot name it -- the src/dst group')
+    print('  key form lets each end use its own vocabulary instead.')
 
     banner('2. what each identity is made of')
     compiled, _ = compile_quiet(detseg.build('sameport'),
@@ -221,8 +220,8 @@ def main():
         print(f'  {label:<14}{kind:<13}'
               f'{node.algo_id.split("_id_")[-1][:10]:<13}'
               f'{_short(dict(node.final_algo_config), 40)}')
-    print('\n  unconnected and aliased agree; produced does not, and carries no')
-    print('  data in its algo config at all. See Finding 1.')
+    print('\n  All three agree: algo_id identifies the algorithm, not the')
+    print('  wiring. Data identity lives in final_input_config / ancestors.')
 
 
 if __name__ == '__main__':

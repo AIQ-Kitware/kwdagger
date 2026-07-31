@@ -76,17 +76,39 @@ class GatherSpec:
             raise TypeError('GatherSpec.group_by must be a sequence of names')
         if isinstance(order_by, (str, bytes)):
             raise TypeError('GatherSpec.order_by must be a sequence of names')
-        group_by_ = tuple(group_by)
+        # Normalize mapping entries to (src, dst) tuples so the spec stays
+        # hashable -- it is used as a dict key when reporting cardinalities.
+        group_by_ = tuple(
+            (key['src'], key['dst'])
+            if isinstance(key, Mapping) and set(key) == {'src', 'dst'}
+            else key
+            for key in group_by
+        )
         order_by_ = tuple(order_by or ())
-        if not all(isinstance(k, str) and k for k in group_by_):
-            raise TypeError(
-                'GatherSpec.group_by items must be non-empty strings'
-            )
+        for key in group_by:
+            if isinstance(key, Mapping):
+                if set(key) != {'src', 'dst'}:
+                    raise ValueError(
+                        'A mapping group_by item must have exactly "src" and '
+                        f'"dst" keys; got {sorted(key)}'
+                    )
+                if not all(
+                    isinstance(v, str) and v for v in key.values()
+                ):
+                    raise TypeError(
+                        'group_by src/dst values must be non-empty strings'
+                    )
+            elif not (isinstance(key, str) and key):
+                raise TypeError(
+                    'GatherSpec.group_by items must be non-empty strings or '
+                    '{"src": ..., "dst": ...} mappings'
+                )
         if not all(isinstance(k, str) and k for k in order_by_):
             raise TypeError(
                 'GatherSpec.order_by items must be non-empty strings'
             )
-        if len(set(group_by_)) != len(group_by_):
+        _seen = [_group_key_pair(k) for k in group_by_]
+        if len(set(_seen)) != len(_seen):
             raise ValueError('GatherSpec.group_by cannot contain duplicates')
         if len(set(order_by_)) != len(order_by_):
             raise ValueError('GatherSpec.order_by cannot contain duplicates')
@@ -109,13 +131,51 @@ class GatherSpec:
             f'Cannot coerce {type(data).__name__} into GatherSpec: {data!r}'
         )
 
+    def display_keys(self) -> tuple[str, ...]:
+        """Human-readable group keys, e.g. ``dataset_fpath->truth_fpath``."""
+        out = []
+        for key in self.group_by:
+            src, dst = _group_key_pair(key)
+            out.append(src if src == dst else f'{src}->{dst}')
+        return tuple(out)
+
+    def source_keys(self) -> tuple[str, ...]:
+        """The key resolved on each *source* instance, in order."""
+        return tuple(_group_key_pair(k)[0] for k in self.group_by)
+
+    def target_keys(self) -> tuple[str, ...]:
+        """The key resolved on the *target* instance, in order."""
+        return tuple(_group_key_pair(k)[1] for k in self.group_by)
+
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {'group_by': list(self.group_by)}
+        data: dict[str, Any] = {
+            'group_by': [
+                {'src': k[0], 'dst': k[1]} if isinstance(k, tuple) else k
+                for k in self.group_by
+            ]
+        }
         if self.order_by:
             data['order_by'] = list(self.order_by)
         if self.require != 'all_success':
             data['require'] = self.require
         return data
+
+
+def _group_key_pair(key: Any) -> tuple[str, str]:
+    """
+    Normalize a group_by entry into ``(source_key, target_key)``.
+
+    A plain string names the same thing on both sides. A
+    ``{'src': ..., 'dst': ...}`` mapping lets each side name it in its own
+    vocabulary -- a scorer whose truth port is ``truth_fpath`` can group
+    predictions keyed on ``dataset_fpath`` without either node renaming a
+    port to satisfy the other.
+    """
+    if isinstance(key, Mapping):
+        return (key['src'], key['dst'])
+    if isinstance(key, tuple):
+        return key
+    return (key, key)
 
 
 @dataclass
@@ -524,7 +584,7 @@ class Pipeline:
                 spec = connection.spec
                 label = 'gather N:1'
                 if spec.group_by:
-                    label += ' | group_by=' + ','.join(spec.group_by)
+                    label += ' | group_by=' + ','.join(spec.display_keys())
                 else:
                     label += ' | group_by=<all>'
                 if spec.order_by:
@@ -557,7 +617,7 @@ class Pipeline:
             graph.remove_edge(src, dst)
             label = 'gather N:1 -> path manifest'
             if spec.group_by:
-                label += ' | group_by=' + ','.join(spec.group_by)
+                label += ' | group_by=' + ','.join(spec.display_keys())
             else:
                 label += ' | group_by=<all>'
             if spec.order_by:
@@ -1154,7 +1214,7 @@ class CompiledPipeline:
             if record['kind'] == 'gather':
                 spec = record['spec']
                 if spec.group_by:
-                    label += ' | group_by=' + ','.join(spec.group_by)
+                    label += ' | group_by=' + ','.join(spec.display_keys())
                 if spec.order_by:
                     label += ' | order_by=' + ','.join(spec.order_by)
             graph.add_node(
@@ -1249,11 +1309,11 @@ def _node_param_value(node: 'ProcessNode', key: str) -> Any:
     product of the two, producing instances whose declared parameter value
     and actual upstream input disagree.
 
-    On the resolved node the value is looked up in its algorithm config and
-    then its output ports. Output paths are eligible deliberately: naming a
-    producer's port is the direct way to say "group by which upstream made
-    this". Unconnected and aliased inputs already appear in the algorithm
-    config, so they need no special case.
+    On the resolved node the value is looked up in its identity-bearing
+    surface -- ``final_algo_config`` then ``final_input_config`` -- and
+    finally its output ports. Output paths are eligible deliberately:
+    naming a producer's port is the direct way to say "group by which
+    upstream made this".
 
     An unqualified key stays supported for backwards compatibility. It
     resolves against the node itself, then unambiguously against ancestors.
@@ -1345,10 +1405,22 @@ def _resolve_named_node(node: 'ProcessNode', node_name: str) -> 'ProcessNode':
 
 
 def _lookup_on_node(node: 'ProcessNode', param: str) -> Any:
-    """Look ``param`` up in a node's algo config, then its output ports."""
+    """
+    Look ``param`` up in a node's identity-bearing surface.
+
+    That surface is ``final_algo_config`` (what algorithm it runs) plus
+    ``final_input_config`` (the inputs nothing upstream produced), then its
+    output ports. Those are exactly the things this node owns and that
+    reach its ``process_id``, so they are exactly the things it is
+    meaningful to partition it by.
+    """
     config = node.final_algo_config
     if param in config:
         return _hashable_group_value(config[param])
+
+    inputs = node.final_input_config
+    if param in inputs:
+        return _hashable_group_value(inputs[param])
 
     port = node.outputs.get(param)
     if port is not None:
@@ -1537,25 +1609,31 @@ def _compile_pipeline_configurations(
                 source_output_name = connection.source.name
                 candidates = list(instances_by_template[source_name].values())
 
-                for key in connection.spec.group_by:
+                key_pairs = list(
+                    zip(
+                        connection.spec.source_keys(),
+                        connection.spec.target_keys(),
+                    )
+                )
+                for src_key, dst_key in key_pairs:
                     # Produce a focused error before attempting selection.
-                    _node_param_value(node, key)
+                    _node_param_value(node, dst_key)
                     if candidates:
-                        _node_param_value(candidates[0], key)
+                        _node_param_value(candidates[0], src_key)
 
                 selected = [
                     source
                     for source in candidates
                     if all(
-                        _node_param_value(source, key)
-                        == _node_param_value(node, key)
-                        for key in connection.spec.group_by
+                        _node_param_value(source, src_key)
+                        == _node_param_value(node, dst_key)
+                        for src_key, dst_key in key_pairs
                     )
                 ]
                 if not selected:
                     group = {
-                        key: _node_param_value(node, key)
-                        for key in connection.spec.group_by
+                        dst_key: _node_param_value(node, dst_key)
+                        for _src_key, dst_key in key_pairs
                     }
                     raise ValueError(
                         f'Gather {connection.source.key} -> '
@@ -2907,13 +2985,52 @@ class ProcessNode(Node):
         return final_perf_config
 
     @memoize_configured_property
-    def final_algo_config(self) -> Any:
-        # TODO: Any node that does not have its inputs connected have to
-        # include the configured input paths - or ideally the hash of their
-        # contents - in the algo config.
+    def final_input_config(self) -> Any:
+        """
+        Resolved values of inputs that no ancestor produced.
 
-        # Find keys that are not part of the algorithm config
-        non_algo_sets = [self.out_paths, self.perf_params]
+        An input supplied by the matrix (``unconnected``) or shared from a
+        peer's input (``aliased``) has no producing instance, so nothing
+        upstream carries its identity. It has to enter ``depends``
+        directly, or two runs over different data would be
+        indistinguishable.
+
+        A ``connected`` input is excluded: the producing instance's
+        identity is already folded in through ancestor hashing, and
+        including the path as well would double-count it. A ``gathered``
+        input is excluded because its manifest path is derived from
+        ``process_id``, which would be circular; membership enters
+        identity through ``depends['__gather__.<port>']`` instead.
+        """
+        if self._no_inarg:
+            return ub.udict({})
+        values = {}
+        for name, input_node in self.inputs.items():
+            if input_node._gather_members is not None:
+                continue
+            if _dependency_preds(input_node):
+                continue
+            values[name] = input_node.final_value
+        return ub.udict(values)
+
+    @memoize_configured_property
+    def final_algo_config(self) -> Any:
+        """
+        The parameters that define *what algorithm* this node runs.
+
+        Deliberately excludes paths. ``algo_id`` hashes this, so folding
+        input paths in here would make the same algorithm on the same data
+        hash differently depending on whether the path came from the matrix
+        or from an upstream node -- which made ``algo_id`` incomparable
+        across pipelines that wire a computation differently.
+
+        Data identity is not lost: it lives in
+        :func:`final_input_config` for inputs nothing produced, and in
+        ancestor hashing for inputs something did. Both reach
+        ``process_id`` through ``depends``.
+        """
+        # Paths and performance knobs are not part of the algorithm.
+        non_algo_sets = [self.out_paths, self.perf_params, self.in_paths]
         non_algo_keys = (
             set.union(*[set(s) for s in non_algo_sets if s is not None])
             if non_algo_sets
@@ -2921,53 +3038,7 @@ class ProcessNode(Node):
         )
         self.non_algo_keys = non_algo_keys
 
-        # Find unconnected inputs, which point to data that is part of the
-        # algorithm config
-        unconnected_inputs = []
-        for input_node in self.inputs.values():
-            # An aliased input counts as unconnected: no upstream node
-            # produced it, so its value is part of *this* node's identity
-            # rather than being captured by ancestor hashing.
-            if (
-                not _dependency_preds(input_node)
-                and input_node._gather_members is None
-            ):
-                unconnected_inputs.append(input_node.name)
-
-        # OK... so previous design decisions have made things weird here.  The
-        # question is: are the input paths included in the final algo config?
-        # Currently the answer depends. If they are connected in as part of a
-        # pipeline (i.e. the input paths are the output of some other step)
-        # then they are not currently considered part of the algo config.
-        # However, if they are unconnected (but maybe explicitly specified by
-        # the user), then they are considered part of the algo config.  I'm not
-        # sure how to fix this yet. Conceptually, perhaps the "algorithm
-        # config", should not depend on the inputs, but I could see arguments
-        # both ways. There should probably be a "final_input_config" (or maybe
-        # just final_in_paths) that is separate from the "final_algo_config".
-        # ...
-        # ...
-        # ... so the next question is, does anything currently depend on the
-        # input paths being in the final algo config? If not we should
-        # probably remove it.
-        if self._no_inarg:
-            unconnected_in_paths = ub.udict({})
-        else:
-            # Resolve only genuinely unconnected input values here. Evaluating
-            # ``final_in_paths`` would also resolve gathered inputs, whose
-            # manifest path depends on this node's process id and therefore on
-            # ``final_algo_config`` itself.
-            unconnected_in_paths = ub.udict(
-                {
-                    name: self.inputs[name].final_value
-                    for name in unconnected_inputs
-                }
-            )
-
-        final_algo_config = (
-            self.config - self.non_algo_keys  # type: ignore
-        ) | unconnected_in_paths
-
+        final_algo_config = self.config - self.non_algo_keys  # type: ignore
         if isinstance(self.algo_params, dict):
             for k, v in self.algo_params.items():
                 if k not in final_algo_config:
@@ -3163,10 +3234,6 @@ class ProcessNode(Node):
         Identity inputs for this process, including exact connected bindings.
         """
         ancestors = self.ancestor_process_nodes()
-        # TODO:
-        # We need to know what input paths have not been represented.  This
-        # involves finding input paths that are not connected to the output of
-        # a node involved in building this id.
         grouped_depends: dict[str, list[str]] = defaultdict(list)
         for node in ancestors:
             grouped_depends[node.name].append(node.algo_id)
@@ -3189,6 +3256,12 @@ class ProcessNode(Node):
                         for member in input_node._gather_members
                     ],
                 }
+        # Inputs nothing upstream produced. Without this they would be
+        # invisible to identity entirely, since they are no longer part of
+        # final_algo_config and have no ancestor to speak for them.
+        input_config = self.final_input_config
+        if input_config:
+            depends['__inputs__'] = dict(sorted(input_config.items()))
         assert isinstance(self.name, str)
         depends[self.name] = self.algo_id
         depends = ub.udict(sorted(depends.items()))
@@ -3204,8 +3277,13 @@ class ProcessNode(Node):
         from kwdagger.utils.reverse_hashid import condense_config
 
         assert isinstance(self.name, str)
+        # The node name is part of the hashed payload, not merely a prefix
+        # on the resulting string. Hashing the config alone made every node
+        # with an empty algo config share one hash across unrelated
+        # pipelines, so the hash portion could not be used on its own.
+        payload = {'__node__': self.name, **self.final_algo_config}
         algo_id = condense_config(
-            self.final_algo_config, self.name + '_algo_id', register=False
+            payload, self.name + '_algo_id', register=False
         )
         return algo_id
 
@@ -3429,7 +3507,7 @@ class ProcessNode(Node):
             description = (
                 f'# kwdagger gather: {connection.source.key} -> '
                 f'{input_node.key} | members={len(input_node._gather_members)} '
-                f'| group_by={list(spec.group_by)!r} '
+                f'| group_by={list(spec.display_keys())!r} '
                 f'| order_by={list(spec.order_by)!r} '
                 f'| require={spec.require}'
             )

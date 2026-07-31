@@ -69,7 +69,10 @@ def build(truth_wiring='matrix'):
         out_paths={'report_fpath': 'report.json'},
     )
 
-    group_key = 'dataset_fpath'
+    # The scorer's truth port and the predictor's data port name the same
+    # value in different vocabularies. Say so, rather than renaming a port.
+    group_key = ('dataset_fpath' if truth_wiring == 'sameport'
+                 else {'src': 'dataset_fpath', 'dst': truth_port})
     nodes = {
         'detect': detect, 'segment': segment,
         'score_det': score_det, 'score_seg': score_seg,
