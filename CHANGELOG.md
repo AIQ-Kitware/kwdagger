@@ -4,6 +4,41 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Version 0.2.7 - Unreleased
 
+### Added
+
+* Connectable algorithm parameters. `ProcessNode.param_ports` exposes a port
+  per declared `algo_param`, and `a.param -> b.param` (Python or YAML) shares
+  an already-known value without creating an execution dependency.
+* `GatherSpec.group_by` accepts `{'src': ..., 'dst': ...}` pairs so each side
+  may name the same identity in its own vocabulary, and gather group keys may
+  be node-qualified (`prepare.dataset`).
+* `Pipeline.config_graph` records configuration-resolution ordering separately
+  from `proc_graph`, which stays purely about execution.
+
+### Changed
+
+* **Process identities change in this release.** Input paths moved out of
+  `final_algo_config` into `final_input_config`, `algo_id` now hashes the node
+  name as part of its payload, and dependency-only edges contribute a
+  predecessor `process_id`. Existing result directories will not be reused.
+* An `input -> input` edge is an alias, not a dependency: it no longer creates
+  a scheduling edge, process lineage, or `.pred` / `.succ` links.
+* A declared `in_paths` default no longer overrides a connected upstream
+  output; connections outrank defaults.
+
+### Fixed
+
+* `compile_configurations` raised `KeyError` when a node forwarded a value to
+  one of its own ports, which `Pipeline.configure` has always allowed.
+* A wired algorithm parameter whose source never resolved a value wrote a
+  literal `--<key>=None` onto the consumer's command line, and overwrote the
+  consumer's own declared default. An unresolved port now supplies nothing.
+* Shared values disappeared from a descendant's `job_config.json`. Since the
+  source of a shared value is deliberately not lineage, nothing downstream
+  mentioned the value at all, so aggregation lost it.
+* The IO graph listed every declared algorithm parameter, including unwired
+  ones, burying the data flow it exists to show. Only wired ports appear.
+
 
 ## Version 0.2.6 - Released 2026-07-30
 

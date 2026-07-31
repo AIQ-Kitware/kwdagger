@@ -167,6 +167,162 @@ def test_same_node_shared_values_are_allowed(tmp_path):
     assert node.final_algo_config['alias'] == 'transformer'
 
 
+def _same_node_forwarding_gather_pipeline():
+    """A pipeline whose fanned-out node forwards a value to one of its own
+    ports, so the compiler has to resolve a same-row, same-node source."""
+    train = ProcessNode(
+        name='train',
+        executable='python train.py',
+        in_paths={'data_fpath', 'aux_fpath'},
+        out_paths={'checkpoint_fpath': 'checkpoint.pt'},
+        algo_params={'canonical': 'cnn', 'alias': 'cnn', 'fold': 0},
+    )
+    collect = ProcessNode(
+        name='collect',
+        executable='python collect.py',
+        in_paths={'checkpoints_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+        algo_params={'canonical': 'cnn'},
+    )
+    train.param_ports['canonical'].connect(train.param_ports['alias'])
+    train.inputs['data_fpath'].connect(train.inputs['aux_fpath'])
+    train.outputs['checkpoint_fpath'].connect(
+        collect.inputs['checkpoints_fpath'],
+        gather=GatherSpec(group_by=['canonical'], order_by=['fold']),
+    )
+    return Pipeline({'train': train, 'collect': collect})
+
+
+def test_same_node_shared_values_survive_compilation(tmp_path):
+    # ``compile_configurations`` looks its edge sources up in the row it has
+    # already built. A node forwarding to itself is the instance being built,
+    # which is not in that row yet.
+    dag = _same_node_forwarding_gather_pipeline()
+    compiled = dag.compile_configurations(
+        [
+            {
+                'train.canonical': 'transformer',
+                'train.fold': fold,
+                'train.data_fpath': '/data/items.json',
+                'collect.canonical': 'transformer',
+            }
+            for fold in [0, 1]
+        ],
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    trainers = [n for n in compiled.nodes.values() if n.name == 'train']
+    assert len(trainers) == 2
+    for trainer in trainers:
+        assert trainer.final_algo_config['alias'] == 'transformer'
+        assert trainer.final_in_paths['aux_fpath'] == '/data/items.json'
+        # Forwarding to itself must not make the node its own predecessor.
+        assert trainer not in trainer.predecessor_process_nodes()
+
+
+def test_an_unresolved_wired_parameter_supplies_nothing(tmp_path):
+    # ``algo_params`` may be declared as a bare set of names, in which case
+    # nothing declares a default. A port with no value must stay out of the
+    # consumer's command rather than passing a literal ``None`` that the
+    # source node itself never passes.
+    source = ProcessNode(
+        name='source',
+        executable='python source.py',
+        out_paths={'source_fpath': 'source.json'},
+        algo_params={'family'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        out_paths={'result_fpath': 'result.json'},
+        algo_params={'family'},
+    )
+    source.param_ports['family'].connect(consumer.param_ports['family'])
+    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+
+    assert 'family' not in source.final_algo_config
+    assert 'family' not in consumer.final_algo_config
+    assert '--family' not in consumer.command
+
+    # Supplying the source resolves the port for both.
+    dag.configure(
+        {'source.family': 'transformer'}, root_dpath=tmp_path, cache=False
+    )
+    assert consumer.final_algo_config['family'] == 'transformer'
+
+
+def test_an_unresolved_wire_leaves_the_consumer_default_alone(tmp_path):
+    # The consumer declares a default and the source has nothing to say. The
+    # wire must not overwrite the declared default with ``None``.
+    source = ProcessNode(
+        name='source',
+        executable='python source.py',
+        out_paths={'source_fpath': 'source.json'},
+        algo_params={'family'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        out_paths={'result_fpath': 'result.json'},
+        algo_params={'family': 'cnn'},
+    )
+    source.param_ports['family'].connect(consumer.param_ports['family'])
+    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+
+    assert consumer.final_algo_config['family'] == 'cnn'
+    assert '--family=cnn' in consumer.command
+
+
+def test_shared_values_survive_in_a_descendants_config_record(tmp_path):
+    # ``job_config.json`` of a downstream node is what aggregation reads to
+    # recover the whole lineage's requested parameters. A shared value is
+    # never in the consumer's own ``config``, and its source is deliberately
+    # not lineage, so nothing else downstream would ever mention it.
+    label = ProcessNode(
+        name='label',
+        executable='python label.py',
+        out_paths={'label_fpath': 'label.json'},
+        algo_params={'family': 'cnn'},
+    )
+    train = ProcessNode(
+        name='train',
+        executable='python train.py',
+        in_paths={'data_fpath'},
+        out_paths={'checkpoint_fpath': 'checkpoint.pt'},
+        algo_params={'family': 'cnn'},
+    )
+    evaluate = ProcessNode(
+        name='evaluate',
+        executable='python evaluate.py',
+        in_paths={'checkpoint_fpath', 'data_fpath'},
+        out_paths={'metrics_fpath': 'metrics.json'},
+    )
+    label.param_ports['family'].connect(train.param_ports['family'])
+    train.inputs['data_fpath'].connect(evaluate.inputs['data_fpath'])
+    train.outputs['checkpoint_fpath'].connect(
+        evaluate.inputs['checkpoint_fpath']
+    )
+    dag = Pipeline(
+        {'label': label, 'train': train, 'evaluate': evaluate}
+    )
+    dag.configure(
+        {'label.family': 'transformer', 'train.data_fpath': '/data/x.json'},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+
+    assert '--family=transformer' in train.command
+    downstream = evaluate._depends_config()
+    # The wired parameter the upstream process actually ran with...
+    assert downstream['train.family'] == 'transformer'
+    # ...and the aliased input this node itself resolved.
+    assert downstream['evaluate.data_fpath'] == '/data/x.json'
+    assert downstream['train.data_fpath'] == '/data/x.json'
+    json.dumps(downstream)
+
+
 def test_shared_value_cycles_are_rejected():
     left = ProcessNode(
         name='left',
@@ -311,6 +467,24 @@ def test_parameter_ports_are_visible_in_the_io_graph():
     display = dag._io_display_graph(shrink_labels=0, show_types=1)
     labels = [data.get('label', '') for _, data in display.nodes(data=True)]
     assert any('shared parameter' in label for label in labels)
+
+
+def test_unwired_parameter_ports_stay_out_of_the_io_graph():
+    # The IO graph exists to show data flow. A node routinely declares dozens
+    # of parameters, and a port with no edge has no relationship to show, so
+    # listing them all would bury the flow the graph is read for.
+    node = ProcessNode(
+        name='solo',
+        executable='python solo.py',
+        in_paths={'src'},
+        out_paths={'dst': 'dst.json'},
+        algo_params={'alpha': 1, 'beta': 2},
+    )
+    dag = Pipeline({'solo': node})
+    assert 'solo.src' in dag.io_graph
+    assert 'solo.dst' in dag.io_graph
+    assert 'solo.alpha' not in dag.io_graph
+    assert 'solo.beta' not in dag.io_graph
 
 
 def _gather_with_shared_parameter(reverse=False):

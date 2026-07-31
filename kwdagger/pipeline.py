@@ -436,10 +436,17 @@ class Pipeline:
                 self.io_graph.add_node(
                     onode.key, node=onode, node_clsname=onode.__class__.__name__
                 )
+            # Only *wired* parameters belong in the IO graph. An unwired
+            # parameter has no relationship to display, and a node commonly
+            # declares dozens of them, which would bury the data flow the
+            # graph exists to show.
             for pname, pnode in node.param_ports.items():
-                self.io_graph.add_node(
-                    pnode.key, node=pnode, node_clsname=pnode.__class__.__name__
-                )
+                if pnode.pred or pnode.succ:
+                    self.io_graph.add_node(
+                        pnode.key,
+                        node=pnode,
+                        node_clsname=pnode.__class__.__name__,
+                    )
 
         # Next add edges
         for name, node in node_dict.items():
@@ -461,6 +468,8 @@ class Pipeline:
                         gather=connection.spec,
                     )
             for pname, pnode in node.param_ports.items():
+                if not (pnode.pred or pnode.succ):
+                    continue
                 self.io_graph.add_edge(pnode.key, node.key, parameter=True)
                 for succ in pnode.succ:
                     self.io_graph.add_edge(
@@ -1729,13 +1738,19 @@ def _compile_pipeline_configurations(
             node = _clone_unconnected_process_node(template_node)
             node.root_dpath = root_dpath
 
+            # A node may forward a value to one of its own ports. That source
+            # is the instance being built right now, which is not registered
+            # in ``row_nodes`` until the end of this iteration.
+            row_instances = dict(row_nodes[row_idx])
+            row_instances[template_name] = node
+
             for (
                 input_name,
                 source_name,
                 source_port_name,
                 source_port_kind,
             ) in ordinary_inputs:
-                source_node = row_nodes[row_idx][source_name]
+                source_node = row_instances[source_name]
                 if source_port_kind == 'output':
                     source_port = source_node.outputs[source_port_name]
                 else:
@@ -1743,7 +1758,7 @@ def _compile_pipeline_configurations(
                 source_port.connect(node.inputs[input_name])
 
             for param_name, source_name, source_param in param_edges:
-                source_node = row_nodes[row_idx][source_name]
+                source_node = row_instances[source_name]
                 source_node.param_ports[source_param].connect(
                     node.param_ports[param_name]
                 )
@@ -2198,12 +2213,17 @@ class IONode(Node):
         predecessors = self._shared_value_predecessors()
         if not predecessors:
             return _UNSET
-        values = [pred.final_value for pred in predecessors]
-        first = values[0]
-        if not all(_config_values_equal(first, value) for value in values[1:]):
-            bindings = {
-                pred.key: value for pred, value in zip(predecessors, values)
-            }
+        # A predecessor that resolves to nothing supplies nothing. Only ports
+        # that actually carry a value can agree or disagree about it.
+        bound = [(pred, pred._resolved_value()) for pred in predecessors]
+        bound = [item for item in bound if item[1] is not _UNSET]
+        if not bound:
+            return _UNSET
+        first = bound[0][1]
+        if not all(
+            _config_values_equal(first, value) for _pred, value in bound[1:]
+        ):
+            bindings = {pred.key: value for pred, value in bound}
             raise ValueError(
                 f'Conflicting shared values for {self.key!r}: {bindings!r}'
             )
@@ -2211,6 +2231,23 @@ class IONode(Node):
 
     @property
     def final_value(self) -> Any:
+        """
+        The value this port resolves to, or ``None`` when nothing supplies one.
+
+        Use :func:`_resolved_value` when the difference between "resolved to
+        ``None``" and "nothing supplied a value" matters.
+        """
+        value = self._resolved_value()
+        return None if value is _UNSET else value
+
+    def _resolved_value(self) -> Any:
+        """
+        Resolve this port, returning ``_UNSET`` when nothing supplies a value.
+
+        The precedence is: a gathered manifest, this port's own configured
+        value, a shared value forwarded from a peer port, a value produced by
+        an upstream process, and finally the declared default.
+        """
         if self._gather_members is not None:
             return self.gather_manifest_fpath
         local_value = self._final_value
@@ -2241,9 +2278,7 @@ class IONode(Node):
             if len(produced_preds) == 1:
                 return produced_preds[0].final_value
             return [pred.final_value for pred in produced_preds]
-        if self.default_value is not _UNSET:
-            return self.default_value
-        return None
+        return self.default_value
 
     @final_value.setter
     def final_value(self, value: Any) -> None:
@@ -2306,6 +2341,10 @@ class OutputNode(IONode):
     @final_value.setter
     def final_value(self, value: Any) -> None:
         self._final_value = value
+
+    def _resolved_value(self) -> Any:
+        # An output port always resolves: the process defines where it writes.
+        return self.final_value
 
     @property
     def template_value(self) -> Any:
@@ -3219,6 +3258,32 @@ class ProcessNode(Node):
                 )
         return provenance
 
+    def _shared_value_config(self) -> dict[str, Any]:
+        """
+        Values a shared-value port supplied rather than this node's own config.
+
+        A shared value never appears in ``self.config`` -- the whole point of
+        forwarding it is that the consumer does not restate it. It is still
+        part of what this process was asked to run, so it has to be recoverable
+        from the dotted configuration record, including from a *descendant's*
+        record: the source process is not lineage, so nothing else downstream
+        would ever mention the value.
+        """
+        shared: dict[str, Any] = {}
+        for input_name, input_node in self.inputs.items():
+            if not _alias_preds(input_node):
+                continue
+            value = input_node._resolved_value()
+            if value is not _UNSET:
+                shared[input_name] = _jsonable_config_value(value)
+        for param_name, param_port in self.param_ports.items():
+            if not param_port.pred:
+                continue
+            value = param_port._resolved_value()
+            if value is not _UNSET:
+                shared[param_name] = _jsonable_config_value(value)
+        return shared
+
     def _depends_config(self) -> Any:
         """
         The dag config that specifies the parameters this node depends on.
@@ -3227,33 +3292,19 @@ class ProcessNode(Node):
         """
         depends_config = {}
         for depend_node in list(self.ancestor_process_nodes()) + [self]:
+            prefix = depend_node.name + '.'
             depends_config.update(
-                _add_prefix(depend_node.name + '.', depend_node.config)
+                _add_prefix(prefix, depend_node._shared_value_config())
+            )
+            # An explicitly requested value always outranks a forwarded one;
+            # they can only differ if the pipeline already raised a conflict.
+            depends_config.update(
+                _add_prefix(prefix, depend_node.config)
             )
         for input_name, binding in self._ordinary_input_provenance().items():
             depends_config[f'__input__.{input_name}'] = binding
-            bindings = binding if isinstance(binding, list) else [binding]
-            alias_bindings = [
-                item for item in bindings if item['source_kind'] == 'input'
-            ]
-            if alias_bindings:
-                # The target value is part of the requested process
-                # configuration even though the source process is not part of
-                # its execution lineage.
-                depends_config.setdefault(
-                    f'{self.name}.{input_name}',
-                    _jsonable_config_value(
-                        self.inputs[input_name].final_value
-                    ),
-                )
         for param_name, binding in self._parameter_provenance().items():
             depends_config[f'__parameter__.{param_name}'] = binding
-            depends_config.setdefault(
-                f'{self.name}.{param_name}',
-                _jsonable_config_value(
-                    self.param_ports[param_name].final_value
-                ),
-            )
         for input_name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 connection = input_node._gather_connection
@@ -3349,10 +3400,17 @@ class ProcessNode(Node):
 
         # A wired parameter is supplied by its port, which outranks both the
         # row config and the declared default. Applied after defaults so it
-        # is not overwritten by them.
+        # is not overwritten by them. A port whose source never resolved a
+        # value supplies nothing: writing its ``None`` would put a literal
+        # ``--key=None`` on the consumer's command line that the source node
+        # itself does not pass.
         for key, port in self.param_ports.items():
-            if port.pred:
-                final_algo_config[key] = port.final_value
+            if not port.pred:
+                continue
+            value = port._resolved_value()
+            if value is _UNSET:
+                continue
+            final_algo_config[key] = value
         return final_algo_config
 
     @memoize_configured_property
