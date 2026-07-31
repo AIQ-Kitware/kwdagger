@@ -173,10 +173,98 @@ inline. A Slurm export is a transparent script bundle: its submission script
 calls the generated per-node ``invoke.sh`` files, which can also be executed
 directly.
 
-Why the parameter file uses separate matrices
----------------------------------------------
+Keeping shared axes in lockstep
+-------------------------------
 
 The source and target both have ``algorithm`` and ``seed`` parameters. They
-must vary in lockstep rather than as independent Cartesian products, so
-``params.yaml`` uses one matrix for each algorithm/seed pair. Within each
-matrix, ``fold`` fans out before the gather and ``test_set`` fans out after it.
+must vary in lockstep rather than as independent Cartesian products. There are
+two ways to express that, and this tutorial ships both.
+
+One matrix per group
+~~~~~~~~~~~~~~~~~~~~
+
+``params.yaml`` writes one matrix for each algorithm/seed pair, repeating the
+downstream values in each. Within each matrix, ``fold`` fans out before the
+gather and ``test_set`` fans out after it:
+
+.. code:: yaml
+
+    matrices:
+      - matrix:
+          train.data_fpath: [data.txt]
+          train.algorithm: [linear]
+          train.seed: [0]
+          train.fold: [0, 1, 2]
+          build_ensemble.algorithm: [linear]
+          build_ensemble.seed: [0]
+          evaluate.algorithm: [linear]
+          evaluate.seed: [0]
+          evaluate.test_set: [clean, shifted]
+
+      # ...three more matrices for (linear, 1), (forest, 0), (forest, 1)
+
+This is explicit, but the number of matrices grows with the product of the
+shared axes, and every downstream value is repeated by hand.
+
+One matrix plus ``include``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``params-include.yaml`` declares each axis once and uses ``include`` to
+propagate the shared values downstream:
+
+.. code:: yaml
+
+    matrix:
+      train.data_fpath: [data.txt]
+
+      # Canonical shared axes
+      train.algorithm: [linear, forest]
+      train.seed: [0, 1]
+
+      # Independent fan-out axes
+      train.fold: [0, 1, 2]
+      evaluate.test_set: [clean, shifted]
+
+    include:
+      # Propagate the algorithm axis
+      - train.algorithm: linear
+        build_ensemble.algorithm: linear
+        evaluate.algorithm: linear
+
+      - train.algorithm: forest
+        build_ensemble.algorithm: forest
+        evaluate.algorithm: forest
+
+      # Propagate the seed axis
+      - train.seed: 0
+        build_ensemble.seed: 0
+        evaluate.seed: 0
+
+      - train.seed: 1
+        build_ensemble.seed: 1
+        evaluate.seed: 1
+
+Each ``include`` entry is applied to a matrix combination only when the keys
+they share already agree. ``{train.algorithm: linear, ...}`` therefore adds its
+downstream values to the ``linear`` combinations and leaves the ``forest`` ones
+untouched. Because ``include`` adds keys rather than multiplying them, the
+shared axes stay in lockstep instead of forming a Cartesian product with their
+downstream copies. Adding a third seed is a one-line edit here, against two new
+matrices in the other form.
+
+Verifying the two forms agree
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The two files are interchangeable. Both expand to the same 24 parameter rows in
+the same order, and both compile to the same 24 concrete nodes with the same
+gather membership:
+
+.. code:: bash
+
+    kwdagger schedule --params=params.yaml         --root_dpath=results --backend=serial --run=1
+    kwdagger schedule --params=params-include.yaml --root_dpath=results --backend=serial --run=1
+
+Running each into a separate ``root_dpath`` produces identical process
+directories, identical ``_gather/checkpoints_fpath.txt`` manifests, and
+identical ``job_config.json`` provenance. ``tests/test_gather.py`` asserts the
+equivalence so the two files cannot drift apart.

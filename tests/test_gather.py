@@ -1026,3 +1026,70 @@ def test_gather_compilation_is_row_order_independent_when_enabled_agrees(
         0,
         1,
     ]
+
+
+def _tutorial_dpath():
+    import kwdagger
+
+    dpath = (
+        ub.Path(kwdagger.__file__).parent.parent
+        / 'docs/source/manual/tutorials/gather_cross_validation'
+    )
+    if not (dpath / 'params.yaml').exists():
+        pytest.skip('tutorial sources are not part of the installed package')
+    return dpath
+
+
+def _expand_tutorial_params(fpath):
+    import kwutil
+
+    from kwdagger.utils.util_param_grid import expand_param_grid
+
+    data = kwutil.Yaml.coerce(fpath.read_text())
+    data.pop('pipeline', None)
+    return list(expand_param_grid(data))
+
+
+def test_gather_tutorial_include_form_matches_matrices_form():
+    """The tutorial's two parameter spellings must stay interchangeable.
+
+    ``params.yaml`` writes one matrix per algorithm/seed pair;
+    ``params-include.yaml`` writes a single matrix and uses ``include`` to
+    propagate the shared axes downstream. The README presents them as
+    equivalent, so drift in either file -- or in ``include`` semantics --
+    should fail here rather than silently change what the tutorial runs.
+    """
+    dpath = _tutorial_dpath()
+    matrices_rows = _expand_tutorial_params(dpath / 'params.yaml')
+    include_rows = _expand_tutorial_params(dpath / 'params-include.yaml')
+    assert len(matrices_rows) == 24
+    assert include_rows == matrices_rows
+
+
+def test_gather_tutorial_include_form_compiles_identically():
+    """Equal parameter rows must also produce an identical compiled DAG."""
+    from kwdagger.pipeline import coerce_pipeline
+
+    dpath = _tutorial_dpath()
+
+    def compile_fingerprint(name):
+        rows = _expand_tutorial_params(dpath / name)
+        dag = coerce_pipeline(str(dpath / 'pipeline.yaml'))
+        compiled = dag.compile_configurations(
+            rows, root_dpath='results', cache=False
+        )
+        return {
+            process_id: {
+                input_name: [
+                    member.parent.process_id
+                    for member in input_node._gather_members
+                ]
+                for input_name, input_node in node.inputs.items()
+                if input_node._gather_members is not None
+            }
+            for process_id, node in compiled.nodes.items()
+        }
+
+    assert compile_fingerprint('params.yaml') == compile_fingerprint(
+        'params-include.yaml'
+    )
