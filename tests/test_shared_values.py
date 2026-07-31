@@ -252,6 +252,71 @@ def test_an_unresolved_wired_parameter_supplies_nothing(tmp_path):
     assert consumer.final_algo_config['family'] == 'transformer'
 
 
+def test_an_unresolved_wire_is_distinguishable_from_an_explicit_none(tmp_path):
+    # A source that resolves nothing leaves the target on its own declaration
+    # default; a source explicitly given ``None`` supplies a value someone
+    # asked for. Reporting both as ``value: None`` would erase the difference.
+    def build():
+        source = ProcessNode(
+            name='source',
+            executable='python source.py',
+            out_paths={'source_fpath': 'source.json'},
+            algo_params={'family'},
+        )
+        consumer = ProcessNode(
+            name='consumer',
+            executable='python consumer.py',
+            out_paths={'result_fpath': 'result.json'},
+            algo_params={'family': 'cnn'},
+        )
+        source.param_ports['family'].connect(consumer.param_ports['family'])
+        return Pipeline({'source': source, 'consumer': consumer}), consumer
+
+    # Nothing supplied: the wire carried no value, so the record must not
+    # claim one, and the defaulted value must not be reported as requested.
+    dag, consumer = build()
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+    record = consumer._depends_config()
+    binding = record['__parameter__.family']
+    assert binding['unresolved'] is True
+    assert 'value' not in binding
+    assert 'consumer.family' not in record
+    assert consumer.final_algo_config['family'] == 'cnn'
+
+    # An explicitly requested ``None`` stays a value.
+    dag, consumer = build()
+    dag.configure({'source.family': None}, root_dpath=tmp_path, cache=False)
+    record = consumer._depends_config()
+    binding = record['__parameter__.family']
+    assert 'unresolved' not in binding
+    assert binding['value'] is None
+    assert record['consumer.family'] is None
+
+    json.dumps(record)
+
+
+def test_an_unresolved_input_alias_is_marked_rather_than_valued(tmp_path):
+    source = ProcessNode(
+        name='source',
+        executable='python source.py',
+        in_paths={'data_fpath'},
+        out_paths={'marker_fpath': 'marker.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    source.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+
+    binding = consumer._depends_config()['__input__.data_fpath']
+    assert binding['unresolved'] is True
+    assert 'value' not in binding
+
+
 def test_an_unresolved_wire_leaves_the_consumer_default_alone(tmp_path):
     # The consumer declares a default and the source has nothing to say. The
     # wire must not overwrite the declared default with ``None``.

@@ -305,6 +305,135 @@ def _write_gather_demo_script(dpath):
     return script_fpath
 
 
+def test_downstream_job_config_keeps_the_whole_gathered_lineage():
+    """
+    A node downstream of a gather has several concrete ancestors sharing one
+    template name. Flattening them into one dotted namespace lets the
+    last-visited member overwrite its siblings, so the written record would
+    describe a single fold that never produced the evaluated result.
+
+    Runs the real queue and reads the artifact off disk, because
+    ``job_config.json`` is written by a generated bash job, not in process.
+    """
+    import sys
+
+    dpath = ub.Path.appdir(
+        'kwdagger/tests/gather/lineage'
+    ).delete().ensuredir()
+    script_fpath = _write_gather_demo_script(dpath)
+    root_dpath = dpath / 'runs'
+
+    # Each fold trains on its own data, so the folds disagree on two dotted
+    # keys, not just on the one the sweep is indexed by.
+    data_fpaths = []
+    for fold in [0, 1, 2]:
+        data_fpath = dpath / f'data_{fold}.txt'
+        data_fpath.write_text(f'fold-{fold}')
+        data_fpaths.append(data_fpath)
+
+    pipeline = {
+        'nodes': {
+            'train': {
+                'executable': f'{sys.executable} {script_fpath} train',
+                'in_paths': ['data_fpath'],
+                'out_paths': {'checkpoint_fpath': 'checkpoint.txt'},
+                'algo_params': {'algorithm': 'linear', 'seed': 0, 'fold': 0},
+            },
+            'ensemble': {
+                'executable': f'{sys.executable} {script_fpath} ensemble',
+                'in_paths': ['checkpoints_fpath'],
+                'out_paths': {'ensemble_fpath': 'ensemble.txt'},
+                'algo_params': {'algorithm': 'linear', 'seed': 0},
+            },
+            'evaluate': {
+                'executable': f'{sys.executable} {script_fpath} evaluate',
+                'in_paths': ['ensemble_fpath'],
+                'out_paths': {'metrics_fpath': 'metrics.json'},
+                'algo_params': {
+                    'algorithm': 'linear',
+                    'seed': 0,
+                    'test_set': 'clean',
+                },
+            },
+        },
+        'edges': [
+            {
+                'src': 'train.checkpoint_fpath',
+                'dst': 'ensemble.checkpoints_fpath',
+                'gather': {
+                    'group_by': ['algorithm', 'seed'],
+                    'order_by': ['fold'],
+                },
+            },
+            'ensemble.ensemble_fpath -> evaluate.ensemble_fpath',
+        ],
+    }
+    params = {
+        'pipeline': pipeline,
+        'matrix': {
+            'train.fold': [0, 1, 2],
+            'train.algorithm': ['linear'],
+            'train.seed': [0],
+            'ensemble.algorithm': ['linear'],
+            'ensemble.seed': [0],
+            'evaluate.algorithm': ['linear'],
+            'evaluate.seed': [0],
+            'evaluate.test_set': ['clean'],
+        },
+        # Correlate each fold with its own data, so the gathered members
+        # disagree on two dotted keys rather than only on the sweep axis.
+        'include': [
+            {'train.fold': fold, 'train.data_fpath': str(data_fpath)}
+            for fold, data_fpath in enumerate(data_fpaths)
+        ],
+    }
+    config = schedule.ScheduleEvaluationConfig(
+        run=1,
+        root_dpath=root_dpath,
+        backend='serial',
+        params=params,
+        enable_links=1,
+        cache=0,
+    )
+    compiled, _queue = schedule.build_schedule(config)
+
+    evaluators = [n for n in compiled.nodes.values() if n.name == 'evaluate']
+    assert len(evaluators) == 1
+    trainers = [n for n in compiled.nodes.values() if n.name == 'train']
+    assert len(trainers) == 3
+
+    config_fpath = evaluators[0].final_node_dpath / 'job_config.json'
+    assert config_fpath.exists()
+    record = json.loads(config_fpath.read_text())
+
+    # Every gathered member survives, and the collections are aligned to a
+    # named instance ordering so a value can be traced to the process that
+    # used it.
+    instances = record['__instances__.train']
+    assert sorted(instances) == sorted(n.process_id for n in trainers)
+    assert len(instances) == 3
+
+    folds = record['train.fold']
+    data = record['train.data_fpath']
+    assert isinstance(folds, list) and isinstance(data, list)
+    assert sorted(folds) == [0, 1, 2]
+    assert sorted(data) == sorted(str(p) for p in data_fpaths)
+    by_id = {n.process_id: n for n in trainers}
+    for process_id, fold, data_fpath in zip(instances, folds, data):
+        assert by_id[process_id].config['fold'] == fold
+        assert by_id[process_id].config['data_fpath'] == data_fpath
+
+    # A key every member agrees on stays scalar, as it always has.
+    assert record['train.algorithm'] == 'linear'
+    assert record['evaluate.test_set'] == 'clean'
+
+    # Gather membership reaches the descendant, not just the consumer.
+    gather_record = record['__gather__.ensemble.checkpoints_fpath']
+    assert gather_record['source'] == 'train.checkpoint_fpath'
+    member_ids = [m['process_id'] for m in gather_record['members']]
+    assert sorted(member_ids) == sorted(n.process_id for n in trainers)
+
+
 def test_gather_yaml_schedule_end_to_end():
     dpath = ub.Path.appdir('kwdagger/tests/gather/e2e').delete().ensuredir()
     script_fpath = _write_gather_demo_script(dpath)

@@ -38,6 +38,15 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   mentioned the value at all, so aggregation lost it.
 * The IO graph listed every declared algorithm parameter, including unwired
   ones, burying the data flow it exists to show. Only wired ports appear.
+* `job_config.json` collapsed a gather's several concrete ancestors into one.
+  Same-named instances that disagree on a dotted key now record a collection
+  aligned to a new `__instances__.<node>` ordering, and a gather consumer's
+  membership is propagated to descendants as `__gather__.<node>.<port>`.
+* Shared-value provenance reported an unresolved source as `value: None`,
+  making it indistinguishable from an explicitly requested `None`. An
+  unresolved source now records `unresolved: true` and no `value`, and a value
+  the target took from its own declaration default is no longer recorded as
+  requested configuration.
 
 
 ## Version 0.2.6 - Released 2026-07-30

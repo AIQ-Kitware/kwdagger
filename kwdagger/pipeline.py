@@ -3210,17 +3210,14 @@ class ProcessNode(Node):
                     # dependency. Record the fully-qualified binding and
                     # effective value, but deliberately omit a process id.
                     assert isinstance(source_port, InputNode)
-                    bindings.append(
-                        {
-                            'source': source_port.key,
-                            'target': input_node.key,
-                            'source_port': source_port.name,
-                            'source_kind': 'input',
-                            'value': _jsonable_config_value(
-                                source_port.final_value
-                            ),
-                        }
-                    )
+                    binding = {
+                        'source': source_port.key,
+                        'target': input_node.key,
+                        'source_port': source_port.name,
+                        'source_kind': 'input',
+                    }
+                    binding.update(_source_value_record(source_port))
+                    bindings.append(binding)
             if bindings:
                 bindings.sort(
                     key=lambda item: (
@@ -3241,16 +3238,13 @@ class ProcessNode(Node):
             bindings = []
             for source_port in param_port.pred:
                 assert isinstance(source_port, ParamNode)
-                bindings.append(
-                    {
-                        'source': source_port.key,
-                        'target': param_port.key,
-                        'source_kind': 'parameter',
-                        'value': _jsonable_config_value(
-                            source_port.final_value
-                        ),
-                    }
-                )
+                binding = {
+                    'source': source_port.key,
+                    'target': param_port.key,
+                    'source_kind': 'parameter',
+                }
+                binding.update(_source_value_record(source_port))
+                bindings.append(binding)
             if bindings:
                 bindings.sort(key=lambda item: item['source'])
                 provenance[param_name] = (
@@ -3268,21 +3262,51 @@ class ProcessNode(Node):
         from the dotted configuration record, including from a *descendant's*
         record: the source process is not lineage, so nothing else downstream
         would ever mention the value.
+
+        Only what the wire actually carried belongs here. When the source
+        supplies nothing and this node falls back to its own declaration
+        default, the value was defaulted, not specified, and recording it would
+        misreport it as requested configuration.
         """
         shared: dict[str, Any] = {}
         for input_name, input_node in self.inputs.items():
             if not _alias_preds(input_node):
                 continue
-            value = input_node._resolved_value()
+            value = input_node._shared_value()
             if value is not _UNSET:
                 shared[input_name] = _jsonable_config_value(value)
         for param_name, param_port in self.param_ports.items():
             if not param_port.pred:
                 continue
-            value = param_port._resolved_value()
+            value = param_port._shared_value()
             if value is not _UNSET:
                 shared[param_name] = _jsonable_config_value(value)
         return shared
+
+    def _gather_provenance(self) -> dict[str, Any]:
+        """Describe every gathered input port on this node, keyed by port."""
+        provenance = {}
+        for input_name, input_node in self.inputs.items():
+            if input_node._gather_members is None:
+                continue
+            connection = input_node._gather_connection
+            assert connection is not None
+            provenance[input_name] = {
+                'source': connection.source.key,
+                'group_by': list(connection.spec.group_by),
+                'order_by': list(connection.spec.order_by),
+                'require': connection.spec.require,
+                'manifest_fpath': os.fspath(input_node.gather_manifest_fpath),
+                'members': [
+                    {
+                        'process_id': member.parent.process_id,
+                        'output': member.name,
+                        'path': os.fspath(member.final_value),
+                    }
+                    for member in input_node._gather_members
+                ],
+            }
+        return provenance
 
     def _depends_config(self) -> Any:
         """
@@ -3290,42 +3314,56 @@ class ProcessNode(Node):
         This is what we write to "job_config.json". Note: this output must be
         passed to dag.config, not node.config.
         """
-        depends_config = {}
+        # A gather puts several concrete instances of one template name in the
+        # lineage. Flattening them into one dotted namespace would let the
+        # last-visited fold overwrite its siblings, so group by template name
+        # first and only then decide how each key must be represented.
+        by_name: dict[str, list[ProcessNode]] = defaultdict(list)
         for depend_node in list(self.ancestor_process_nodes()) + [self]:
-            prefix = depend_node.name + '.'
-            depends_config.update(
-                _add_prefix(prefix, depend_node._shared_value_config())
-            )
-            # An explicitly requested value always outranks a forwarded one;
-            # they can only differ if the pipeline already raised a conflict.
-            depends_config.update(
-                _add_prefix(prefix, depend_node.config)
-            )
+            by_name[depend_node.name].append(depend_node)
+
+        depends_config: dict[str, Any] = {}
+        for name, instances in by_name.items():
+            # One deterministic instance order, shared by every key, so the
+            # i-th value of two collection-valued keys describe one instance.
+            instances = sorted(set(instances), key=lambda n: n.process_id)
+            requested = []
+            for instance in instances:
+                # An explicitly requested value outranks a forwarded one; they
+                # can only differ if the pipeline already raised a conflict.
+                merged = dict(instance._shared_value_config())
+                merged.update(instance.config)
+                requested.append(merged)
+            if len(instances) > 1:
+                # Name the instances the collections are aligned to. Without
+                # this the reader cannot correlate a value with the concrete
+                # process that used it.
+                depends_config[f'__instances__.{name}'] = [
+                    instance.process_id for instance in instances
+                ]
+            keys: set[str] = set()
+            keys.update(*[set(item) for item in requested])
+            for key in sorted(keys):
+                values = [item.get(key, None) for item in requested]
+                agree = len({repr(value) for value in values}) == 1
+                depends_config[f'{name}.{key}'] = (
+                    values[0] if agree else values
+                )
+
         for input_name, binding in self._ordinary_input_provenance().items():
             depends_config[f'__input__.{input_name}'] = binding
         for param_name, binding in self._parameter_provenance().items():
             depends_config[f'__parameter__.{param_name}'] = binding
-        for input_name, input_node in self.inputs.items():
-            if input_node._gather_members is not None:
-                connection = input_node._gather_connection
-                assert connection is not None
-                depends_config[f'__gather__.{input_name}'] = {
-                    'source': connection.source.key,
-                    'group_by': list(connection.spec.group_by),
-                    'order_by': list(connection.spec.order_by),
-                    'require': connection.spec.require,
-                    'manifest_fpath': os.fspath(
-                        input_node.gather_manifest_fpath
-                    ),
-                    'members': [
-                        {
-                            'process_id': member.parent.process_id,
-                            'output': member.name,
-                            'path': os.fspath(member.final_value),
-                        }
-                        for member in input_node._gather_members
-                    ],
-                }
+        for input_name, record in self._gather_provenance().items():
+            depends_config[f'__gather__.{input_name}'] = record
+        # Gather membership is the only record of which concrete instances a
+        # collection was built from. A descendant of the consumer needs it too,
+        # or its lineage stops at whichever ancestor happens to be recorded.
+        for ancestor in self.ancestor_process_nodes():
+            for input_name, record in ancestor._gather_provenance().items():
+                depends_config[
+                    f'__gather__.{ancestor.name}.{input_name}'
+                ] = record
         return depends_config
 
     @memoize_configured_property
@@ -4138,6 +4176,22 @@ def _load_json(fpath: Any) -> Any:
 
 def _add_prefix(prefix: str, dict_: Any) -> dict[str, Any]:
     return {prefix + k: v for k, v in dict_.items()}
+
+
+def _source_value_record(source_port: Any) -> dict[str, Any]:
+    """
+    Describe what a shared-value source port actually supplied.
+
+    A source that resolves nothing is not the same as a source that resolves
+    to ``None``: the first leaves the target on its own declaration default,
+    the second is a value someone asked for. Reporting both as ``value: None``
+    would make them indistinguishable in the requested record, so an
+    unresolved source omits ``value`` and says so instead.
+    """
+    value = source_port._resolved_value()
+    if value is _UNSET:
+        return {'unresolved': True}
+    return {'value': _jsonable_config_value(value)}
 
 
 def _jsonable_config_value(value: Any) -> Any:
