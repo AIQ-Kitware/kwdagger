@@ -17,7 +17,12 @@ open on purpose:
   concrete instances, form a list index-aligned with ``__instances__.<node>``;
 * a single-instance consumer still writes one record, not a one-element list;
 * ``_hashable_group_value`` tags mappings and sets so they cannot collide with
-  a sequence of the same contents.
+  a sequence of the same contents;
+* a recovered producer reaches the consumer's *identity* and not only its
+  scheduling, so two consumers reading different files cannot share a result
+  directory;
+* a gathered port that is aliased makes the job writing the manifest a real
+  dependency of whoever borrows the path.
 
 It also covers the complements -- what must *not* change -- which is where the
 risk of the alias fix actually lives: a pure configuration alias stays
@@ -524,3 +529,182 @@ def test_unmapped_gather_provenance_keeps_plain_names():
     assert GatherSpec.coerce(
         {'group_by': record['group_by'], 'order_by': record['order_by']}
     ) == GatherSpec(group_by=['task', 'model'], order_by=['shard'])
+
+
+# ---------------------------------------------------------------------------
+# 5. A recovered producer must reach the consumer's identity, not just its
+#    scheduling
+# ---------------------------------------------------------------------------
+
+
+def _identity_chain_pipeline():
+    """
+    ``producer`` runs one algorithm over whichever data it is given, so its
+    ``algo_id`` is blind to that choice. Only its ``process_id`` distinguishes
+    the runs -- which is exactly what a consumer behind an alias has to record.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        in_paths={'src'},
+        out_paths={'produced_fpath': 'produced.json'},
+        algo_params={'algo': 'x'},
+    )
+    middle = ProcessNode(
+        name='middle',
+        executable='python middle.py',
+        in_paths={'data_fpath'},
+        out_paths={'middle_fpath': 'middle.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['produced_fpath'].connect(middle.inputs['data_fpath'])
+    middle.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline(
+        {'producer': producer, 'middle': middle, 'consumer': consumer}
+    )
+    return dag, producer, consumer
+
+
+def test_alias_consumer_identity_tracks_the_producer_instance(tmp_path):
+    """
+    Vary only an upstream external input. The producer's algorithm is
+    unchanged, so its ``algo_id`` is too -- and the ancestor payload records
+    nothing else. If that is all the consumer sees, two consumers reading
+    different files share a ``process_id`` and a result directory, and
+    whichever compiled first silently wins.
+    """
+    seen = {}
+    for src in ['/data/a', '/data/b']:
+        dag, producer, consumer = _identity_chain_pipeline()
+        dag.configure(
+            {'producer.src': src, 'producer.algo': 'x'},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+        seen[src] = {
+            'producer_algo_id': producer.algo_id,
+            'producer_process_id': producer.process_id,
+            'consumer_process_id': consumer.process_id,
+            'consumer_input': str(consumer.final_in_paths['data_fpath']),
+            'consumer_binding': consumer.depends['__input__.data_fpath'],
+        }
+    a, b = seen['/data/a'], seen['/data/b']
+
+    # The setup: same algorithm, different instance, different data reaching
+    # the consumer.
+    assert a['producer_algo_id'] == b['producer_algo_id']
+    assert a['producer_process_id'] != b['producer_process_id']
+    assert a['consumer_input'] != b['consumer_input']
+
+    # The consumer records which producer instance it read.
+    assert a['consumer_binding']['source_process_id'] == (
+        a['producer_process_id']
+    )
+    assert a['consumer_binding']['source_port'] == 'produced_fpath'
+    assert a['consumer_binding']['source_kind'] == 'output'
+
+    # ... so the two consumers cannot share a result directory.
+    assert a['consumer_process_id'] != b['consumer_process_id']
+
+
+def test_aliasing_two_ports_of_one_producer_stays_distinguishable(tmp_path):
+    """The binding names the port, not just the process."""
+    ids = {}
+    for port in ['first_fpath', 'second_fpath']:
+        producer = ProcessNode(
+            name='producer',
+            executable='python producer.py',
+            out_paths={'first_fpath': 'first.json', 'second_fpath': 'second.json'},
+        )
+        middle = ProcessNode(
+            name='middle',
+            executable='python middle.py',
+            in_paths={'data_fpath'},
+            out_paths={'middle_fpath': 'middle.json'},
+        )
+        consumer = ProcessNode(
+            name='consumer',
+            executable='python consumer.py',
+            in_paths={'data_fpath'},
+            out_paths={'result_fpath': 'result.json'},
+        )
+        producer.outputs[port].connect(middle.inputs['data_fpath'])
+        middle.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+        dag = Pipeline(
+            {'producer': producer, 'middle': middle, 'consumer': consumer}
+        )
+        dag.configure({}, root_dpath=tmp_path, cache=False)
+        ids[port] = consumer.process_id
+    assert ids['first_fpath'] != ids['second_fpath']
+
+
+# ---------------------------------------------------------------------------
+# 6. Aliasing a gathered input depends on the job that writes the manifest
+# ---------------------------------------------------------------------------
+
+
+def test_aliasing_a_gathered_input_depends_on_the_manifest_writer():
+    """
+    A gathered port resolves to a path manifest, and that manifest is written
+    by the consumer's own command -- not by any member of the collection. A
+    process that borrows the path therefore has to wait for that job, or it
+    reads a file nothing has created yet.
+    """
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    audit = ProcessNode(
+        name='audit',
+        executable='python audit.py',
+        in_paths={'parts_fpath'},
+        out_paths={'audit_fpath': 'audit.json'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+    merge.inputs['parts_fpath'].connect(audit.inputs['parts_fpath'])
+    dag = Pipeline({'shard': shard, 'merge': merge, 'audit': audit})
+    root = ub.Path.appdir(
+        'kwdagger/tests/regressions/gather-alias'
+    ).delete().ensuredir()
+    rows = [
+        {'shard.dataset': 'a', 'shard.fold': fold, 'merge.dataset': 'a'}
+        for fold in [0, 1]
+    ]
+    compiled = dag.compile_configurations(rows, root_dpath=root, cache=False)
+    by_name = ub.group_items(compiled.nodes.values(), key=lambda n: n.name)
+    audit_node = by_name['audit'][0]
+    merge_node = by_name['merge'][0]
+
+    # The borrowed value really is merge's manifest.
+    assert str(audit_node.final_in_paths['parts_fpath']) == str(
+        merge_node.inputs['parts_fpath'].gather_manifest_fpath
+    )
+
+    # So merge must run first, and the queue has to know it.
+    assert merge_node in audit_node.predecessor_process_nodes()
+    assert compiled.proc_graph.has_edge(
+        merge_node.process_id, audit_node.process_id
+    )
+
+    # And the manifest's writer is part of what identifies the borrower.
+    binding = audit_node.depends['__input__.parts_fpath']
+    assert binding['source_process_id'] == merge_node.process_id
+    assert binding['source_port'] == 'parts_fpath'
+    assert binding['source_kind'] == 'gather_manifest'

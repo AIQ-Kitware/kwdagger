@@ -185,3 +185,61 @@ fingerprints, which are still byte-identical. 156 tests pass.
 templating, command construction, and gather materialization. Splitting it is a
 real design question rather than a relocation, so I left it whole rather than
 guess at a seam.
+
+## 2026-08-03 20:40:00 -0400
+
+GPT-5.6 reviewed the branch and found two P1s. Both are real; I reproduced each
+before changing anything, and the first is a regression I introduced.
+
+**Recovered producers reached scheduling but not identity.** Two producers that
+run the same algorithm over different data have the same `algo_id` and
+different `process_id`. The ancestor payload in `depends` records only
+`algo_id`, and the `__input__` identity binding only accepted
+`source_kind == 'output'`, so a consumer behind an alias had nothing tying it
+to a specific producer instance. Two consumers with visibly different commands
+hashed to one `process_id` and one result directory.
+
+What makes this mine: before my alias change, `final_input_config` still
+contained the aliased input, and a produced path has the producer's
+`process_id` in it, so the consumers were distinguished by accident. My
+`_produced_origins` exclusion removed that anchor and put nothing in its place.
+I checked this rather than assumed it -- ran the same probe against `bec0609`
+in a worktree (having to strip the editable-install finder out of
+`sys.meta_path` to get the right kwdagger imported) and got distinct ids
+there, colliding ids at HEAD.
+
+The lesson I should have applied: when you remove something from an identity
+payload, the question is not "was this the right thing to hash" but "what was
+it doing that nothing else does". A produced path is bad identity material
+because it embeds a cache root, but it was also carrying the producer's
+instance, and only the first half of that was replaced.
+
+Identity bindings are now built from `_produced_origins` directly rather than
+filtered out of the provenance dict, so the same helper answers scheduling,
+provenance, and identity. Direct output-to-input identity is unchanged --
+sorted by the same key as before, and the TA1 fingerprints are still
+byte-identical, which is the check I trust most here.
+
+**Aliasing a gathered input.** I flagged this as an untested hole in the first
+entry and left it. That was the wrong call: it is not an ambiguity, it is a
+race. The borrower gets the path to a manifest that the *lending* job writes as
+part of its own command, with no queue dependency, so under tmux or Slurm it
+can read a file that does not exist. Serial happens to survive because compile
+order usually puts the writer first, which is exactly the kind of accident that
+hides a bug until someone changes backend.
+
+The fix follows the model rather than fighting it. A gathered port is not an
+ordinary alias: the manifest is genuinely produced by the job that owns the
+port, so that port is returned as an origin and its process becomes a real
+dependency. The traversal stops there instead of recursing to the members --
+whatever they are, they are already that job's own ancestors, so depending on
+the writer is both sufficient and minimal. `_origin_kind` distinguishes
+`'output'` from `'gather_manifest'` so identity and provenance do not conflate
+a declared output path with a generated manifest.
+
+Both now have tests. The first varies only an upstream external input and
+asserts the consumers stay distinct, which is the assertion the review asked
+for and the one my original tests were missing: everything I wrote used a
+producer with no inputs of its own, so `algo_id` and `process_id` moved
+together and the gap was invisible. Worth remembering that a fixture too simple
+to distinguish two mechanisms will not test either.

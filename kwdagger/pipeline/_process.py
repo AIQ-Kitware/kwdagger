@@ -21,7 +21,18 @@ from typing import Any, cast
 
 import ubelt as ub
 
-from kwdagger.pipeline._connections import IONode, InputNode, Node, OutputNode, ParamNode, _UNSET, _alias_preds, _produced_origins
+from kwdagger.pipeline._connections import (
+    IONode,
+    InputNode,
+    Node,
+    OutputNode,
+    ParamNode,
+    _UNSET,
+    _alias_preds,
+    _origin_identity_bindings,
+    _origin_kind,
+    _produced_origins,
+)
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import coerce_slurm_options
 
@@ -1336,24 +1347,22 @@ class ProcessNode(Node):
             depends[name] = (
                 unique_ids[0] if len(unique_ids) == 1 else unique_ids
             )
-        for input_name, binding in self._ordinary_input_provenance().items():
-            bindings = binding if isinstance(binding, list) else [binding]
-            produced = [
-                item for item in bindings if item['source_kind'] == 'output'
-            ]
-            if produced:
-                # Output bindings identify a materialized producer. Input
-                # aliases are intentionally omitted: their resolved value is
-                # already represented by ``__inputs__``, so direct and aliased
-                # forms of the same command reuse the same process directory.
-                identity_bindings = [
-                    {
-                        'source_process_id': item['source_process_id'],
-                        'source_port': item['source_port'],
-                        'source_kind': item['source_kind'],
-                    }
-                    for item in produced
-                ]
+        for input_name, input_node in self.inputs.items():
+            # Whatever produces this input identifies it, whether it is wired
+            # straight in or reached through an alias. ``__inputs__`` cannot
+            # stand in for this: a produced path is rooted in a cache
+            # directory and is deliberately kept out of identity, and the
+            # ancestor payload above records only ``algo_id``, which is blind
+            # to the producer's own inputs. Two producers running one
+            # algorithm over different data would otherwise be
+            # indistinguishable here, and their consumers would collide.
+            #
+            # The process that merely *lends* an aliased input stays out: it
+            # consumes the value, it does not make it. That is what keeps a
+            # pure configuration alias identical to writing the value
+            # directly on the consumer.
+            identity_bindings = _origin_identity_bindings(input_node)
+            if identity_bindings:
                 depends[f'__input__.{input_name}'] = (
                     identity_bindings[0]
                     if len(identity_bindings) == 1

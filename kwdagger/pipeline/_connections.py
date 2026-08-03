@@ -247,8 +247,11 @@ def _produced_origins(input_node: Any) -> list:
     matrix row. It is the single place this traversal is written: dependency,
     identity, and provenance all ask here.
 
-    Note that the process *holding* an aliased input is not itself an origin.
-    It lends a value it also consumes; it does not produce it.
+    Note that the process *holding* an aliased input is not itself an origin
+    when it merely lends a value it also consumes. A *gathered* port is the
+    exception: its value is the manifest that port's own job writes, so the
+    process holding it really does produce the artifact being forwarded, and
+    the gathered port is returned as the origin.
 
     Args:
         input_node (InputNode): the port to trace.
@@ -256,6 +259,9 @@ def _produced_origins(input_node: Any) -> list:
     Returns:
         list: the direct producers of this port, in declaration order,
             followed by any recovered through aliases, ordered by port key.
+            Entries are :class:`OutputNode` ports, or an :class:`InputNode`
+            when the origin is a gather manifest. Both answer ``.parent`` and
+            ``.name``; use :func:`_origin_kind` to tell them apart.
     """
     direct = {id(pred): pred for pred in _dependency_preds(input_node)}
     recovered: dict[int, Any] = {}
@@ -271,8 +277,12 @@ def _produced_origins(input_node: Any) -> list:
             continue
         seen.add(id(alias))
         if alias._gather_members is not None:
-            # A gathered port resolves to a manifest this pipeline writes,
-            # not to a single upstream product.
+            # A gathered port resolves to a manifest, and that manifest is
+            # written by the job that owns the port -- not by any member of
+            # the collection. Forwarding it therefore does create a real
+            # dependency on that job, and the traversal stops here: whatever
+            # the members are, they are already that job's own ancestors.
+            recovered[id(alias)] = alias
             continue
         for pred in _dependency_preds(alias):
             recovered[id(pred)] = pred
@@ -284,6 +294,58 @@ def _produced_origins(input_node: Any) -> list:
         key=lambda port: port.key,
     )
     return origins
+
+
+def _origin_kind(port: Any) -> str:
+    """
+    Say what kind of artifact an origin from :func:`_produced_origins` is.
+
+    Both kinds are produced by the job that owns the port, but they are not
+    the same thing and identity must not confuse them: an ``'output'`` is a
+    declared output path, a ``'gather_manifest'`` is the path manifest a
+    gathered input port writes as part of its own consumer's command.
+    """
+    return 'output' if isinstance(port, OutputNode) else 'gather_manifest'
+
+
+def _origin_identity_bindings(input_node: Any) -> list[dict[str, Any]]:
+    """
+    The canonical identity contribution of everything that produces an input.
+
+    An input whose value is produced upstream must carry *which* upstream
+    instance produced it. The ancestor payload alone cannot: it records
+    ``algo_id``, which is deliberately blind to the producer's own inputs, so
+    two producers that run the same algorithm over different data look
+    identical there. Without this, two consumers reading different files
+    would hash to one ``process_id`` and share a result directory.
+
+    Deterministically ordered, so the payload does not depend on the order
+    ports were connected.
+
+    Args:
+        input_node (InputNode): the port to describe.
+
+    Returns:
+        list: one record per producing port; empty when nothing produces it.
+    """
+    bindings = [
+        {
+            'source_process_id': port.parent.process_id,
+            'source_port': port.name,
+            'source_kind': _origin_kind(port),
+        }
+        for port in _produced_origins(input_node)
+    ]
+    bindings.sort(
+        key=lambda item: (
+            item['source_process_id'],
+            item['source_kind'],
+            item['source_port'],
+        )
+    )
+    return bindings
+
+
 class Node(ub.NiceRepr):
     """
     Abstract base class for a Process or IO Node.

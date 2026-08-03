@@ -81,6 +81,19 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   real dependencies of the final consumer, while the process that lent the
   input is still not one. An alias with no produced origin is unchanged and
   stays configuration-only.
+* A consumer that read a produced value through an input alias did not record
+  *which* producer instance made it. The ancestor payload carries `algo_id`,
+  which is deliberately blind to a producer's own inputs, so two producers
+  running one algorithm over different data were indistinguishable there: both
+  consumers hashed to one `process_id` and shared a result directory, and
+  whichever compiled first supplied the surviving command. An input's producing
+  ports now contribute `process_id` and port name to the consumer's identity,
+  whether wired directly or reached through an alias.
+* Aliasing a gathered input handed out the path to a manifest with no
+  dependency on the job that writes it, so the borrower could run first and
+  read a file that did not exist yet. A gathered port's owner is now a real
+  producer of that manifest: it is a scheduling dependency of anything
+  borrowing the path, and part of that borrower's identity.
 * A descendant with several same-named gathering ancestors kept only one of
   their memberships: every `__gather__.<node>.<port>` record shared one key, so
   the last instance visited overwrote its siblings. Each record now names the
