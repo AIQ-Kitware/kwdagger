@@ -317,9 +317,7 @@ def test_downstream_job_config_keeps_the_whole_gathered_lineage():
     """
     import sys
 
-    dpath = ub.Path.appdir(
-        'kwdagger/tests/gather/lineage'
-    ).delete().ensuredir()
+    dpath = ub.Path.appdir('kwdagger/tests/gather/lineage').delete().ensuredir()
     script_fpath = _write_gather_demo_script(dpath)
     root_dpath = dpath / 'runs'
 
@@ -790,7 +788,8 @@ def test_gather_compiler_preserves_input_forwarding():
         assert 'data_fpath' in node.final_input_config
         assert 'data_fpath' not in node.final_algo_config
         assert node.depends['__inputs__']['data_fpath'] == (
-            node.inputs['data_fpath'].final_value)
+            node.inputs['data_fpath'].final_value
+        )
         members = node.inputs['checkpoints_fpath']._gather_members
         assert members is not None
         assert len(members) == 3
@@ -1233,6 +1232,8 @@ def test_gather_tutorial_include_form_compiles_identically():
     assert compile_fingerprint('params.yaml') == compile_fingerprint(
         'params-include.yaml'
     )
+
+
 def _fanout_pipeline(group_by, report_port='data_fpath'):
     """prepare fans out over ``dataset``; score and report both consume it.
 
@@ -1274,7 +1275,8 @@ def _compile(dag, root_dpath, matrix=None):
     config = schedule.ScheduleEvaluationConfig(
         params={
             'pipeline': dag,
-            'matrix': matrix or {
+            'matrix': matrix
+            or {
                 'prepare.dataset': ['cats', 'dogs'],
                 'score.model': ['m1', 'm2'],
             },
@@ -1350,7 +1352,9 @@ def test_gather_groups_on_an_unqualified_ancestor_parameter(tmp_path):
 
 def test_gather_qualified_key_rejects_an_unreachable_node(tmp_path):
     dag = _fanout_pipeline(['nonexistent.dataset'])
-    with pytest.raises(KeyError, match='not this node nor one of its ancestors'):
+    with pytest.raises(
+        KeyError, match='not this node nor one of its ancestors'
+    ):
         _compile(dag, tmp_path / 'e')
 
 
@@ -1396,20 +1400,27 @@ def test_gather_unqualified_key_refuses_to_guess_between_ancestors(tmp_path):
     # Two ancestors declaring the same parameter with different values would
     # otherwise silently group on whichever was visited first.
     left = ProcessNode(
-        name='left', executable='python left.py',
-        out_paths={'left_fpath': 'left.json'}, algo_params={'split': 'train'},
+        name='left',
+        executable='python left.py',
+        out_paths={'left_fpath': 'left.json'},
+        algo_params={'split': 'train'},
     )
     right = ProcessNode(
-        name='right', executable='python right.py',
-        out_paths={'right_fpath': 'right.json'}, algo_params={'split': 'val'},
+        name='right',
+        executable='python right.py',
+        out_paths={'right_fpath': 'right.json'},
+        algo_params={'split': 'val'},
     )
     score = ProcessNode(
-        name='score', executable='python score.py',
+        name='score',
+        executable='python score.py',
         in_paths={'left_fpath', 'right_fpath'},
-        out_paths={'score_fpath': 'score.json'}, algo_params={'model': 'm1'},
+        out_paths={'score_fpath': 'score.json'},
+        algo_params={'model': 'm1'},
     )
     report = ProcessNode(
-        name='report', executable='python report.py',
+        name='report',
+        executable='python report.py',
         in_paths={'left_fpath', 'right_fpath', 'scores_fpath'},
         out_paths={'report_fpath': 'report.json'},
     )
@@ -1425,8 +1436,11 @@ def test_gather_unqualified_key_refuses_to_guess_between_ancestors(tmp_path):
     )
     dag.build_nx_graphs()
 
-    matrix = {'left.split': ['train'], 'right.split': ['val'],
-              'score.model': ['m1', 'm2']}
+    matrix = {
+        'left.split': ['train'],
+        'right.split': ['val'],
+        'score.model': ['m1', 'm2'],
+    }
     with pytest.raises(ValueError, match='Qualify it as'):
         _compile(dag, tmp_path / 'g', matrix=matrix)
 
@@ -1435,22 +1449,32 @@ def test_gather_unqualified_key_refuses_to_guess_between_ancestors(tmp_path):
 # identity model: algo config vs input config
 # --------------------------------------------------------------------------
 
+
 def _collector_for(source, port):
     """A trivial terminal gather, so compile_configurations is applicable."""
     collect = ProcessNode(
-        name='collect', executable='python collect.py',
-        in_paths={'items_fpath'}, out_paths={'all_fpath': 'all.json'})
+        name='collect',
+        executable='python collect.py',
+        in_paths={'items_fpath'},
+        out_paths={'all_fpath': 'all.json'},
+    )
     source.outputs[port].connect(
-        collect.inputs['items_fpath'], gather=GatherSpec(group_by=[]))
+        collect.inputs['items_fpath'], gather=GatherSpec(group_by=[])
+    )
     return collect
 
 
 def _predict_only(model='resnet'):
     node = ProcessNode(
-        name='predict', executable='python predict.py',
-        in_paths={'data_fpath'}, out_paths={'pred_fpath': 'pred.json'},
-        algo_params={'model': model})
-    dag = Pipeline({'predict': node, 'collect': _collector_for(node, 'pred_fpath')})
+        name='predict',
+        executable='python predict.py',
+        in_paths={'data_fpath'},
+        out_paths={'pred_fpath': 'pred.json'},
+        algo_params={'model': model},
+    )
+    dag = Pipeline(
+        {'predict': node, 'collect': _collector_for(node, 'pred_fpath')}
+    )
     dag.build_nx_graphs()
     return dag
 
@@ -1459,7 +1483,9 @@ def test_algo_config_excludes_paths():
     dag = _predict_only()
     compiled = dag.compile_configurations(
         [{'predict.data_fpath': '/d/a.json', 'predict.model': 'resnet'}],
-        root_dpath='runs', cache=False)
+        root_dpath='runs',
+        cache=False,
+    )
     node = [n for n in compiled.nodes.values() if n.name == 'predict'][0]
     assert 'data_fpath' not in node.final_algo_config
     assert node.final_algo_config == {'model': 'resnet'}
@@ -1476,30 +1502,50 @@ def test_algo_id_is_independent_of_how_a_path_is_wired():
 
     unconnected = _predict_only()
 
-    peer = ProcessNode(name='peer', executable='python peer.py',
-                       in_paths={'data_fpath'},
-                       out_paths={'peer_fpath': 'peer.json'})
+    peer = ProcessNode(
+        name='peer',
+        executable='python peer.py',
+        in_paths={'data_fpath'},
+        out_paths={'peer_fpath': 'peer.json'},
+    )
     aliased_predict = ProcessNode(
-        name='predict', executable='python predict.py',
-        in_paths={'data_fpath'}, out_paths={'pred_fpath': 'pred.json'},
-        algo_params={'model': 'resnet'})
+        name='predict',
+        executable='python predict.py',
+        in_paths={'data_fpath'},
+        out_paths={'pred_fpath': 'pred.json'},
+        algo_params={'model': 'resnet'},
+    )
     peer.inputs['data_fpath'].connect(aliased_predict.inputs['data_fpath'])
-    aliased = Pipeline({'peer': peer, 'predict': aliased_predict,
-                        'collect': _collector_for(aliased_predict,
-                                                  'pred_fpath')})
+    aliased = Pipeline(
+        {
+            'peer': peer,
+            'predict': aliased_predict,
+            'collect': _collector_for(aliased_predict, 'pred_fpath'),
+        }
+    )
     aliased.build_nx_graphs()
 
-    prep = ProcessNode(name='prep', executable='python prep.py',
-                       out_paths={'data_fpath': 'data.json'},
-                       algo_params={'dataset': 'train'})
+    prep = ProcessNode(
+        name='prep',
+        executable='python prep.py',
+        out_paths={'data_fpath': 'data.json'},
+        algo_params={'dataset': 'train'},
+    )
     produced_predict = ProcessNode(
-        name='predict', executable='python predict.py',
-        in_paths={'data_fpath'}, out_paths={'pred_fpath': 'pred.json'},
-        algo_params={'model': 'resnet'})
+        name='predict',
+        executable='python predict.py',
+        in_paths={'data_fpath'},
+        out_paths={'pred_fpath': 'pred.json'},
+        algo_params={'model': 'resnet'},
+    )
     prep.outputs['data_fpath'].connect(produced_predict.inputs['data_fpath'])
-    produced = Pipeline({'prep': prep, 'predict': produced_predict,
-                         'collect': _collector_for(produced_predict,
-                                                   'pred_fpath')})
+    produced = Pipeline(
+        {
+            'prep': prep,
+            'predict': produced_predict,
+            'collect': _collector_for(produced_predict, 'pred_fpath'),
+        }
+    )
     produced.build_nx_graphs()
 
     cases = [
@@ -1509,8 +1555,9 @@ def test_algo_id_is_independent_of_how_a_path_is_wired():
     ]
     algo_ids = set()
     for dag, row in cases:
-        compiled = dag.compile_configurations([row], root_dpath='runs',
-                                              cache=False)
+        compiled = dag.compile_configurations(
+            [row], root_dpath='runs', cache=False
+        )
         node = [n for n in compiled.nodes.values() if n.name == 'predict'][0]
         algo_ids.add(node.algo_id)
     assert len(algo_ids) == 1, algo_ids
@@ -1521,9 +1568,13 @@ def test_differing_unconnected_paths_do_not_collide():
     # runs over different data would share an output directory.
     dag = _predict_only()
     compiled = dag.compile_configurations(
-        [{'predict.data_fpath': p, 'predict.model': 'resnet'}
-         for p in ['/d/a.json', '/d/b.json']],
-        root_dpath='runs', cache=False)
+        [
+            {'predict.data_fpath': p, 'predict.model': 'resnet'}
+            for p in ['/d/a.json', '/d/b.json']
+        ],
+        root_dpath='runs',
+        cache=False,
+    )
     nodes = [n for n in compiled.nodes.values() if n.name == 'predict']
     assert len({n.algo_id for n in nodes}) == 1, 'same algorithm'
     assert len({n.process_id for n in nodes}) == 2, 'different data'
@@ -1532,17 +1583,30 @@ def test_differing_unconnected_paths_do_not_collide():
 
 def test_perf_params_are_not_identity_bearing():
     node = ProcessNode(
-        name='predict', executable='python predict.py',
-        in_paths={'data_fpath'}, out_paths={'pred_fpath': 'pred.json'},
-        algo_params={'model': 'resnet'}, perf_params={'workers': 4})
-    dag = Pipeline({'predict': node,
-                    'collect': _collector_for(node, 'pred_fpath')})
+        name='predict',
+        executable='python predict.py',
+        in_paths={'data_fpath'},
+        out_paths={'pred_fpath': 'pred.json'},
+        algo_params={'model': 'resnet'},
+        perf_params={'workers': 4},
+    )
+    dag = Pipeline(
+        {'predict': node, 'collect': _collector_for(node, 'pred_fpath')}
+    )
     dag.build_nx_graphs()
     ids = set()
     for workers in [4, 16]:
         compiled = dag.compile_configurations(
-            [{'predict.data_fpath': '/d/a.json', 'predict.model': 'resnet',
-              'predict.workers': workers}], root_dpath='runs', cache=False)
+            [
+                {
+                    'predict.data_fpath': '/d/a.json',
+                    'predict.model': 'resnet',
+                    'predict.workers': workers,
+                }
+            ],
+            root_dpath='runs',
+            cache=False,
+        )
         got = [n for n in compiled.nodes.values() if n.name == 'predict'][0]
         ids.add((got.algo_id, got.process_id))
     assert len(ids) == 1, 'changing workers must not invalidate a result'
@@ -1552,14 +1616,21 @@ def test_algo_id_distinguishes_nodes_with_empty_algo_configs():
     # The node name is part of the hashed payload, not merely a prefix, so
     # the hash portion is usable on its own.
     def build(name):
-        src = ProcessNode(name='src', executable='python src.py',
-                          out_paths={'o_fpath': 'o.json'},
-                          algo_params={'a': 1})
-        tgt = ProcessNode(name=name, executable='python t.py',
-                          in_paths={'i_fpath'},
-                          out_paths={'r_fpath': 'r.json'})
-        src.outputs['o_fpath'].connect(tgt.inputs['i_fpath'],
-                                       gather=GatherSpec(group_by=[]))
+        src = ProcessNode(
+            name='src',
+            executable='python src.py',
+            out_paths={'o_fpath': 'o.json'},
+            algo_params={'a': 1},
+        )
+        tgt = ProcessNode(
+            name=name,
+            executable='python t.py',
+            in_paths={'i_fpath'},
+            out_paths={'r_fpath': 'r.json'},
+        )
+        src.outputs['o_fpath'].connect(
+            tgt.inputs['i_fpath'], gather=GatherSpec(group_by=[])
+        )
         dag = Pipeline({'src': src, name: tgt})
         dag.build_nx_graphs()
         return dag
@@ -1567,7 +1638,8 @@ def test_algo_id_distinguishes_nodes_with_empty_algo_configs():
     hashes = set()
     for name in ['summarize', 'report']:
         compiled = build(name).compile_configurations(
-            [{'src.a': 1}], root_dpath='runs', cache=False)
+            [{'src.a': 1}], root_dpath='runs', cache=False
+        )
         node = [n for n in compiled.nodes.values() if n.name == name][0]
         assert node.final_algo_config == {}
         hashes.add(node.algo_id.split('_id_')[-1])
@@ -1578,33 +1650,43 @@ def test_algo_id_distinguishes_nodes_with_empty_algo_configs():
 # group keys that differ between the two ends
 # --------------------------------------------------------------------------
 
+
 def test_group_by_may_name_the_key_differently_on_each_side():
     # A scorer whose truth port is `truth_fpath` groups predictions keyed on
     # `dataset_fpath`, without either node renaming a port for the other.
     predict = ProcessNode(
-        name='predict', executable='python predict.py',
-        in_paths={'dataset_fpath'}, out_paths={'pred_fpath': 'pred.json'},
-        algo_params={'model': 'resnet'})
+        name='predict',
+        executable='python predict.py',
+        in_paths={'dataset_fpath'},
+        out_paths={'pred_fpath': 'pred.json'},
+        algo_params={'model': 'resnet'},
+    )
     score = ProcessNode(
-        name='score', executable='python score.py',
+        name='score',
+        executable='python score.py',
         in_paths={'truth_fpath', 'preds_fpath'},
-        out_paths={'score_fpath': 'score.json'})
+        out_paths={'score_fpath': 'score.json'},
+    )
     predict.outputs['pred_fpath'].connect(
         score.inputs['preds_fpath'],
         gather=GatherSpec(
             group_by=[{'src': 'dataset_fpath', 'dst': 'truth_fpath'}],
-            order_by=['model']))
+            order_by=['model'],
+        ),
+    )
     dag = Pipeline({'predict': predict, 'score': score})
     dag.build_nx_graphs()
 
     rows = [
-        {'predict.dataset_fpath': data, 'predict.model': model,
-         'score.truth_fpath': data}
+        {
+            'predict.dataset_fpath': data,
+            'predict.model': model,
+            'score.truth_fpath': data,
+        }
         for data in ['/d/train.json', '/d/val.json']
         for model in ['resnet', 'vit']
     ]
-    compiled = dag.compile_configurations(rows, root_dpath='runs',
-                                          cache=False)
+    compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
     scores = [n for n in compiled.nodes.values() if n.name == 'score']
     assert len(scores) == 2, 'one score per dataset'
     for node in scores:
@@ -1617,7 +1699,8 @@ def test_group_by_may_name_the_key_differently_on_each_side():
 
 def test_group_by_pair_round_trips_and_is_hashable():
     spec = GatherSpec(
-        group_by=[{'src': 'dataset_fpath', 'dst': 'truth_fpath'}, 'model'])
+        group_by=[{'src': 'dataset_fpath', 'dst': 'truth_fpath'}, 'model']
+    )
     assert spec.source_keys() == ('dataset_fpath', 'model')
     assert spec.target_keys() == ('truth_fpath', 'model')
     assert spec.display_keys() == ('dataset_fpath->truth_fpath', 'model')
@@ -1635,29 +1718,39 @@ def test_group_by_rejects_a_malformed_pair():
 # --------------------------------------------------------------------------
 
 MODEL_FAMILY = {
-    'resnet': 'cnn', 'convnext': 'cnn',
-    'vit': 'transformer', 'swin': 'transformer',
-    'mamba': 'ssm', 'hyena': 'ssm',
+    'resnet': 'cnn',
+    'convnext': 'cnn',
+    'vit': 'transformer',
+    'swin': 'transformer',
+    'mamba': 'ssm',
+    'hyena': 'ssm',
 }
 
 
 def _family_pipeline(consumers=('score',)):
     detect = ProcessNode(
-        name='detect', executable='python detect.py',
-        in_paths={'dataset_fpath'}, out_paths={'dets_fpath': 'dets.json'},
-        algo_params={'model': 'resnet', 'model_family': 'cnn'})
+        name='detect',
+        executable='python detect.py',
+        in_paths={'dataset_fpath'},
+        out_paths={'dets_fpath': 'dets.json'},
+        algo_params={'model': 'resnet', 'model_family': 'cnn'},
+    )
     nodes = {'detect': detect}
     for name in consumers:
         node = ProcessNode(
-            name=name, executable=f'python {name}.py',
+            name=name,
+            executable=f'python {name}.py',
             in_paths={'dets_fpath'},
             out_paths={f'{name}_fpath': f'{name}.json'},
-            algo_params={'model_family': 'cnn'})
+            algo_params={'model_family': 'cnn'},
+        )
         detect.param_ports['model_family'].connect(
-            node.param_ports['model_family'])
+            node.param_ports['model_family']
+        )
         detect.outputs['dets_fpath'].connect(
             node.inputs['dets_fpath'],
-            gather=GatherSpec(group_by=['model_family'], order_by=['model']))
+            gather=GatherSpec(group_by=['model_family'], order_by=['model']),
+        )
         nodes[name] = node
     dag = Pipeline(nodes)
     dag.build_nx_graphs()
@@ -1668,31 +1761,38 @@ def _family_rows():
     # `include` carries only the correlation. No consumer appears in it,
     # however many consumers there are.
     return [
-        {'detect.dataset_fpath': '/d/t.json', 'detect.model': model,
-         'detect.model_family': family}
+        {
+            'detect.dataset_fpath': '/d/t.json',
+            'detect.model': model,
+            'detect.model_family': family,
+        }
         for model, family in MODEL_FAMILY.items()
     ]
 
 
 def test_a_wired_algo_param_carries_its_value():
     dag = _family_pipeline()
-    compiled = dag.compile_configurations(_family_rows(), root_dpath='runs',
-                                          cache=False)
+    compiled = dag.compile_configurations(
+        _family_rows(), root_dpath='runs', cache=False
+    )
     scores = [n for n in compiled.nodes.values() if n.name == 'score']
     families = sorted(n.final_algo_config['model_family'] for n in scores)
     assert families == ['cnn', 'ssm', 'transformer']
     # ...and reaches the command line, not just the config.
     for node in scores:
-        assert (f"--model_family={node.final_algo_config['model_family']}"
-                in node.command)
+        assert (
+            f'--model_family={node.final_algo_config["model_family"]}'
+            in node.command
+        )
 
 
 def test_a_wired_algo_param_is_identity_bearing():
     # It is a parameter, so it belongs to the algorithm's identity -- unlike
     # an input path, which belongs to the data's.
     dag = _family_pipeline()
-    compiled = dag.compile_configurations(_family_rows(), root_dpath='runs',
-                                          cache=False)
+    compiled = dag.compile_configurations(
+        _family_rows(), root_dpath='runs', cache=False
+    )
     scores = [n for n in compiled.nodes.values() if n.name == 'score']
     assert len({n.algo_id for n in scores}) == 3
     for node in scores:
@@ -1705,42 +1805,51 @@ def test_a_wired_algo_param_is_not_a_scheduling_dependency():
     # a dependency the consumer would inherit the producer's fan-out over
     # `model` and there would be six scores rather than three.
     dag = _family_pipeline()
-    compiled = dag.compile_configurations(_family_rows(), root_dpath='runs',
-                                          cache=False)
+    compiled = dag.compile_configurations(
+        _family_rows(), root_dpath='runs', cache=False
+    )
     scores = [n for n in compiled.nodes.values() if n.name == 'score']
     assert len(scores) == 3
     for node in scores:
         # `detect` is an ancestor via the gather, not via the parameter.
-        via_param = [
-            pred for pred in node.param_ports['model_family'].pred
-        ]
+        via_param = [pred for pred in node.param_ports['model_family'].pred]
         assert via_param, 'the parameter really is wired'
-        assert all(p.parent not in node.predecessor_process_nodes()
-                   or node.inputs['dets_fpath']._gather_members
-                   for p in via_param)
+        assert all(
+            p.parent not in node.predecessor_process_nodes()
+            or node.inputs['dets_fpath']._gather_members
+            for p in via_param
+        )
 
 
 def test_wiring_a_param_does_not_grow_with_consumer_count():
     # The point of the feature: `include` states the correlation once, and
     # adding consumers costs nothing.
     rows = _family_rows()
-    for consumers in [('score',), ('score', 'calib'),
-                      ('score', 'calib', 'recall_curve')]:
+    for consumers in [
+        ('score',),
+        ('score', 'calib'),
+        ('score', 'calib', 'recall_curve'),
+    ]:
         dag = _family_pipeline(consumers)
-        compiled = dag.compile_configurations(rows, root_dpath='runs',
-                                              cache=False)
+        compiled = dag.compile_configurations(
+            rows, root_dpath='runs', cache=False
+        )
         for name in consumers:
             nodes = [n for n in compiled.nodes.values() if n.name == name]
             assert len(nodes) == 3, (name, consumers)
             sizes = sorted(
-                len(n.inputs['dets_fpath']._gather_members) for n in nodes)
+                len(n.inputs['dets_fpath']._gather_members) for n in nodes
+            )
             assert sizes == [2, 2, 2], (name, sizes)
 
 
 def test_param_ports_exist_for_every_declared_algo_param():
     node = ProcessNode(
-        name='n', executable='python n.py', out_paths={'o_fpath': 'o.json'},
-        algo_params={'alpha': 1, 'beta': 2})
+        name='n',
+        executable='python n.py',
+        out_paths={'o_fpath': 'o.json'},
+        algo_params={'alpha': 1, 'beta': 2},
+    )
     assert sorted(node.param_ports) == ['alpha', 'beta']
     # and they are not inputs -- they are not data the node reads
     assert 'alpha' not in node.inputs

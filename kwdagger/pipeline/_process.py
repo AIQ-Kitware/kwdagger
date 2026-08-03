@@ -36,6 +36,7 @@ from kwdagger.pipeline._connections import (
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import coerce_slurm_options
 
+
 def _classvar_init(self: Any, args: Any, fallbacks: Any) -> None:
     """
     Helps initialize class instance variables from class variable defaults.
@@ -1056,9 +1057,7 @@ class ProcessNode(Node):
             for key in sorted(keys):
                 values = [item.get(key, None) for item in requested]
                 agree = len({repr(value) for value in values}) == 1
-                depends_config[f'{name}.{key}'] = (
-                    values[0] if agree else values
-                )
+                depends_config[f'{name}.{key}'] = values[0] if agree else values
 
             # Gather membership is the only record of which concrete
             # instances a collection was built from, and a descendant of the
@@ -1520,7 +1519,9 @@ class ProcessNode(Node):
             Dict[str, ParamNode]
         """
         keys = self.algo_params if self.algo_params is not None else {}
-        defaults = self.algo_params if isinstance(self.algo_params, dict) else {}
+        defaults = (
+            self.algo_params if isinstance(self.algo_params, dict) else {}
+        )
         return {
             k: ParamNode(
                 name=k,
@@ -1734,6 +1735,8 @@ class ProcessNode(Node):
                 return test_cmd + ' || \\\n' + base_command
         else:
             return base_command
+
+
 def _source_value_record(source_port: Any) -> dict[str, Any]:
     """
     Describe what a shared-value source port actually supplied.

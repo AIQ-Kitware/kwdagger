@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import typing
 from dataclasses import dataclass
+
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
 # type checker no class to narrow on, so a `str | Mapping` union stays a union
 # inside the isinstance branch and every `key['src']` looks like an error. The
@@ -33,6 +34,8 @@ GroupByKey = str | Mapping[str, str]
 #: The same entry once stored. A mapping is normalized to a pair so the spec
 #: stays hashable -- it is used as a dict key when reporting cardinalities.
 StoredGroupByKey = str | tuple[str, str]
+
+
 @dataclass(frozen=True)
 class GatherSpec:
     """
@@ -81,9 +84,7 @@ class GatherSpec:
                         'A mapping group_by item must have exactly "src" and '
                         f'"dst" keys; got {sorted(key)}'
                     )
-                if not all(
-                    isinstance(v, str) and v for v in key.values()
-                ):
+                if not all(isinstance(v, str) and v for v in key.values()):
                     raise TypeError(
                         'group_by src/dst values must be non-empty strings'
                     )
@@ -212,6 +213,8 @@ class GatherConnection:
     source: Any
     target: Any
     spec: GatherSpec
+
+
 def _dependency_preds(input_node: Any) -> list:
     """
     Predecessors of an input that represent a real data dependency.

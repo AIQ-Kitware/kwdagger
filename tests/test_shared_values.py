@@ -115,10 +115,7 @@ def test_shared_values_do_not_leak_between_rows(tmp_path):
     assert alias_consumer.final_in_paths['data_fpath'] == '/data/first.json'
 
     alias_dag.configure({}, root_dpath=tmp_path, cache=False)
-    assert (
-        alias_consumer.final_in_paths['data_fpath']
-        == '/data/default.json'
-    )
+    assert alias_consumer.final_in_paths['data_fpath'] == '/data/default.json'
 
 
 @pytest.mark.parametrize('kind', ['input', 'parameter'])
@@ -369,9 +366,7 @@ def test_shared_values_survive_in_a_descendants_config_record(tmp_path):
     train.outputs['checkpoint_fpath'].connect(
         evaluate.inputs['checkpoint_fpath']
     )
-    dag = Pipeline(
-        {'label': label, 'train': train, 'evaluate': evaluate}
-    )
+    dag = Pipeline({'label': label, 'train': train, 'evaluate': evaluate})
     dag.configure(
         {'label.family': 'transformer', 'train.data_fpath': '/data/x.json'},
         root_dpath=tmp_path,
@@ -514,10 +509,7 @@ def test_dependency_only_edges_include_concrete_predecessor_identity(tmp_path):
         )
         child_ids.append(summarize.process_id)
         predecessor_ids.append(prepare.process_id)
-        assert (
-            summarize.depends['__dependency__.prepare']
-            == prepare.process_id
-        )
+        assert summarize.depends['__dependency__.prepare'] == prepare.process_id
 
     assert len(set(predecessor_ids)) == 2
     assert len(set(child_ids)) == 2

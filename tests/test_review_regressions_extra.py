@@ -296,9 +296,11 @@ def _nested_gather_rows():
 
 def test_every_gathered_ancestor_instance_is_recorded():
     dag = _nested_gather_pipeline()
-    root = ub.Path.appdir(
-        'kwdagger/tests/regressions/nested-gather'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir('kwdagger/tests/regressions/nested-gather')
+        .delete()
+        .ensuredir()
+    )
     compiled = dag.compile_configurations(
         _nested_gather_rows(), root_dpath=root, cache=False
     )
@@ -348,12 +350,12 @@ def test_every_gathered_ancestor_instance_is_recorded():
 def test_single_gathered_ancestor_keeps_its_scalar_record():
     """A pipeline with one concrete consumer still reads as one record."""
     dag = _nested_gather_pipeline()
-    root = ub.Path.appdir(
-        'kwdagger/tests/regressions/single-gather'
-    ).delete().ensuredir()
-    rows = [
-        row for row in _nested_gather_rows() if row['shard.model'] == 'x'
-    ]
+    root = (
+        ub.Path.appdir('kwdagger/tests/regressions/single-gather')
+        .delete()
+        .ensuredir()
+    )
+    rows = [row for row in _nested_gather_rows() if row['shard.model'] == 'x']
     compiled = dag.compile_configurations(rows, root_dpath=root, cache=False)
     by_name = ub.group_items(compiled.nodes.values(), key=lambda n: n.name)
     analysis = by_name['analysis'][0]
@@ -363,8 +365,7 @@ def test_single_gathered_ancestor_keeps_its_scalar_record():
     assert isinstance(ancestor_gather, dict)
     assert ancestor_gather['source'] == 'shard.rows_fpath'
     assert (
-        ancestor_gather['consumer_process_id']
-        == by_name['merge'][0].process_id
+        ancestor_gather['consumer_process_id'] == by_name['merge'][0].process_id
     )
 
 
@@ -377,14 +378,13 @@ def test_hashable_group_value_handles_nested_containers():
     value = {'b': [1, {'c': ub.Path('/tmp/x')}], 'a': (2, 3)}
     canonical = _hashable_group_value(value)
     assert hash(canonical) is not None
-    assert {canonical} == {_hashable_group_value(dict(reversed(list(
-        value.items()))))}, 'mapping order must not matter'
+    assert {canonical} == {
+        _hashable_group_value(dict(reversed(list(value.items()))))
+    }, 'mapping order must not matter'
 
     # Structurally different container kinds must not collide.
     assert _hashable_group_value([1, 2]) != _hashable_group_value({1, 2})
-    assert _hashable_group_value({'a': 1}) != _hashable_group_value(
-        [('a', 1)]
-    )
+    assert _hashable_group_value({'a': 1}) != _hashable_group_value([('a', 1)])
 
     # Paths still compare equal to their string form, as they always did.
     assert _hashable_group_value(ub.Path('/tmp/x')) == _hashable_group_value(
@@ -440,9 +440,11 @@ def test_gather_can_group_on_a_structured_parameter():
         for window in windows
         for model in ['m1', 'm2']
     ]
-    root = ub.Path.appdir(
-        'kwdagger/tests/regressions/structured-group'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir('kwdagger/tests/regressions/structured-group')
+        .delete()
+        .ensuredir()
+    )
     compiled = dag.compile_configurations(rows, root_dpath=root, cache=False)
     by_name = ub.group_items(compiled.nodes.values(), key=lambda n: n.name)
     assert len(by_name['report']) == 2, 'one report per prepared window'
@@ -487,9 +489,11 @@ def test_gather_provenance_uses_the_public_group_by_schema():
         }
         for seed in [0, 1]
     ]
-    root = ub.Path.appdir(
-        'kwdagger/tests/regressions/public-schema'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir('kwdagger/tests/regressions/public-schema')
+        .delete()
+        .ensuredir()
+    )
     compiled = dag.compile_configurations(rows, root_dpath=root, cache=False)
     scorer = [n for n in compiled.nodes.values() if n.name == 'score'][0]
     record = scorer._depends_config()['__gather__.preds_fpath']
@@ -515,9 +519,11 @@ def test_gather_provenance_uses_the_public_group_by_schema():
 
 def test_unmapped_gather_provenance_keeps_plain_names():
     dag = _nested_gather_pipeline()
-    root = ub.Path.appdir(
-        'kwdagger/tests/regressions/plain-schema'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir('kwdagger/tests/regressions/plain-schema')
+        .delete()
+        .ensuredir()
+    )
     compiled = dag.compile_configurations(
         _nested_gather_rows(), root_dpath=root, cache=False
     )
@@ -602,8 +608,8 @@ def test_alias_consumer_identity_tracks_the_producer_instance(tmp_path):
     assert a['consumer_input'] != b['consumer_input']
 
     # The consumer records which producer instance it read.
-    assert a['consumer_binding']['source_process_id'] == (
-        a['producer_process_id']
+    assert (
+        a['consumer_binding']['source_process_id'] == (a['producer_process_id'])
     )
     assert a['consumer_binding']['source_port'] == 'produced_fpath'
     assert a['consumer_binding']['source_kind'] == 'output'
@@ -619,7 +625,10 @@ def test_aliasing_two_ports_of_one_producer_stays_distinguishable(tmp_path):
         producer = ProcessNode(
             name='producer',
             executable='python producer.py',
-            out_paths={'first_fpath': 'first.json', 'second_fpath': 'second.json'},
+            out_paths={
+                'first_fpath': 'first.json',
+                'second_fpath': 'second.json',
+            },
         )
         middle = ProcessNode(
             name='middle',
@@ -680,9 +689,11 @@ def test_aliasing_a_gathered_input_depends_on_the_manifest_writer():
     )
     merge.inputs['parts_fpath'].connect(audit.inputs['parts_fpath'])
     dag = Pipeline({'shard': shard, 'merge': merge, 'audit': audit})
-    root = ub.Path.appdir(
-        'kwdagger/tests/regressions/gather-alias'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir('kwdagger/tests/regressions/gather-alias')
+        .delete()
+        .ensuredir()
+    )
     rows = [
         {'shard.dataset': 'a', 'shard.fold': fold, 'merge.dataset': 'a'}
         for fold in [0, 1]

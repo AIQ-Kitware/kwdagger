@@ -43,8 +43,10 @@ def main():
     dag = Pipeline({'producer': producer, 'consumer': consumer})
     assert dag.proc_graph.has_edge('producer', 'consumer')
 
-    print('confirmed: template predecessor query is stale; successor pass '
-          'is what makes build_nx_graphs correct')
+    print(
+        'confirmed: template predecessor query is stale; successor pass '
+        'is what makes build_nx_graphs correct'
+    )
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ from typing import Any
 
 import kwutil
 
+
 def coerce_slurm_options(slurm_options: Any) -> dict[str, Any]:
     """
     Normalize slurm option dictionaries.

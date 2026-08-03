@@ -38,23 +38,29 @@ MODELS = {
 
 def build(consumers=('score', 'calib')):
     detect = ProcessNode(
-        name='detect', executable='python detect.py',
+        name='detect',
+        executable='python detect.py',
         in_paths={'dataset_fpath'},
         out_paths={'dets_fpath': 'dets.json'},
-        algo_params={'model': 'resnet', 'model_family': 'cnn'})
+        algo_params={'model': 'resnet', 'model_family': 'cnn'},
+    )
 
     nodes = {'detect': detect}
     for name in consumers:
         node = ProcessNode(
-            name=name, executable=f'python {name}.py',
+            name=name,
+            executable=f'python {name}.py',
             in_paths={'dets_fpath'},
             out_paths={f'{name}_fpath': f'{name}.json'},
-            algo_params={'model_family': 'cnn'})
+            algo_params={'model_family': 'cnn'},
+        )
         detect.param_ports['model_family'].connect(
-            node.param_ports['model_family'])
+            node.param_ports['model_family']
+        )
         detect.outputs['dets_fpath'].connect(
             node.inputs['dets_fpath'],
-            gather=GatherSpec(group_by=['model_family'], order_by=['model']))
+            gather=GatherSpec(group_by=['model_family'], order_by=['model']),
+        )
         nodes[name] = node
 
     dag = Pipeline(nodes)
@@ -73,11 +79,15 @@ INCLUDE = [
     for model, family in MODELS.items()
 ]
 
+
 #: What the same pipeline costs without wiring: every consumer must be
 #: restated on every row.
 def include_without_wiring(consumers=('score', 'calib')):
     return [
-        {'detect.model': model, 'detect.model_family': family,
-         **{f'{c}.model_family': family for c in consumers}}
+        {
+            'detect.model': model,
+            'detect.model_family': family,
+            **{f'{c}.model_family': family for c in consumers},
+        }
         for model, family in MODELS.items()
     ]

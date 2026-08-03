@@ -29,6 +29,7 @@ from kwdagger.schedule import ScheduleEvaluationConfig, build_schedule
 # harness
 # --------------------------------------------------------------------------
 
+
 def compile_quiet(dag, matrix, root_dpath='/tmp/kwd_audit', include=None):
     """Compile a pipeline over a matrix without the scheduler's chatter."""
     params = {'pipeline': dag, 'matrix': matrix}
@@ -82,8 +83,10 @@ def describe(compiled, node_names=None):
             for pname, port in node.inputs.items():
                 kind = input_kind(port)
                 inalgo = 'IN-algo' if pname in algo else '  -    '
-                print(f'      in  {pname:<16} {kind:<12} {inalgo} '
-                      f'{_short_val(port.final_value)}')
+                print(
+                    f'      in  {pname:<16} {kind:<12} {inalgo} '
+                    f'{_short_val(port.final_value)}'
+                )
             for pname in node.outputs:
                 print(f'      out {pname:<16}')
             dep_keys = sorted(node.depends.keys())
@@ -98,12 +101,13 @@ def _short(d, width=68):
 def _short_val(v, width=34):
     s = str(v)
     if len(s) > width:
-        s = '...' + s[-(width - 3):]
+        s = '...' + s[-(width - 3) :]
     return s
 
 
-def sensitivity(dag_factory, base_matrix, perturbations, focus,
-                root='/tmp/kwd_audit_sens'):
+def sensitivity(
+    dag_factory, base_matrix, perturbations, focus, root='/tmp/kwd_audit_sens'
+):
     """
     Report which ids move when one thing changes at a time.
 
@@ -127,13 +131,16 @@ def sensitivity(dag_factory, base_matrix, perturbations, focus,
             len(nodes),
         )
 
-    header = (f'{"perturbation":<36}{"node":<12}{"n":>4}  '
-              f'{"algo_id set":<14}{"process_id set":<14}')
+    header = (
+        f'{"perturbation":<36}{"node":<12}{"n":>4}  '
+        f'{"algo_id set":<14}{"process_id set":<14}'
+    )
     print(header)
     print('  ' + '-' * (len(header) - 2))
     for label, matrix in perturbations:
-        got, _ = compile_quiet(dag_factory(), matrix,
-                               f'{root}/{abs(hash(label))}')
+        got, _ = compile_quiet(
+            dag_factory(), matrix, f'{root}/{abs(hash(label))}'
+        )
         for name in focus:
             nodes = instances(got, name)
             algo_ids = {n.algo_id for n in nodes}
@@ -156,9 +163,11 @@ def _delta(before, after):
 # report
 # --------------------------------------------------------------------------
 
+
 def main():
     import sys
     import os
+
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import case_detect_segment as detseg
     import case_shared_label as shared_label
@@ -172,25 +181,36 @@ def main():
     for label in ['sameport', 'matrix', 'alias']:
         try:
             compiled, _ = compile_quiet(
-                detseg.build(label), detseg.matrix(label),
-                f'/tmp/kwd_audit/detseg_{label}')
+                detseg.build(label),
+                detseg.matrix(label),
+                f'/tmp/kwd_audit/detseg_{label}',
+            )
             counts = {
                 n: len(instances(compiled, n))
-                for n in ['detect', 'segment', 'score_det', 'score_seg',
-                          'summarize']
+                for n in [
+                    'detect',
+                    'segment',
+                    'score_det',
+                    'score_seg',
+                    'summarize',
+                ]
             }
             print(f'  truth wiring {label:<10} {counts}')
         except Exception as ex:
-            print(f'  truth wiring {label:<10} REJECTED: '
-                  f'{type(ex).__name__}: {str(ex)[:90]}')
+            print(
+                f'  truth wiring {label:<10} REJECTED: '
+                f'{type(ex).__name__}: {str(ex)[:90]}'
+            )
     print('\n  All three compile. The scorer has no ordinary edge to the')
     print('  predictor, so a qualified key cannot name it -- the src/dst group')
     print('  key form lets each end use its own vocabulary instead.')
 
     banner('2. what each identity is made of')
-    compiled, _ = compile_quiet(detseg.build('sameport'),
-                                detseg.matrix('sameport'),
-                                '/tmp/kwd_audit/describe')
+    compiled, _ = compile_quiet(
+        detseg.build('sameport'),
+        detseg.matrix('sameport'),
+        '/tmp/kwd_audit/describe',
+    )
     describe(compiled, ['detect', 'score_det', 'summarize'])
 
     banner('3. sensitivity: which perturbation moves which id')
@@ -204,26 +224,38 @@ def main():
     perturbations = [
         ('perf: detect.workers 4 -> 8', m(**{'detect.workers': [8]})),
         ('algo: detect.thresh 0.5 -> 0.7', m(**{'detect.thresh': [0.7]})),
-        ('algo: score_det.iou 0.5 -> 0.7', m(**{'score_det.iou_thresh': [0.7]})),
-        ('cohort: add a detect model',
-         m(**{'detect.model': ['resnet', 'vit', 'convnext']})),
+        (
+            'algo: score_det.iou 0.5 -> 0.7',
+            m(**{'score_det.iou_thresh': [0.7]}),
+        ),
+        (
+            'cohort: add a detect model',
+            m(**{'detect.model': ['resnet', 'vit', 'convnext']}),
+        ),
         ('algo: segment.model unet -> fcn', m(**{'segment.model': ['fcn']})),
     ]
-    sensitivity(lambda: detseg.build('sameport'), base, perturbations,
-                focus=['detect', 'score_det', 'score_seg', 'summarize'])
+    sensitivity(
+        lambda: detseg.build('sameport'),
+        base,
+        perturbations,
+        focus=['detect', 'score_det', 'score_seg', 'summarize'],
+    )
 
     banner('4. the same computation, wired three ways')
     print(wiring.__doc__)
     print(f'  {"variant":<14}{"in kind":<13}{"algo_id":<13}{"algo_config"}')
     print('  ' + '-' * 72)
     for label, (factory, matrix) in wiring.VARIANTS.items():
-        compiled, _ = compile_quiet(factory(), matrix,
-                                    f'/tmp/kwd_audit/wire_{label}')
+        compiled, _ = compile_quiet(
+            factory(), matrix, f'/tmp/kwd_audit/wire_{label}'
+        )
         node = instances(compiled, 'predict')[0]
         kind = input_kind(node.inputs['data_fpath'])
-        print(f'  {label:<14}{kind:<13}'
-              f'{node.algo_id.split("_id_")[-1][:10]:<13}'
-              f'{_short(dict(node.final_algo_config), 40)}')
+        print(
+            f'  {label:<14}{kind:<13}'
+            f'{node.algo_id.split("_id_")[-1][:10]:<13}'
+            f'{_short(dict(node.final_algo_config), 40)}'
+        )
     print('\n  All three agree: algo_id identifies the algorithm, not the')
     print('  wiring. Data identity lives in final_input_config / ancestors.')
 
@@ -234,17 +266,21 @@ def main():
             shared_label.build(consumers),
             dict(shared_label.MATRIX),
             f'/tmp/kwd_audit/label_{len(consumers)}',
-            include=shared_label.INCLUDE)
+            include=shared_label.INCLUDE,
+        )
         counts = {
             name: len(instances(compiled, name))
             for name in ('detect',) + consumers
         }
         wired = sum(len(row) for row in shared_label.INCLUDE)
         unwired = sum(
-            len(row) for row in shared_label.include_without_wiring(consumers))
+            len(row) for row in shared_label.include_without_wiring(consumers)
+        )
         print(f'  {len(consumers)} consumers -> {counts}')
-        print(f'      include entries: wired={wired} (constant)  '
-              f'as-algo-param={unwired} (grows)')
+        print(
+            f'      include entries: wired={wired} (constant)  '
+            f'as-algo-param={unwired} (grows)'
+        )
 
 
 if __name__ == '__main__':

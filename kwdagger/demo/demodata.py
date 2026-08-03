@@ -720,5 +720,6 @@ def demo_pipeline_run() -> None:
     )
     queue.run()
 
+
 if __name__ == '__main__':
     __cli__.main()

@@ -32,9 +32,7 @@ def test_produced_value_forwarded_through_alias_keeps_dependency(tmp_path):
     dag = Pipeline(
         {'producer': producer, 'middle': middle, 'consumer': consumer}
     )
-    dag.configure(
-        {'producer.revision': 1}, root_dpath=tmp_path, cache=False
-    )
+    dag.configure({'producer.revision': 1}, root_dpath=tmp_path, cache=False)
 
     assert os.fspath(consumer.final_in_paths['data_fpath']) == os.fspath(
         producer.outputs['data_fpath'].final_value
@@ -101,9 +99,7 @@ def test_nested_gather_provenance_keeps_each_consumer_instance(tmp_path):
     compiled = dag.compile_configurations(
         rows, root_dpath=tmp_path, cache=False
     )
-    merges = [
-        node for node in compiled.nodes.values() if node.name == 'merge'
-    ]
+    merges = [node for node in compiled.nodes.values() if node.name == 'merge']
     reports = [
         node for node in compiled.nodes.values() if node.name == 'report'
     ]
@@ -144,9 +140,7 @@ def test_qualified_group_by_accepts_mapping_values(tmp_path):
     train.outputs['checkpoint_fpath'].connect(
         collect.inputs['checkpoints_fpath'],
         gather=GatherSpec(
-            group_by=[
-                {'src': 'train.settings', 'dst': 'collect.settings'}
-            ],
+            group_by=[{'src': 'train.settings', 'dst': 'collect.settings'}],
             order_by=['fold'],
         ),
     )
@@ -191,9 +185,7 @@ def test_gather_provenance_uses_public_group_by_shape(tmp_path):
         out_paths={'score_fpath': 'score.json'},
     )
     spec = GatherSpec(
-        group_by=[
-            {'src': 'dataset_fpath', 'dst': 'truth_fpath'}
-        ],
+        group_by=[{'src': 'dataset_fpath', 'dst': 'truth_fpath'}],
         order_by=['model'],
     )
     predict.outputs['pred_fpath'].connect(

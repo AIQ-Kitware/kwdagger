@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+
 def bash_heredoc_write_command(
     text: str,
     output_fpath: str | os.PathLike[str],

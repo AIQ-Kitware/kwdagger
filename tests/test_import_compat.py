@@ -116,7 +116,7 @@ def _internal_imports(module_name, include_type_checking=False):
         if isinstance(node, ast.ImportFrom) and node.module:
             if not node.module.startswith('kwdagger.pipeline'):
                 continue
-            tail = node.module[len('kwdagger.pipeline'):].lstrip('.')
+            tail = node.module[len('kwdagger.pipeline') :].lstrip('.')
             if tail:
                 found.add(tail)
             else:

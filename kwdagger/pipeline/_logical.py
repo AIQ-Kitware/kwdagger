@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
+
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
 # type checker no class to narrow on, so a `str | Mapping` union stays a union
 # inside the isinstance branch and every `key['src']` looks like an error. The
@@ -26,9 +27,14 @@ import ubelt as ub
 
 from kwdagger.utils import util_dotdict
 from kwdagger.pipeline._compile import _compile_pipeline_configurations
-from kwdagger.pipeline._connections import GatherConnection, _alias_preds, _produced_origins
+from kwdagger.pipeline._connections import (
+    GatherConnection,
+    _alias_preds,
+    _produced_origins,
+)
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._slurm import coerce_slurm_options
+
 
 class Pipeline:
     """
@@ -669,6 +675,8 @@ class Pipeline:
         )
 
     make_queue = submit_jobs
+
+
 def _labelize_graph(
     graph: Any, shrink_labels: Any, show_types: Any, color_procs: int = 0
 ) -> None:
@@ -727,6 +735,8 @@ def _labelize_graph(
             if color is not None:
                 label = data['label']
                 data['label'] = f'[{color}]{label}[/{color}]'
+
+
 def coerce_pipeline(pipeline: Any) -> Pipeline:
     """
     Attempts to resolve a concise expression (typically from the command line) into a pre-defined pipeline.

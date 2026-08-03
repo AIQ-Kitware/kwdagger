@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import os
 from collections import defaultdict
+
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
 # type checker no class to narrow on, so a `str | Mapping` union stays a union
 # inside the isinstance branch and every `key['src']` looks like an error. The
@@ -28,11 +29,18 @@ import networkx as nx
 import ubelt as ub
 
 from kwdagger.utils import util_dotdict
-from kwdagger.pipeline._connections import GatherConnection, GatherSpec, InputNode, OutputNode, _UNSET
+from kwdagger.pipeline._connections import (
+    GatherConnection,
+    GatherSpec,
+    InputNode,
+    OutputNode,
+    _UNSET,
+)
 from kwdagger.pipeline._process import ProcessNode
 
 if TYPE_CHECKING:
     from kwdagger.pipeline._logical import Pipeline
+
 
 class CompiledPipeline:
     """A static concrete graph produced from all matrix configurations."""
@@ -295,6 +303,8 @@ class CompiledPipeline:
         )
 
     make_queue = submit_jobs
+
+
 def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
     """Deep-copy a node while removing all template graph connections."""
     node = copy.deepcopy(template)
@@ -320,6 +330,8 @@ def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
         param_port._final_value = _UNSET
     node._configured_cache.clear()
     return node
+
+
 def _node_param_value(node: 'ProcessNode', key: str) -> Any:
     """
     Resolve a gather grouping key against a concrete node.
@@ -447,13 +459,15 @@ def _resolve_named_nodes(
     """Find all concrete ``node_name`` instances visible from ``node``."""
     if node.name == node_name:
         return [node]
-    ancestors = [a for a in node.ancestor_process_nodes() if a.name == node_name]
+    ancestors = [
+        a for a in node.ancestor_process_nodes() if a.name == node_name
+    ]
     if not ancestors:
         raise KeyError(
             f'Cannot group {node.name!r} by a parameter of {node_name!r}: '
             f'it is not this node nor one of its ancestors '
             f'({sorted(n.name for n in node.ancestor_process_nodes())}). '
-            f'Note that a gather\'s own source is not yet an ancestor while '
+            f"Note that a gather's own source is not yet an ancestor while "
             f'that gather is being resolved.'
         )
     return ancestors
@@ -659,9 +673,7 @@ def _compile_pipeline_configurations(
         param_edges: list[tuple[str, str, str]] = []
         for param_name, param_port in template_node.param_ports.items():
             for pred in param_port.pred:
-                param_edges.append(
-                    (param_name, pred.parent.name, pred.name)
-                )
+                param_edges.append((param_name, pred.parent.name, pred.name))
 
         dependency_only_predecessors = [
             pred.name

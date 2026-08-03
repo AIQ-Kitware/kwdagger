@@ -141,9 +141,7 @@ def submit_jobs(
 
         assert isinstance(proc_graph, nx.DiGraph)
         pred_node_names = list(proc_graph.predecessors(node_name))
-        pred_nodes = [
-            proc_graph.nodes[n]['node'] for n in pred_node_names
-        ]
+        pred_nodes = [proc_graph.nodes[n]['node'] for n in pred_node_names]
 
         ancestors_will_exist = all(n.will_exist for n in pred_nodes)
         if skip_existing and node.enabled != 'redo' and node.does_exist:
@@ -163,9 +161,7 @@ def submit_jobs(
         else:
             node_procid = node.process_id
             node_job = None
-            pred_node_procids = [
-                n.process_id for n in pred_nodes if n.enabled
-            ]
+            pred_node_procids = [n.process_id for n in pred_nodes if n.enabled]
             is_slurm = 'slurm' in queue.__class__.__name__.lower()
             has_gather = any(
                 input_node._gather_members is not None
@@ -221,9 +217,7 @@ def submit_jobs(
                     extra_submitkw['teardown'] = node_teardown
                 if is_slurm:
                     # Global slurm options apply to every job.
-                    extra_submitkw.update(
-                        coerce_slurm_options(slurm_options)
-                    )
+                    extra_submitkw.update(coerce_slurm_options(slurm_options))
                     # Allow per-node overrides specified on the class or via
                     # configuration.
                     extra_submitkw.update(
@@ -320,8 +314,7 @@ def submit_jobs(
                 before_node_commands.extend(
                     [
                         command,
-                        'chmod +x -- '
-                        + shlex.quote(os.fspath(invoke_fpath)),
+                        'chmod +x -- ' + shlex.quote(os.fspath(invoke_fpath)),
                     ]
                 )
 
@@ -382,4 +375,3 @@ def submit_jobs(
 
     # print(f'queue={queue}')
     return summary
-

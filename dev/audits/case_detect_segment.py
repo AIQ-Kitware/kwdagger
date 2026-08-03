@@ -59,7 +59,9 @@ def build(truth_wiring='matrix'):
     """
     detect = _predictor('detect', 'dets_fpath')
     segment = _predictor('segment', 'masks_fpath')
-    truth_port = 'dataset_fpath' if truth_wiring == 'sameport' else 'truth_fpath'
+    truth_port = (
+        'dataset_fpath' if truth_wiring == 'sameport' else 'truth_fpath'
+    )
     score_det = _scorer('score_det', 'dets_fpath', truth_port)
     score_seg = _scorer('score_seg', 'masks_fpath', truth_port)
     summarize = ProcessNode(
@@ -71,37 +73,42 @@ def build(truth_wiring='matrix'):
 
     # The scorer's truth port and the predictor's data port name the same
     # value in different vocabularies. Say so, rather than renaming a port.
-    group_key = ('dataset_fpath' if truth_wiring == 'sameport'
-                 else {'src': 'dataset_fpath', 'dst': truth_port})
+    group_key = (
+        'dataset_fpath'
+        if truth_wiring == 'sameport'
+        else {'src': 'dataset_fpath', 'dst': truth_port}
+    )
     nodes = {
-        'detect': detect, 'segment': segment,
-        'score_det': score_det, 'score_seg': score_seg,
+        'detect': detect,
+        'segment': segment,
+        'score_det': score_det,
+        'score_seg': score_seg,
         'summarize': summarize,
     }
 
     if truth_wiring == 'alias':
-        detect.inputs['dataset_fpath'].connect(
-            score_det.inputs[truth_port])
-        segment.inputs['dataset_fpath'].connect(
-            score_seg.inputs[truth_port])
+        detect.inputs['dataset_fpath'].connect(score_det.inputs[truth_port])
+        segment.inputs['dataset_fpath'].connect(score_seg.inputs[truth_port])
 
     # predictions fan in per dataset
     detect.outputs['dets_fpath'].connect(
         score_det.inputs['dets_fpath'],
-        gather=GatherSpec(group_by=[group_key],
-                          order_by=['model']))
+        gather=GatherSpec(group_by=[group_key], order_by=['model']),
+    )
     segment.outputs['masks_fpath'].connect(
         score_seg.inputs['masks_fpath'],
-        gather=GatherSpec(group_by=[group_key],
-                          order_by=['model']))
+        gather=GatherSpec(group_by=[group_key], order_by=['model']),
+    )
 
     # both scorers fan in to one report
     score_det.outputs['score_det_fpath'].connect(
         summarize.inputs['det_scores_fpath'],
-        gather=GatherSpec(group_by=[], order_by=[]))
+        gather=GatherSpec(group_by=[], order_by=[]),
+    )
     score_seg.outputs['score_seg_fpath'].connect(
         summarize.inputs['seg_scores_fpath'],
-        gather=GatherSpec(group_by=[], order_by=[]))
+        gather=GatherSpec(group_by=[], order_by=[]),
+    )
 
     dag = Pipeline(nodes)
     dag.build_nx_graphs()
@@ -109,6 +116,7 @@ def build(truth_wiring='matrix'):
 
 
 DATASETS = ['/data/train.kwcoco.json', '/data/val.kwcoco.json']
+
 
 def matrix(truth_wiring='matrix', **over):
     m = {
