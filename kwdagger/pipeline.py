@@ -29,7 +29,12 @@ from collections import defaultdict
 from concurrent.futures import Future
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Mapping, Sequence, cast
+# From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
+# type checker no class to narrow on, so a `str | Mapping` union stays a union
+# inside the isinstance branch and every `key['src']` looks like an error. The
+# typing aliases have been deprecated since 3.9 in any case.
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
 import kwutil
 import networkx as nx
@@ -39,6 +44,15 @@ from kwdagger.utils import util_dotdict
 
 Collection = Mapping[str, Any] | Sequence[Any] | set[Any] | None
 Configurable = dict[str, Any] | None
+
+#: One ``GatherSpec.group_by`` entry as a caller writes it: a plain name used
+#: on both sides of the edge, or ``{'src': ..., 'dst': ...}`` when each side
+#: calls it something different.
+GroupByKey = str | Mapping[str, str]
+
+#: The same entry once stored. A mapping is normalized to a pair so the spec
+#: stays hashable -- it is used as a dict key when reporting cardinalities.
+StoredGroupByKey = str | tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -55,6 +69,9 @@ class GatherSpec:
         group_by:
             Parameter names shared by the source and target nodes. An empty
             sequence gathers all source instances into each target collection.
+            An entry may instead be ``{'src': ..., 'dst': ...}`` when the two
+            sides name the same thing differently (see
+            :func:`_store_group_key`).
         order_by:
             Optional source parameter names used to order manifest members.
             When omitted, members are ordered by source process id.
@@ -62,13 +79,13 @@ class GatherSpec:
             Completion policy. Version 1 supports only ``"all_success"``.
     """
 
-    group_by: tuple[str, ...]
+    group_by: tuple[StoredGroupByKey, ...]
     order_by: tuple[str, ...] = ()
     require: str = 'all_success'
 
     def __init__(
         self,
-        group_by: Sequence[str],
+        group_by: Sequence[GroupByKey],
         order_by: Sequence[str] | None = None,
         require: str = 'all_success',
     ) -> None:
@@ -76,15 +93,9 @@ class GatherSpec:
             raise TypeError('GatherSpec.group_by must be a sequence of names')
         if isinstance(order_by, (str, bytes)):
             raise TypeError('GatherSpec.order_by must be a sequence of names')
-        # Normalize mapping entries to (src, dst) tuples so the spec stays
-        # hashable -- it is used as a dict key when reporting cardinalities.
-        group_by_ = tuple(
-            (key['src'], key['dst'])
-            if isinstance(key, Mapping) and set(key) == {'src', 'dst'}
-            else key
-            for key in group_by
-        )
         order_by_ = tuple(order_by or ())
+        # Validate before normalizing, so a malformed entry gets the specific
+        # message below rather than a KeyError from the normalization.
         for key in group_by:
             if isinstance(key, Mapping):
                 if set(key) != {'src', 'dst'}:
@@ -107,6 +118,9 @@ class GatherSpec:
             raise TypeError(
                 'GatherSpec.order_by items must be non-empty strings'
             )
+        # Mapping entries become (src, dst) pairs so the spec stays hashable
+        # -- it is used as a dict key when reporting cardinalities.
+        group_by_ = tuple(_store_group_key(key) for key in group_by)
         _seen = [_group_key_pair(k) for k in group_by_]
         if len(set(_seen)) != len(_seen):
             raise ValueError('GatherSpec.group_by cannot contain duplicates')
@@ -161,21 +175,56 @@ class GatherSpec:
         return data
 
 
-def _group_key_pair(key: Any) -> tuple[str, str]:
+def _store_group_key(key: GroupByKey) -> StoredGroupByKey:
     """
-    Normalize a group_by entry into ``(source_key, target_key)``.
+    Put an authored ``group_by`` entry into the form :class:`GatherSpec` stores.
 
-    A plain string names the same thing on both sides. A
+    A plain string names the same thing on both sides and is kept as-is. A
     ``{'src': ..., 'dst': ...}`` mapping lets each side name it in its own
     vocabulary -- a scorer whose truth port is ``truth_fpath`` can group
-    predictions keyed on ``dataset_fpath`` without either node renaming a
-    port to satisfy the other.
+    predictions keyed on ``dataset_fpath`` without either node renaming a port
+    to satisfy the other -- and becomes a pair, because the spec is frozen and
+    used as a dict key while a mapping is unhashable.
+
+    Callers must validate first: a mapping without both keys raises ``KeyError``
+    here, where :meth:`GatherSpec.__init__` raises something explanatory.
+
+    Args:
+        key (GroupByKey): one entry as written.
+
+    Returns:
+        StoredGroupByKey
+
+    Example:
+        >>> _store_group_key('task')
+        'task'
+        >>> _store_group_key({'src': 'dataset_fpath', 'dst': 'truth_fpath'})
+        ('dataset_fpath', 'truth_fpath')
     """
-    if isinstance(key, Mapping):
-        return (key['src'], key['dst'])
-    if isinstance(key, tuple):
+    if isinstance(key, str):
         return key
-    return (key, key)
+    return (key['src'], key['dst'])
+
+
+def _group_key_pair(key: StoredGroupByKey) -> tuple[str, str]:
+    """
+    Read a stored ``group_by`` entry as ``(source_key, target_key)``.
+
+    Args:
+        key (StoredGroupByKey): one entry as :class:`GatherSpec` stores it.
+
+    Returns:
+        tuple[str, str]
+
+    Example:
+        >>> _group_key_pair('task')
+        ('task', 'task')
+        >>> _group_key_pair(('dataset_fpath', 'truth_fpath'))
+        ('dataset_fpath', 'truth_fpath')
+    """
+    if isinstance(key, str):
+        return (key, key)
+    return key
 
 
 @dataclass
