@@ -2,20 +2,37 @@
 
 Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
 
-- **Lesson:** A `ProcessNode` memoizes `predecessor_process_nodes` while it is
-  still being constructed, before any connection exists, and only `configure`
-  clears that cache. So on a *template* (unconfigured) pipeline the predecessor
-  query answers with a stale empty list. `Pipeline.build_nx_graphs` sees an
-  ordinary output-to-input edge only because it also walks
-  `successor_process_nodes`, whose cache is not populated during construction.
-  Anything that must appear in the template graph has to be read from the ports
-  directly, not from the memoized query — and the two directions in
-  `build_nx_graphs` are not redundant.
+- **Lesson:** A `ProcessNode` memoizes lineage queries while it is still being
+  constructed, before any connection exists. Those answers describe a graph
+  that was never built. `Pipeline.build_nx_graphs` is the first moment the
+  complete connection state is known, so it clears every node's
+  `_configured_cache` before reading — without that, template
+  `predecessor_process_nodes()` and `ancestor_process_nodes()` return empty
+  lists on a fully connected pipeline.
   - **Evidence / MWE:** `dev/lessons/mwe/template_predecessor_staleness.py`;
-    the docstring on `ProcessNode.successor_process_nodes`; commit
-    "Recover produced lineage through input aliases".
-  - **Applies when:** adding a new kind of execution edge, or considering
-    folding the predecessor and successor passes in `build_nx_graphs` together.
+    commit "Resolve identity from the effective input source".
+  - **Applies when:** adding memoized lineage state to `ProcessNode`, or moving
+    work out of `build_nx_graphs`. Supersedes an earlier form of this lesson
+    which concluded that the successor pass in `build_nx_graphs` was
+    load-bearing *because* of the staleness. It was, until the cache was
+    cleared at the top of that method; the redundancy is now genuine, and
+    `successor_process_nodes` is kept as public API rather than as a
+    correctness crutch.
+
+- **Lesson:** Two different questions get asked of an input port, and
+  conflating them causes silent result-directory collisions. *Structural*
+  ("what could supply this port?") is the only question answerable on a
+  template pipeline, where nothing is configured, so the logical graph must
+  use it. *Effective* ("what does supply it?", applying `_resolved_value`'s
+  precedence: gather > explicit > forwarded > produced > default) is the only
+  one identity may use, because a port wired to a producer but configured with
+  an explicit path reads that path. `_produced_origins` and
+  `_effective_origins` keep the two apart.
+  - **Evidence / MWE:** `tests/test_review_regressions_extra.py`
+    `test_overriding_a_connected_input_changes_identity`; commit
+    "Resolve identity from the effective input source".
+  - **Applies when:** adding anything to `depends`, `final_input_config`, or
+    the template graph.
 
 - **Lesson:** Generated `invoke.sh` commands and the demo pipeline invoke
   `python`, not `sys.executable`. If the active virtualenv's `bin` is not on

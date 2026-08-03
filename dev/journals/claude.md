@@ -243,3 +243,75 @@ for and the one my original tests were missing: everything I wrote used a
 producer with no inputs of its own, so `algo_id` and `process_id` moved
 together and the gap was invisible. Worth remembering that a fixture too simple
 to distinguish two mechanisms will not test either.
+
+## 2026-08-03 22:15:00 -0400
+
+Third review round. Three findings, all reproduced before I touched anything,
+and this time the interesting part was that two of them were one bug.
+
+**Identity ignored an override on a connected input.** Two rows configuring
+`consumer.data_fpath` to different paths produced different commands, one
+`process_id`, one result directory. Checked provenance before assuming: it
+collides at `bec0609` and does *not* collide at `v0.2.6`, so this arrived with
+the `final_input_config` split earlier on the branch rather than with my work.
+My alias change widened the same hole to forwarded values without creating it.
+
+The review offered "reject the combination" as an option. That one is not
+available -- explicit-beats-produced is documented precedence in
+`_resolved_value`, and pointing a stage at a precomputed artifact is a real
+workflow. So the resolver it is.
+
+**The two bugs are one design gap.** Identity was asking a structural question
+("what could supply this port?") where it needed an effective one ("what does?").
+The template graph had the mirror problem: it asked about `_gather_members`,
+which only exists after compilation, where it needed `_gather_connection`,
+which exists as soon as the edge is drawn. Structural belongs to the template,
+effective belongs to identity, and both were reaching for the wrong one.
+`_produced_origins` and `_effective_origins` now say which is which in their
+names and docstrings, because this is the kind of distinction that erodes
+silently.
+
+The maintainer asked whether an override should also drop the *scheduling*
+edge. I looked rather than guessed: the compiled graph is rebuilt per row from
+`predecessor_process_nodes()` on configured nodes, so dropping it there is one
+call site -- but the single-row `configure()` path takes its queue
+dependencies from `Pipeline.proc_graph`, which is the template graph and is
+never rebuilt after configure. Dropping the edge would make the two execution
+routes disagree about the DAG, and reconciling them means rebuilding the graph
+after configure, which is where the memoization staleness lives. So: keep the
+edge, fix identity. Over-ordering is harmless; the collision is not. That was
+the maintainer's own instinct about structural baking, and it was right --
+just more specifically true than "structural": it is structural *at template
+time*.
+
+**The staleness, finally.** Fixing the template graph left
+`ancestor_process_nodes()` still empty, because that was never about origins --
+it was the construction-time memoization I wrote a lesson about two entries ago
+and deferred. `build_nx_graphs` is the first moment the complete connection
+state exists, so it now clears every node's cache before reading. Three lines.
+I should have done it when I found it rather than documenting it as future
+work; leaving a known-wrong answer in place because it was not the bug I was
+chasing is how the next person inherits it.
+
+That also falsified my own docstring on `successor_process_nodes`, which said
+the two directions in `build_nx_graphs` were not redundant *because* of the
+staleness. With the cache cleared they are redundant. I corrected the docstring
+and superseded the lesson rather than leaving a confident claim that is no
+longer true -- and I am still not removing the method, because it is public API
+and that is a separate decision from whether it is load-bearing.
+
+**Same-node gather alias** now raises a `ValueError` naming both ports at
+pipeline construction, instead of `RecursionError` deep in identity. It had to
+land in this commit rather than after: teaching the template side to recognize
+`_gather_connection` would otherwise have turned the recursion into a
+`merge -> merge` self-edge and a confusing DAG-validation failure. I did not
+try to design what that composition should mean, because nothing asks for it.
+
+The reviewer's last item -- `git diff --check v0.2.6..HEAD` failing on a
+trailing blank line in `_runtime.py` -- does not reproduce. That command exits
+0 here and the file ends with a single newline after `return summary`. Probably
+a checkout from before the package split, when it was
+`kwdagger/_pipeline_runtime.py`.
+
+TA1 fingerprints are still byte-identical, which continues to be the check that
+tells me whether I have moved something I did not mean to.

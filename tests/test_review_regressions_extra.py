@@ -36,6 +36,7 @@ that a refactor is allowed to move.
 
 from __future__ import annotations
 
+import pytest
 import ubelt as ub
 
 from kwdagger.pipeline import (
@@ -719,3 +720,228 @@ def test_aliasing_a_gathered_input_depends_on_the_manifest_writer():
     assert binding['source_process_id'] == merge_node.process_id
     assert binding['source_port'] == 'parts_fpath'
     assert binding['source_kind'] == 'gather_manifest'
+
+
+# ---------------------------------------------------------------------------
+# 7. Identity follows the *effective* input source, not every structural one
+# ---------------------------------------------------------------------------
+
+
+def _connected_input_pipeline():
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'produced_fpath': 'produced.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['produced_fpath'].connect(consumer.inputs['data_fpath'])
+    return Pipeline({'producer': producer, 'consumer': consumer}), consumer
+
+
+def test_overriding_a_connected_input_changes_identity(tmp_path):
+    """
+    An explicit value outranks a producer -- that precedence is documented and
+    deliberate. So the consumer reads the override, not the producer's output,
+    and the override is what identifies it. If identity keeps pointing at the
+    producer instead, two consumers reading different files hash alike and the
+    compiler silently keeps whichever row it saw first.
+    """
+    seen = {}
+    for override in ['/override/a', '/override/b']:
+        dag, consumer = _connected_input_pipeline()
+        dag.configure(
+            {'consumer.data_fpath': override},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+        seen[override] = {
+            'process_id': consumer.process_id,
+            'value': str(consumer.final_in_paths['data_fpath']),
+            'input_config': dict(consumer.final_input_config),
+            'depends': dict(consumer.depends),
+        }
+    a, b = seen['/override/a'], seen['/override/b']
+
+    assert a['value'] == '/override/a'
+    assert b['value'] == '/override/b'
+    assert a['process_id'] != b['process_id']
+
+    # The override is this node's own input now, so it belongs in the input
+    # config, and no producer binding stands in for it.
+    assert a['input_config']['data_fpath'] == '/override/a'
+    assert '__input__.data_fpath' not in a['depends']
+
+
+def test_an_unoverridden_connected_input_still_names_its_producer(tmp_path):
+    """The complement: without an override the producer is what supplies it."""
+    dag, consumer = _connected_input_pipeline()
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+    binding = consumer.depends['__input__.data_fpath']
+    assert binding['source_port'] == 'produced_fpath'
+    assert binding['source_kind'] == 'output'
+    # A produced path is rooted in a cache directory and must not be hashed
+    # directly; the binding speaks for it.
+    assert 'data_fpath' not in consumer.final_input_config
+
+
+def test_a_forwarded_known_value_outranks_a_producer(tmp_path):
+    """
+    Same precedence, reached the other way: the consumer is wired to a
+    producer *and* aliased from a port carrying a known value. The alias wins
+    resolution, so it must win identity too.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'produced_fpath': 'produced.json'},
+    )
+    lender = ProcessNode(
+        name='lender',
+        executable='python lender.py',
+        in_paths={'data_fpath': '/data/default.json'},
+        out_paths={'lender_fpath': 'lender.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['produced_fpath'].connect(consumer.inputs['data_fpath'])
+    lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline(
+        {'producer': producer, 'lender': lender, 'consumer': consumer}
+    )
+    ids = {}
+    for value in ['/data/one.json', '/data/two.json']:
+        dag.configure(
+            {'lender.data_fpath': value}, root_dpath=tmp_path, cache=False
+        )
+        assert str(consumer.final_in_paths['data_fpath']) == value
+        ids[value] = consumer.process_id
+    assert ids['/data/one.json'] != ids['/data/two.json']
+
+
+# ---------------------------------------------------------------------------
+# 8. The template graph tells the truth about gather-manifest aliases
+# ---------------------------------------------------------------------------
+
+
+def _gather_alias_pipeline():
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    audit = ProcessNode(
+        name='audit',
+        executable='python audit.py',
+        in_paths={'parts_fpath'},
+        out_paths={'audit_fpath': 'audit.json'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+    merge.inputs['parts_fpath'].connect(audit.inputs['parts_fpath'])
+    return Pipeline({'shard': shard, 'merge': merge, 'audit': audit}), audit
+
+
+def test_template_graph_shows_the_manifest_writer():
+    """
+    The compiled graph gets this right, so there is no race -- but the logical
+    graph is what a user reads before compiling, and it described the edge as
+    configuration-only. A template port knows it *has* a gather connection long
+    before it knows the membership, which is enough to know an edge exists.
+    """
+    dag, audit = _gather_alias_pipeline()
+    assert dag.proc_graph.has_edge('merge', 'audit')
+    assert [n.name for n in audit.predecessor_process_nodes()] == ['merge']
+    assert [n.name for n in audit.ancestor_process_nodes()] == ['merge']
+
+
+def test_template_lineage_is_not_stale_after_construction():
+    """
+    A node memoizes lineage during ``__init__``, before it is connected to
+    anything. Building the pipeline is the first moment the whole connection
+    state exists, so that is where the stale answers are dropped.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'produced_fpath': 'produced.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['produced_fpath'].connect(consumer.inputs['data_fpath'])
+    # Force the stale answer to be memoized before the pipeline exists.
+    assert consumer.predecessor_process_nodes() == []
+    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    assert dag.proc_graph.has_edge('producer', 'consumer')
+    assert consumer.predecessor_process_nodes() == [producer]
+    assert consumer.ancestor_process_nodes() == [producer]
+
+
+def test_same_node_gather_alias_is_rejected_with_a_clear_error():
+    """
+    Forwarding a gathered port to another port of the *same* process asks that
+    process to depend on itself, and asks its identity to include its own
+    ``process_id``. Reject it where it is written rather than let it surface
+    as a RecursionError or a self-edge.
+    """
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath', 'parts_copy_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+    merge.inputs['parts_fpath'].connect(merge.inputs['parts_copy_fpath'])
+    with pytest.raises(ValueError) as excinfo:
+        Pipeline({'shard': shard, 'merge': merge})
+    message = str(excinfo.value)
+    assert 'same process' in message
+    assert 'merge.parts_fpath' in message
+
+
+def test_ordinary_same_node_forwarding_still_works(tmp_path):
+    """The complement: same-node forwarding is supported and must stay so."""
+    node = ProcessNode(
+        name='node',
+        executable='python node.py',
+        in_paths={'src_fpath', 'copy_fpath'},
+        out_paths={'dst_fpath': 'dst.json'},
+    )
+    node.inputs['src_fpath'].connect(node.inputs['copy_fpath'])
+    dag = Pipeline({'node': node})
+    dag.configure(
+        {'node.src_fpath': '/data/in.json'}, root_dpath=tmp_path, cache=False
+    )
+    assert node.final_in_paths['copy_fpath'] == '/data/in.json'

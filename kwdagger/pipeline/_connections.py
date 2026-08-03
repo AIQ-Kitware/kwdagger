@@ -232,9 +232,71 @@ def _alias_preds(input_node: Any) -> list:
     return [pred for pred in input_node.pred if isinstance(pred, InputNode)]
 
 
+def _is_gathered(port: Any) -> bool:
+    """
+    Whether a port's value is a gather manifest.
+
+    A template port knows only that it *has* a gather connection; the concrete
+    membership arrives during compilation. Both states mean the same thing for
+    lineage -- this port's value is a manifest its own job writes -- so asking
+    the question in one place keeps the template graph and the compiled graph
+    from disagreeing about whether an edge exists.
+    """
+    return (
+        port._gather_connection is not None or port._gather_members is not None
+    )
+
+
+def _alias_origins(input_node: Any) -> list:
+    """
+    Producers reached by walking this input's alias edges backwards.
+
+    See :func:`_produced_origins`, which combines this with the input's own
+    direct producers. Split out because the two are needed separately: when a
+    forwarded value outranks a direct producer, the alias chain is the only
+    part that still supplies anything.
+    """
+    recovered: dict[int, Any] = {}
+    seen = {id(input_node)}
+    stack = list(_alias_preds(input_node))
+    while stack:
+        alias = stack.pop()
+        if id(alias) in seen:
+            # Alias relationships are validated as acyclic elsewhere, but a
+            # traversal that is only correct on a DAG is a trap for later
+            # callers.
+            continue
+        seen.add(id(alias))
+        if _is_gathered(alias):
+            # A gathered port resolves to a manifest, and that manifest is
+            # written by the job that owns the port -- not by any member of
+            # the collection. Forwarding it therefore does create a real
+            # dependency on that job, and the traversal stops here: whatever
+            # the members are, they are already that job's own ancestors.
+            if alias.parent is input_node.parent:
+                # ... which cannot be true of the borrower itself. Such a node
+                # would depend on itself, and asking for its identity would
+                # recurse into the identity being computed. Reject it here
+                # rather than let it surface as a RecursionError or a
+                # self-edge during graph validation.
+                raise ValueError(
+                    f'Cannot forward the gathered input {alias.key!r} to '
+                    f'{input_node.key!r} on the same process: the manifest is '
+                    'written by that process, so the value cannot also be one '
+                    'of its own inputs. Gather into a separate process, or '
+                    'read the manifest inside the program.'
+                )
+            recovered[id(alias)] = alias
+            continue
+        for pred in _dependency_preds(alias):
+            recovered[id(pred)] = pred
+        stack.extend(_alias_preds(alias))
+    return sorted(recovered.values(), key=lambda port: port.key)
+
+
 def _produced_origins(input_node: Any) -> list:
     """
-    Every :class:`OutputNode` whose product ultimately supplies this input.
+    Every port whose product could supply this input, structurally.
 
     An ``input -> input`` edge forwards an already-known value, and when that
     value is externally configured or comes from a declared default there is
@@ -243,12 +305,16 @@ def _produced_origins(input_node: Any) -> list:
     its artifact first. Aliasing a port must not erase the producer standing
     behind it.
 
-    Origins are found structurally, by walking alias edges backwards to the
-    output ports they end at. Nothing is resolved along the way, so the
-    answer cannot depend on node insertion order, on whether the pipeline has
-    been configured yet, or on a value left over from a previously configured
-    matrix row. It is the single place this traversal is written: dependency,
-    identity, and provenance all ask here.
+    Origins are found **structurally**, by walking alias edges backwards to
+    the ports they end at. Nothing is resolved along the way, so the answer
+    cannot depend on node insertion order, on whether the pipeline has been
+    configured yet, or on a value left over from a previously configured
+    matrix row. That is what makes it the right question for the *template*
+    graph, which is built before any matrix row exists.
+
+    It is deliberately not the right question for identity. A configured port
+    may take its value from somewhere that outranks a producer, and then the
+    producer is not what it reads -- see :func:`_effective_origins`.
 
     Note that the process *holding* an aliased input is not itself an origin
     when it merely lends a value it also consumes. A *gathered* port is the
@@ -267,36 +333,60 @@ def _produced_origins(input_node: Any) -> list:
             ``.name``; use :func:`_origin_kind` to tell them apart.
     """
     direct = {id(pred): pred for pred in _dependency_preds(input_node)}
-    recovered: dict[int, Any] = {}
-
-    seen = {id(input_node)}
-    stack = list(_alias_preds(input_node))
-    while stack:
-        alias = stack.pop()
-        if id(alias) in seen:
-            # Alias relationships are validated as acyclic elsewhere, but a
-            # traversal that is only correct on a DAG is a trap for later
-            # callers.
-            continue
-        seen.add(id(alias))
-        if alias._gather_members is not None:
-            # A gathered port resolves to a manifest, and that manifest is
-            # written by the job that owns the port -- not by any member of
-            # the collection. Forwarding it therefore does create a real
-            # dependency on that job, and the traversal stops here: whatever
-            # the members are, they are already that job's own ancestors.
-            recovered[id(alias)] = alias
-            continue
-        for pred in _dependency_preds(alias):
-            recovered[id(pred)] = pred
-        stack.extend(_alias_preds(alias))
-
     origins = list(direct.values())
-    origins += sorted(
-        (port for key, port in recovered.items() if key not in direct),
-        key=lambda port: port.key,
-    )
+    origins += [
+        port for port in _alias_origins(input_node) if id(port) not in direct
+    ]
     return origins
+
+
+def _effective_origins(input_node: Any) -> list:
+    """
+    The ports that actually supply this configured input's value.
+
+    :func:`_produced_origins` answers what *could* reach a port. This answers
+    what does, using the same precedence :meth:`IONode._resolved_value` uses:
+    a gathered manifest, then this port's own configured value, then a value
+    forwarded from a peer port, then an upstream product, then the declared
+    default.
+
+    Identity has to ask this one. A port wired to a producer but configured
+    with an explicit path reads that path, not the producer's output -- so the
+    producer must not stand in for it in ``process_id``, or two nodes reading
+    different files would hash the same and share a result directory.
+
+    Returns an empty list whenever the value is *not* produced -- gathered,
+    explicitly configured, forwarded from a known value, or defaulted -- which
+    is exactly when the value itself belongs in ``final_input_config``.
+
+    Only meaningful on a configured node: it resolves values, so unlike
+    :func:`_produced_origins` it must not be used to build the template graph.
+
+    Args:
+        input_node (InputNode): the port to trace.
+
+    Returns:
+        list: the supplying ports, or empty when nothing upstream supplies it.
+    """
+    if input_node._gather_members is not None:
+        # This port's own gather. Its membership is identity-bearing through
+        # ``depends['__gather__.<port>']``, not through an origin.
+        return []
+    if input_node._final_value is not _UNSET:
+        # An explicitly configured value outranks any producer.
+        return []
+    alias_origins = _alias_origins(input_node)
+    if input_node._shared_value() is not _UNSET:
+        # A forwarded value outranks a producer too. Whatever the alias chain
+        # ends at is what supplies this port -- possibly nothing produced, if
+        # the far end is itself configured or defaulted.
+        return alias_origins
+    direct = _dependency_preds(input_node)
+    if direct:
+        return direct
+    # Nothing is forwarded and nothing is wired: the declared default, if any,
+    # is a value this node owns.
+    return []
 
 
 def _origin_kind(port: Any) -> str:
@@ -314,6 +404,10 @@ def _origin_kind(port: Any) -> str:
 def _origin_identity_bindings(input_node: Any) -> list[dict[str, Any]]:
     """
     The canonical identity contribution of everything that produces an input.
+
+    Built from :func:`_effective_origins`, so a port that reads an explicitly
+    configured path contributes nothing here and the path itself goes into
+    ``final_input_config`` instead.
 
     An input whose value is produced upstream must carry *which* upstream
     instance produced it. The ancestor payload alone cannot: it records
@@ -337,7 +431,7 @@ def _origin_identity_bindings(input_node: Any) -> list[dict[str, Any]]:
             'source_port': port.name,
             'source_kind': _origin_kind(port),
         }
-        for port in _produced_origins(input_node)
+        for port in _effective_origins(input_node)
     ]
     bindings.sort(
         key=lambda item: (

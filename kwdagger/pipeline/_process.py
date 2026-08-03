@@ -29,6 +29,7 @@ from kwdagger.pipeline._connections import (
     ParamNode,
     _UNSET,
     _alias_preds,
+    _effective_origins,
     _origin_identity_bindings,
     _origin_kind,
     _produced_origins,
@@ -902,7 +903,7 @@ class ProcessNode(Node):
                         'source_kind': 'input',
                     }
                     binding.update(_source_value_record(source_port))
-                    origins = _produced_origins(source_port)
+                    origins = _effective_origins(source_port)
                     if origins:
                         # ... but if that value is produced, the reader still
                         # needs to know which process made it.
@@ -1119,11 +1120,16 @@ class ProcessNode(Node):
         for name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 continue
-            if _produced_origins(input_node):
-                # Something upstream makes this. Its identity belongs to the
-                # producer, which ancestor hashing already captures, and the
-                # produced path is rooted in a cache directory that must not
-                # reach identity.
+            if _effective_origins(input_node):
+                # Something upstream actually makes the value this port
+                # reads. Its identity belongs to the producer, which the
+                # ``__input__`` binding records, and the produced path is
+                # rooted in a cache directory that must not reach identity.
+                #
+                # Asking for the *effective* origin matters: a port wired to a
+                # producer but configured with an explicit path reads that
+                # path, and then the path is this node's own input and has to
+                # be here, or two nodes reading different files hash alike.
                 continue
             values[name] = input_node.final_value
         return ub.udict(values)
@@ -1291,15 +1297,14 @@ class ProcessNode(Node):
         """
         Process nodes that depend on this one.
 
-        This looks like the mirror image of
-        :meth:`predecessor_process_nodes`, and on a fully configured pipeline
-        it is. It is not redundant on a *template* pipeline: a node memoizes
-        its predecessors while it is still being constructed, before any
-        connection exists, and that cache is only cleared by ``configure``.
-        Reading the edges from the producing side is what makes
-        :meth:`Pipeline.build_nx_graphs` see an ordinary output-to-input edge
-        before configuration. Do not fold the two directions together without
-        first fixing that staleness.
+        The mirror image of :meth:`predecessor_process_nodes`. This used to be
+        load-bearing in :meth:`Pipeline.build_nx_graphs`: a node memoized its
+        predecessors while it was still being constructed, before any
+        connection existed, so an ordinary output-to-input edge could only be
+        rediscovered from the producing side. That staleness is now cleared
+        where the graph is built, so the two directions really are redundant
+        there. This is kept as an established query, not as a correctness
+        crutch.
         """
         nodes = [
             succ.parent for k, v in self.outputs.items() for succ in v.succ

@@ -81,6 +81,29 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   real dependencies of the final consumer, while the process that lent the
   input is still not one. An alias with no produced origin is unchanged and
   stays configuration-only.
+* An explicit value configured onto a connected input did not reach the
+  consumer's identity. Explicit values outrank producers -- documented,
+  deliberate precedence -- so the command read the override while identity
+  still pointed at the producer and the override appeared nowhere. Two rows
+  overriding the same input with different paths produced different commands,
+  one `process_id`, and one result directory; compilation kept whichever row it
+  saw first. Identity, provenance, and `final_input_config` now resolve the
+  *effective* source of an input using the same precedence as value
+  resolution, rather than every structurally reachable producer.
+* `Pipeline.proc_graph` described a forwarded gather manifest as
+  configuration-only. The compiled graph had the edge, so this was never a
+  race, but the logical graph a user reads before compiling was wrong. A
+  template port knows it has a gather connection long before it knows the
+  membership, which is enough to know the edge exists.
+* Template lineage queries answered as though the pipeline had no edges.
+  A `ProcessNode` memoizes `predecessor_process_nodes` and
+  `ancestor_process_nodes` during its own construction, before it is connected
+  to anything, and only `configure` cleared that cache; building the graph now
+  clears it too.
+* Forwarding a gathered input to another port of the same process raised
+  `RecursionError`. It now raises a `ValueError` naming both ports and saying
+  why: the manifest is written by that process, so it cannot also be one of
+  its own inputs.
 * A consumer that read a produced value through an input alias did not record
   *which* producer instance made it. The ancestor payload carries `algo_id`,
   which is deliberately blind to a producer's own inputs, so two producers

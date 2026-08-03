@@ -170,6 +170,16 @@ class Pipeline:
     def build_nx_graphs(self) -> None:
         node_dict = self.node_dict
 
+        # A ProcessNode memoizes lineage queries while it is being
+        # constructed -- before it has been connected to anything -- and only
+        # ``configure`` clears that cache. Every one of those answers is stale
+        # by the time a pipeline exists. This is the first moment the complete
+        # connection state is known, so drop them here and let the queries
+        # below recompute. Without this, a template pipeline reports the
+        # lineage of a graph that was never built.
+        for node in node_dict.values():
+            node._configured_cache.clear()
+
         self.proc_graph = nx.DiGraph()
         for name, node in node_dict.items():
             self.proc_graph.add_node(node.name, node=node)
@@ -186,11 +196,10 @@ class Pipeline:
             for p in node._pred_nodes_without_io_connection:
                 self.proc_graph.add_edge(p.name, node.name)
 
-            # Same reasoning, for the same reason: a template node memoizes
-            # its predecessors while it is being constructed, before any
-            # connection exists. A direct producer is rediscovered through
-            # the successor pass above, but one standing behind an input
-            # alias has no successor edge into this node, so read the ports.
+            # Producers standing behind an input are read from the ports
+            # rather than inferred from the successor pass: an alias has no
+            # successor edge into this node, and a gather manifest is
+            # produced by a port rather than by an output at all.
             for input_node in node.inputs.values():
                 for origin in _produced_origins(input_node):
                     self.proc_graph.add_edge(origin.parent.name, node.name)

@@ -1,6 +1,7 @@
 """
-A template ProcessNode answers ``predecessor_process_nodes`` from a cache
-populated during its own construction, before any connection exists.
+A ProcessNode memoizes lineage queries during its own construction, before it
+has been connected to anything. Building a Pipeline clears those caches, which
+is what makes template lineage answer correctly.
 
 Run::
 
@@ -29,23 +30,21 @@ def main():
         producer.outputs['produced_fpath']
     ]
 
-    # ... but the memoized query does not know about it.
+    # ... but the query was memoized during __init__, before the connection,
+    # and nothing has invalidated it yet.
     stale = consumer.predecessor_process_nodes()
     assert stale == [], f'expected a stale empty list, got {stale}'
 
-    # Clearing the cache (which is what configure does) gives the right answer.
-    consumer._configured_cache.clear()
-    fresh = consumer.predecessor_process_nodes()
-    assert fresh == [producer], fresh
-
-    # build_nx_graphs still finds the edge, because it also walks the
-    # successor direction, whose cache is not populated during construction.
+    # Building the pipeline is the first moment the complete connection state
+    # is known, so that is where the caches are dropped.
     dag = Pipeline({'producer': producer, 'consumer': consumer})
     assert dag.proc_graph.has_edge('producer', 'consumer')
+    assert consumer.predecessor_process_nodes() == [producer]
+    assert consumer.ancestor_process_nodes() == [producer]
 
     print(
-        'confirmed: template predecessor query is stale; successor pass '
-        'is what makes build_nx_graphs correct'
+        'confirmed: lineage memoized at construction is stale; '
+        'Pipeline.build_nx_graphs clears it'
     )
 
 
