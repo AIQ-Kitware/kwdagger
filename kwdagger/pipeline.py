@@ -26,7 +26,6 @@ import os
 import typing
 import warnings
 from collections import defaultdict
-from concurrent.futures import Future
 from dataclasses import dataclass
 from functools import cached_property
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
@@ -2092,59 +2091,6 @@ def bash_heredoc_write_command(
     )
 
 
-def bash_printf_literal_string(text: str, escape_newlines: bool = True) -> str:
-    r"""
-    Not only do we need to make a bash literal string we
-    need to make sure that it is interpreted as literal by
-    printf.
-
-    Example:
-        json_text = '{"step1.param1": "- this: \\"is text 100% representing\\"\\n  some: \\"yaml config\\"\\n  omg: \\"single \' quote\\"\\n  eek: \'double \\" quote\'"}'
-        json.loads(json_text)
-        import shlex
-        text = json_text
-        literal_bash_json_text = bash_printf_literal_string(json_text)
-        print(json_text)
-        print(literal_bash_json_text)
-        command = f"printf {literal_bash_json_text} | jq"
-        print(command)
-        ub.cmd(command, verbose=3, shell=True)
-    """
-    s = text
-    s = s.replace('\\', '\\\\')
-    s = s.replace("'", "'\"'\"'")
-    s = s.replace('%', '%%')
-    if escape_newlines:
-        s = s.replace('\n', '\\n')
-    s = s.replace('\t', '\\t')
-    inside_text = s
-    return f"'{inside_text}'"
-
-
-def glob_templated_path(template: str | os.PathLike[str]) -> list[str]:
-    """
-    Given an unformated templated path, replace the format parts with "*" and
-    return a glob.
-
-    Args:
-        template (str | PathLike): a path with a {} template pattern
-
-    Example:
-        template = '/foo{}/bar'
-        glob_templated_path(template)
-    """
-    import parse
-    from kwutil import util_pattern
-
-    parser = parse.Parser(str(template))
-    patterns = {n: '*' for n in parser.named_fields}
-    pat = os.fspath(template).format(**patterns)
-    mpat = util_pattern.Pattern.coerce(pat)
-    fpaths = list(mpat.paths())
-    return fpaths
-
-
-@ub.memoize
 def _has_jq() -> str | list[str] | None:
     return ub.find_exe('jq')
 
@@ -2497,13 +2443,6 @@ class OutputNode(IONode):
     @property
     def template_value(self) -> Any:
         return self.parent.template_out_paths[self.name]
-
-    def matching_fpaths(self) -> list[str]:
-        """
-        Find all paths for this node.
-        """
-        out_template = self.template_value
-        return glob_templated_path(out_template)
 
 
 def _classvar_init(self: Any, args: Any, fallbacks: Any) -> None:
@@ -3290,7 +3229,7 @@ class ProcessNode(Node):
     @memoize_configured_method
     def _build_templates(self) -> dict[str, Any]:
         templates = {}
-        templates['root_dpath'] = str(self.template_root_dpath)
+        templates['root_dpath'] = str(self.root_dpath)
         templates['node_dpath'] = str(self.template_node_dpath)
         templates['out_paths'] = self.template_out_paths
         self.templates = templates
@@ -3302,7 +3241,11 @@ class ProcessNode(Node):
         condensed = self.condensed
         final = {}
         try:
-            final['root_dpath'] = self.final_root_dpath
+            # The root has no template components, but formatting it is what
+            # the recorded value has always been.
+            final['root_dpath'] = ub.Path(
+                str(self.root_dpath).format(**condensed)
+            )
             final['node_dpath'] = self.final_node_dpath
             final['out_paths'] = self.final_out_paths
             final['in_paths'] = self.final_in_paths
@@ -3704,10 +3647,6 @@ class ProcessNode(Node):
         """
         return ub.Path(str(self.template_node_dpath).format(**self.condensed))
 
-    @memoize_configured_property
-    def final_root_dpath(self) -> Any:
-        return ub.Path(str(self.template_root_dpath).format(**self.condensed))
-
     @property
     def template_group_dpath(self) -> Any:
         """
@@ -3737,17 +3676,6 @@ class ProcessNode(Node):
         key = self.name + '_id'
         return self.template_group_dpath / ('{' + key + '}')
 
-    @memoize_configured_property
-    def template_root_dpath(self) -> Any:
-        """
-        Alias for root dpath
-
-        Note:
-            there are no template components for this property, so this
-            property may be removed
-        """
-        return self.root_dpath
-
     @memoize_configured_method
     def predecessor_process_nodes(self) -> Any:
         """
@@ -3771,6 +3699,16 @@ class ProcessNode(Node):
     def successor_process_nodes(self) -> Any:
         """
         Process nodes that depend on this one.
+
+        This looks like the mirror image of
+        :meth:`predecessor_process_nodes`, and on a fully configured pipeline
+        it is. It is not redundant on a *template* pipeline: a node memoizes
+        its predecessors while it is still being constructed, before any
+        connection exists, and that cache is only cleared by ``configure``.
+        Reading the edges from the producing side is what makes
+        :meth:`Pipeline.build_nx_graphs` see an ordinary output-to-input edge
+        before configuration. Do not fold the two directions together without
+        first fixing that staleness.
         """
         nodes = [
             succ.parent for k, v in self.outputs.items() for succ in v.succ
@@ -3796,28 +3734,6 @@ class ProcessNode(Node):
             if node_id not in seen:
                 seen[node_id] = node
                 nodes = node.predecessor_process_nodes()
-                stack.extend(nodes)
-        seen.pop(id(self))  # remove self
-        ancestors = list(seen.values())
-        return ancestors
-
-    def _uncached_ancestor_process_nodes(self) -> Any:
-        # Not sure why the cached version of this is not working
-        # in prepare-ta2-dataset. Hack around it for now.
-        # TODO: we need to ensure that this returns a consistent order
-        seen = {}
-        stack = [self]
-        while stack:
-            node = stack.pop()
-            node_id = id(node)
-            if node_id not in seen:
-                seen[node_id] = node
-                nodes = [
-                    pred.parent
-                    for k, v in node.inputs.items()
-                    for pred in _dependency_preds(v)
-                ]
-                # nodes = node.predecessor_process_nodes()
                 stack.extend(nodes)
         seen.pop(id(self))  # remove self
         ancestors = list(seen.values())
@@ -4141,16 +4057,6 @@ class ProcessNode(Node):
             for p in self.final_out_paths.values()
         )
 
-    @memoize_configured_property
-    def outputs_exist(self) -> bool:
-        """
-        Alias for does_exist
-
-        Check if all of the output paths that would be written by this node
-        already exists.
-        """
-        return self.does_exist
-
     def _raw_command(self) -> Any:
         command = self.command
         if not isinstance(command, str):
@@ -4238,64 +4144,6 @@ class ProcessNode(Node):
         else:
             return base_command
 
-    def find_template_outputs(self, workers: int = 8) -> list[Any]:
-        """
-        Look in the DAG root path for output paths that are complete or
-        unfinished
-        """
-        template = self.template_node_dpath
-        existing_dpaths = [ub.Path(p) for p in glob_templated_path(template)]
-        # Figure out which ones are finished / unfinished
-
-        json_jobs = ub.Executor(mode='thread', max_workers=workers)
-
-        rows: list[dict[str, Any]] = []
-        assert self.out_paths is not None
-        assert isinstance(self.out_paths, dict)
-        for dpath in ub.ProgIter(existing_dpaths, desc='parsing templates'):
-            out_fpaths = {}
-            for out_key, out_fname in self.out_paths.items():
-                out_fpath = dpath / out_fname
-                out_fpaths[out_key] = out_fpath
-
-            is_finished = all(p.exists() for p in out_fpaths.values())
-            config_fpath = dpath / 'job_config.json'
-            has_config = config_fpath.exists()
-            if has_config:
-                job: Future[Any] | None = json_jobs.submit(
-                    _load_json, config_fpath
-                )
-            else:
-                job = None
-                request_config = {}
-
-            rows.append(
-                {
-                    'dpath': dpath,
-                    'is_finished': is_finished,
-                    'has_config': has_config,
-                    'job': job,
-                }
-            )
-
-        for row in ub.ProgIter(rows, desc='finalize templates'):
-            job = cast(Future[Any] | None, row.pop('job'))
-            if job is not None:
-                request_config = job.result()
-                request_config = util_dotdict.DotDict(
-                    request_config
-                ).add_prefix('request')
-                row.update(request_config)
-
-        num_configured = sum(1 for r in rows if cast(bool, r['has_config']))
-        num_finished = sum(1 for r in rows if cast(bool, r['has_config']))
-        num_started = len(rows)
-        print(f'num_configured={num_configured}')
-        print(f'num_finished={num_finished}')
-        print(f'num_started={num_started}')
-        return rows
-
-
 def _labelize_graph(
     graph: Any, shrink_labels: Any, show_types: Any, color_procs: int = 0
 ) -> None:
@@ -4354,17 +4202,6 @@ def _labelize_graph(
             if color is not None:
                 label = data['label']
                 data['label'] = f'[{color}]{label}[/{color}]'
-
-
-def _load_json(fpath: Any) -> Any:
-    import json
-
-    with open(fpath, 'r') as file:
-        return json.load(file)
-
-
-def _add_prefix(prefix: str, dict_: Any) -> dict[str, Any]:
-    return {prefix + k: v for k, v in dict_.items()}
 
 
 def _source_value_record(source_port: Any) -> dict[str, Any]:

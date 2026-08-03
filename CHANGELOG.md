@@ -26,6 +26,21 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 * A declared `in_paths` default no longer overrides a connected upstream
   output; connections outrank defaults.
 
+### Removed
+
+* The historical template-output-discovery subsystem, which no longer had a
+  consumer in scheduling, compilation, aggregation, tests, examples, or docs,
+  and which overlapped with result loading: `ProcessNode.find_template_outputs`,
+  `OutputNode.matching_fpaths`, and `glob_templated_path`. Use the aggregation
+  loader to read completed runs. (`aggregate_loader` already carried its own
+  independent implementation of the path-matching part.)
+* `ProcessNode.outputs_exist`, an unused alias for `ProcessNode.does_exist`.
+* `ProcessNode.template_root_dpath` and `ProcessNode.final_root_dpath`. The
+  root has no template components, so both reduced to `root_dpath`. The
+  `templates['root_dpath']` and `final['root_dpath']` records are unchanged.
+* `bash_printf_literal_string`, which nothing called; `bash_heredoc_write_command`
+  is how kwdagger writes literal text into a generated script.
+
 ### Fixed
 
 * `compile_configurations` raised `KeyError` when a node forwarded a value to
