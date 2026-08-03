@@ -26,7 +26,16 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 * A declared `in_paths` default no longer overrides a connected upstream
   output; connections outrank defaults.
 
-* Queue submission moved out of `Pipeline` into `kwdagger._pipeline_runtime`.
+* `kwdagger/pipeline.py` is now the package `kwdagger/pipeline/`. Every
+  documented import is unchanged -- `from kwdagger.pipeline import Pipeline,
+  ProcessNode, GatherSpec, coerce_pipeline, ...` all resolve exactly as before,
+  as do the private names the repository already imported from there. The
+  implementation is split into private submodules layered in one direction:
+  `_shell` / `_slurm` (leaves), `_runtime` (queue submission), `_connections`
+  (ports, edges, gather specs), `_process` (`ProcessNode`), `_compile`
+  (full-matrix compilation), `_logical` (`Pipeline`, graphs, coercion).
+  `tests/test_import_compat.py` pins both the import surface and the direction.
+* Queue submission moved out of `Pipeline` into `kwdagger.pipeline._runtime`.
   `Pipeline.submit_jobs()` and `CompiledPipeline.submit_jobs()` now call one
   shared function that takes the process graph, instead of a compiled pipeline
   being cast to a `Pipeline`. Both public methods behave as before.

@@ -9,7 +9,8 @@ creates the ``.pred`` / ``.succ`` links that make the result directory
 navigable.
 
 It deliberately knows nothing about :class:`~kwdagger.pipeline.Pipeline` or
-:class:`~kwdagger.pipeline.CompiledPipeline`. Both of those own a
+:class:`~kwdagger.pipeline.CompiledPipeline`, and imports the leaf modules
+directly rather than the package facade. Both of those own a
 ``proc_graph`` and both submit the same way; the only thing this function
 needs is that graph. Preconditions that belong to one of them -- a logical
 pipeline refusing to submit an uncompiled gather, for instance -- stay with
@@ -24,7 +25,8 @@ from typing import Any, cast
 import networkx as nx
 import ubelt as ub
 
-from kwdagger.pipeline import bash_heredoc_write_command, coerce_slurm_options
+from kwdagger.pipeline._shell import bash_heredoc_write_command
+from kwdagger.pipeline._slurm import coerce_slurm_options
 
 
 def _has_jq() -> str | list[str] | None:

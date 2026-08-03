@@ -131,3 +131,57 @@ an edge. It is not -- an alias must not create that edge -- so the assertion
 does bite. My file asserts the direct `producer -> consumer` edge and the
 absence of `middle -> consumer` explicitly, so between the two the intent is
 fully pinned.
+
+## 2026-08-03 19:05:00 -0400
+
+Did the decomposition after all, as a package rather than as `_pipeline_*.py`
+siblings. `kwdagger/pipeline.py` is now `kwdagger/pipeline/`, which is the
+better shape: the namespace users already import from becomes the facade, and
+the internals get real names instead of a prefix convention.
+
+Layering, bottom up: `_shell` (shell text) and `_slurm` (option coercion) are
+leaves because both the process layer and the runtime submitter need them and
+neither should import the other to get there; `_runtime`; `_connections`
+(ports, edges, gather specs); `_process` (`ProcessNode`); `_compile`;
+`_logical` (`Pipeline`, graph views, coercion). Only one upward reference
+exists — `_compile` names `Pipeline` in a signature — and it stays behind
+`TYPE_CHECKING`, so there is no runtime cycle to work around. No submodule
+imports the facade.
+
+I wanted the split to be *provably* mechanical rather than
+mechanical-looking, so I checked it two ways. First, line coverage: every line
+of the old file lands in exactly one segment, and the only gaps were the three
+lines holding `@dataclass(frozen=True)` and the trailing `__getattr__`. Second,
+an AST comparison of all 48 top-level definitions old versus new — the only
+differences were the two intended import-path renames inside `submit_jobs`.
+
+The first check earned its keep immediately. My initial slice started at
+`class GatherSpec:` and silently dropped the decorator on the line above, so
+`GatherSpec` stopped being a frozen dataclass and lost `__eq__`. Three tests
+caught it, but the failure mode is worth remembering: a line-range split can
+decapitate a decorated definition and the result still imports cleanly.
+
+Star imports in doctests were the other real hazard. `from kwdagger.pipeline
+import *` on a module pulled in `ub`, `nx`, and everything else the module
+imported; on a package `__init__` it does not. Rather than paper over that by
+re-importing `ubelt` in the facade, I replaced each one with the explicit
+imports that doctest actually uses. Doctest counts are unchanged (88 passed,
+14 skipped, plus the pre-existing `util_kwplot` failure), so nothing lost
+coverage.
+
+`tests/test_import_compat.py` now encodes the layering as an ordered list and
+fails if any module imports something at or above it. That is the part I most
+want to survive: boundaries that are not enforced stop being true within a
+release or two. It also asserts the one upward reference is annotation-only, so
+if someone promotes it to a runtime import the test says why that is a problem.
+
+Checked the things a package split can quietly break: setuptools discovery
+(`packages.find.include = ["kwdagger*"]` picks up `kwdagger.pipeline`
+automatically — verified with `find_packages`, not assumed), and the TA1 card
+fingerprints, which are still byte-identical. 156 tests pass.
+
+`_process.py` is still 1750 lines, and that is the honest remaining problem.
+`ProcessNode` does configuration resolution, identity, provenance, path
+templating, command construction, and gather materialization. Splitting it is a
+real design question rather than a relocation, so I left it whole rather than
+guess at a seam.

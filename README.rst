@@ -43,8 +43,9 @@ an existing positional or otherwise specialized CLI.
 
 Repository layout
 -----------------
-* ``kwdagger/pipeline.py`` – core pipeline and process node definitions, networkx
-  graph construction, and configuration utilities.
+* ``kwdagger/pipeline/`` – core pipeline and process node definitions, networkx
+  graph construction, and configuration utilities. Import from
+  ``kwdagger.pipeline``; the submodules inside it are private.
 * ``kwdagger/schedule.py`` – ``ScheduleEvaluationConfig`` CLI for expanding
   parameter grids into runnable jobs and dispatching them through cmd_queue
   backends.

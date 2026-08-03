@@ -248,8 +248,8 @@ different *inputs*:
   a normalized subset of requested parameters (and may ignore some columns).
 
 References:
-``pipeline.py`` :meth:`ProcessNode.process_id`,
-``pipeline.py`` :meth:`ProcessNode.depends`,
+``pipeline/_process.py`` :meth:`ProcessNode.process_id`,
+``pipeline/_process.py`` :meth:`ProcessNode.depends`,
 ``aggregate.py`` :meth:`Aggregator.build_effective_params`,
 ``aggregate.py`` :func:`hash_param`.
 
