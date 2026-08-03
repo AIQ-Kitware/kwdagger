@@ -2133,6 +2133,9 @@ class Aggregator(
             'resources',
             'machine',
             'context',
+            # Reserved kwdagger bookkeeping from job_config.json.  Keep this
+            # inspectable, but separate from requested experiment parameters.
+            'job_config',
         ]
         subtables.update(
             {
