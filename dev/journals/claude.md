@@ -96,3 +96,38 @@ dependencies. I made it terminal — a gathered port resolves to a manifest this
 pipeline writes, not to a single upstream product — and left a comment saying
 so, but I did not test that case and it is currently a hole rather than a
 decision.
+
+## 2026-08-03 18:12:00 -0400
+
+The tests-only overlay I said was missing showed up: the maintainer pulled
+`7924762` and it collided with the file I had written at the same path. Both
+sides "added" `tests/test_review_regressions.py`.
+
+Before resolving anything I ran the incoming tests against my implementation
+unchanged: 4 passed. Against `bec0609`: 4 failed. So the two of us converged on
+the same four defects and on semantics that agree, which is the independent
+confirmation I explicitly said I could not get when I wrote my own tests. That
+is a much better result than I expected -- the incoming test for structured
+group values is *stronger* than mine (it uses a qualified **mapped** group key
+with a nested dict value, where mine used an unmapped qualified key), and my
+recursive canonicalizer handles it without modification.
+
+Resolution: the incoming file stays byte-identical at its path, and mine moved
+to `test_review_regressions_extra.py`. I did not merge them into one file on
+purpose. The incoming file is deliberately shape-agnostic -- it searches the
+provenance record recursively for gather records rather than naming a key, and
+uses `nx.has_path` rather than asserting a specific edge -- which is exactly
+what makes it credible as a specification written without knowledge of the
+implementation. Keeping it untouched preserves that property and makes it
+obvious to a reviewer that it was not bent to fit what I built. My file now
+says up front that it pins the representations the other file leaves open, plus
+the complements (a pure configuration alias must stay configuration-only),
+which is where the real risk of the alias change lives.
+
+One thing worth noting for whoever reviews this: the incoming test asserts
+`nx.has_path(dag.proc_graph, 'producer', 'consumer')`, which the pre-existing
+`producer -> middle` edge alone would satisfy if `middle -> consumer` were also
+an edge. It is not -- an alias must not create that edge -- so the assertion
+does bite. My file asserts the direct `producer -> consumer` edge and the
+absence of `middle -> consumer` explicitly, so between the two the intent is
+fully pinned.
