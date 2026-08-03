@@ -1628,13 +1628,46 @@ def _hashable_group_value(value: Any) -> Any:
     """
     Normalize a resolved grouping value so equal identities compare equal.
 
-    Paths are stringified (a ``Path`` on one node must match a ``str`` on
-    another) and list values are made hashable for set-based comparison.
+    Group values are put into sets and used as sort keys, so every accepted
+    configuration value has to reduce to something hashable and totally
+    ordered. Paths are stringified (a ``Path`` on one node must match a
+    ``str`` on another), and containers are canonicalized recursively.
+
+    Mappings and sets are tagged, because their canonical forms would
+    otherwise be indistinguishable from an ordinary sequence of the same
+    contents. Lists and tuples are deliberately *not* distinguished: a value
+    that round-trips through YAML or JSON loses that difference anyway, so
+    treating them as equal is the same accommodation ``Path``/``str`` gets.
+
+    This is internal comparison material. It is never written to a
+    configuration file or to provenance.
+
+    Example:
+        >>> _hashable_group_value({'b': 1, 'a': [2, 3]})
+        ('map', (('a', (2, 3)), ('b', 1)))
+        >>> _hashable_group_value([1, 2]) == _hashable_group_value((1, 2))
+        True
+        >>> _hashable_group_value([1, 2]) == _hashable_group_value({1, 2})
+        False
     """
-    if isinstance(value, (list, tuple)):
-        return tuple(_hashable_group_value(v) for v in value)
     if isinstance(value, os.PathLike):
         return str(value)
+    if isinstance(value, Mapping):
+        # Sorted by canonicalized key, so declaration order cannot change the
+        # comparison. ``repr`` gives a total order over otherwise
+        # incomparable key types.
+        items = [
+            (_hashable_group_value(k), _hashable_group_value(v))
+            for k, v in value.items()
+        ]
+        items.sort(key=lambda item: repr(item[0]))
+        return ('map', tuple(items))
+    if isinstance(value, (set, frozenset)):
+        elements = [_hashable_group_value(v) for v in value]
+        elements.sort(key=repr)
+        return ('set', tuple(elements))
+    if isinstance(value, (list, tuple)):
+        return tuple(_hashable_group_value(v) for v in value)
     return value
 
 
@@ -3333,18 +3366,33 @@ class ProcessNode(Node):
         return shared
 
     def _gather_provenance(self) -> dict[str, Any]:
-        """Describe every gathered input port on this node, keyed by port."""
+        """
+        Describe every gathered input port on this node, keyed by port.
+
+        Each record names the concrete instance the gather happened on, so a
+        descendant that inherits several same-named gathering ancestors can
+        still tell their memberships apart.
+        """
         provenance = {}
         for input_name, input_node in self.inputs.items():
             if input_node._gather_members is None:
                 continue
             connection = input_node._gather_connection
             assert connection is not None
+            # One public serializer decides how a spec is written down;
+            # ``to_dict`` omits defaults, but a provenance reader wants the
+            # effective policy stated outright.
+            spec_record: dict[str, Any] = {
+                'order_by': [],
+                'require': 'all_success',
+            }
+            spec_record.update(connection.spec.to_dict())
             provenance[input_name] = {
+                'consumer_process_id': self.process_id,
                 'source': connection.source.key,
-                'group_by': list(connection.spec.group_by),
-                'order_by': list(connection.spec.order_by),
-                'require': connection.spec.require,
+                'group_by': spec_record['group_by'],
+                'order_by': spec_record['order_by'],
+                'require': spec_record['require'],
                 'manifest_fpath': os.fspath(input_node.gather_manifest_fpath),
                 'members': [
                     {
@@ -3399,20 +3447,30 @@ class ProcessNode(Node):
                     values[0] if agree else values
                 )
 
+            # Gather membership is the only record of which concrete
+            # instances a collection was built from, and a descendant of the
+            # consumer needs it as much as the consumer does. Several
+            # same-named instances may each have gathered, so these records
+            # follow the same instance-aligned shape as the values above
+            # rather than collapsing into one dotted key.
+            gathered = [instance._gather_provenance() for instance in instances]
+            gather_keys: set[str] = set()
+            gather_keys.update(*[set(item) for item in gathered] or [set()])
+            # Self describes its own ports without qualifying them, which is
+            # the shape readers have always seen.
+            prefix = '' if name == self.name else f'{name}.'
+            for input_name in sorted(gather_keys):
+                # ``None`` for an instance that does not gather this port
+                # keeps the list index-aligned with ``__instances__``.
+                records = [item.get(input_name) for item in gathered]
+                depends_config[f'__gather__.{prefix}{input_name}'] = (
+                    records[0] if len(records) == 1 else records
+                )
+
         for input_name, binding in self._ordinary_input_provenance().items():
             depends_config[f'__input__.{input_name}'] = binding
         for param_name, binding in self._parameter_provenance().items():
             depends_config[f'__parameter__.{param_name}'] = binding
-        for input_name, record in self._gather_provenance().items():
-            depends_config[f'__gather__.{input_name}'] = record
-        # Gather membership is the only record of which concrete instances a
-        # collection was built from. A descendant of the consumer needs it too,
-        # or its lineage stops at whichever ancestor happens to be recorded.
-        for ancestor in self.ancestor_process_nodes():
-            for input_name, record in ancestor._gather_provenance().items():
-                depends_config[
-                    f'__gather__.{ancestor.name}.{input_name}'
-                ] = record
         return depends_config
 
     @memoize_configured_property

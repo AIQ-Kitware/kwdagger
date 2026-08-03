@@ -42,6 +42,19 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   Same-named instances that disagree on a dotted key now record a collection
   aligned to a new `__instances__.<node>` ordering, and a gather consumer's
   membership is propagated to descendants as `__gather__.<node>.<port>`.
+* A descendant with several same-named gathering ancestors kept only one of
+  their memberships: every `__gather__.<node>.<port>` record shared one key, so
+  the last instance visited overwrote its siblings. Each record now names the
+  concrete consumer it describes (`consumer_process_id`), and several
+  instances write a list aligned to `__instances__.<node>`. A single instance
+  still writes a single record.
+* A gather could not group on a structured parameter value. Grouping values are
+  compared in sets, and only paths and sequences were canonicalized, so a
+  mapping or set value raised `TypeError: unhashable`.
+* Gather provenance exposed the internal `(src, dst)` tuple for a mapped
+  `group_by` entry. It now writes the public `{'src': ..., 'dst': ...}` form
+  via `GatherSpec.to_dict()`, so a recorded `group_by` round-trips through
+  `GatherSpec.coerce()`.
 * Shared-value provenance reported an unresolved source as `value: None`,
   making it indistinguishable from an explicitly requested `None`. An
   unresolved source now records `unresolved: true` and no `value`, and a value
