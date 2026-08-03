@@ -42,6 +42,13 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   Same-named instances that disagree on a dotted key now record a collection
   aligned to a new `__instances__.<node>` ordering, and a gather consumer's
   membership is propagated to descendants as `__gather__.<node>.<port>`.
+* An input alias erased the producer standing behind it. `producer.output ->
+  middle.input -> consumer.input` gave the consumer the produced path with no
+  guarantee the producer had run: no queue ordering, no `.pred` / `.succ`
+  links, no lineage. Producers are now recovered through alias chains and are
+  real dependencies of the final consumer, while the process that lent the
+  input is still not one. An alias with no produced origin is unchanged and
+  stays configuration-only.
 * A descendant with several same-named gathering ancestors kept only one of
   their memberships: every `__gather__.<node>.<port>` record shared one key, so
   the last instance visited overwrote its siblings. Each record now names the

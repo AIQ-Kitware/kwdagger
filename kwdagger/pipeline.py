@@ -401,6 +401,15 @@ class Pipeline:
             for p in node._pred_nodes_without_io_connection:
                 self.proc_graph.add_edge(p.name, node.name)
 
+            # Same reasoning, for the same reason: a template node memoizes
+            # its predecessors while it is being constructed, before any
+            # connection exists. A direct producer is rediscovered through
+            # the successor pass above, but one standing behind an input
+            # alias has no successor edge into this node, so read the ports.
+            for input_node in node.inputs.values():
+                for origin in _produced_origins(input_node):
+                    self.proc_graph.add_edge(origin.parent.name, node.name)
+
         for connection in self.gather_connections:
             self.proc_graph.add_edge(
                 connection.source.parent.name,
@@ -1458,6 +1467,63 @@ def _dependency_preds(input_node: Any) -> list:
 def _alias_preds(input_node: Any) -> list:
     """Predecessors of an input that only share its value."""
     return [pred for pred in input_node.pred if isinstance(pred, InputNode)]
+
+
+def _produced_origins(input_node: Any) -> list:
+    """
+    Every :class:`OutputNode` whose product ultimately supplies this input.
+
+    An ``input -> input`` edge forwards an already-known value, and when that
+    value is externally configured or comes from a declared default there is
+    nothing to wait for. But an alias may equally well forward a value some
+    process *produces*, and that producer still has to run and materialize
+    its artifact first. Aliasing a port must not erase the producer standing
+    behind it.
+
+    Origins are found structurally, by walking alias edges backwards to the
+    output ports they end at. Nothing is resolved along the way, so the
+    answer cannot depend on node insertion order, on whether the pipeline has
+    been configured yet, or on a value left over from a previously configured
+    matrix row. It is the single place this traversal is written: dependency,
+    identity, and provenance all ask here.
+
+    Note that the process *holding* an aliased input is not itself an origin.
+    It lends a value it also consumes; it does not produce it.
+
+    Args:
+        input_node (InputNode): the port to trace.
+
+    Returns:
+        list: the direct producers of this port, in declaration order,
+            followed by any recovered through aliases, ordered by port key.
+    """
+    direct = {id(pred): pred for pred in _dependency_preds(input_node)}
+    recovered: dict[int, Any] = {}
+
+    seen = {id(input_node)}
+    stack = list(_alias_preds(input_node))
+    while stack:
+        alias = stack.pop()
+        if id(alias) in seen:
+            # Alias relationships are validated as acyclic elsewhere, but a
+            # traversal that is only correct on a DAG is a trap for later
+            # callers.
+            continue
+        seen.add(id(alias))
+        if alias._gather_members is not None:
+            # A gathered port resolves to a manifest this pipeline writes,
+            # not to a single upstream product.
+            continue
+        for pred in _dependency_preds(alias):
+            recovered[id(pred)] = pred
+        stack.extend(_alias_preds(alias))
+
+    origins = list(direct.values())
+    origins += sorted(
+        (port for key, port in recovered.items() if key not in direct),
+        key=lambda port: port.key,
+    )
+    return origins
 
 
 def _node_param_value(node: 'ProcessNode', key: str) -> Any:
@@ -3288,9 +3354,10 @@ class ProcessNode(Node):
                         }
                     )
                 else:
-                    # An alias carries a configured value, not a process
-                    # dependency. Record the fully-qualified binding and
-                    # effective value, but deliberately omit a process id.
+                    # An alias carries an already-known value, so it is not
+                    # itself a process dependency: record the fully-qualified
+                    # binding and effective value, and deliberately omit a
+                    # process id for the lender.
                     assert isinstance(source_port, InputNode)
                     binding = {
                         'source': source_port.key,
@@ -3299,6 +3366,17 @@ class ProcessNode(Node):
                         'source_kind': 'input',
                     }
                     binding.update(_source_value_record(source_port))
+                    origins = _produced_origins(source_port)
+                    if origins:
+                        # ... but if that value is produced, the reader still
+                        # needs to know which process made it.
+                        binding['origins'] = [
+                            {
+                                'source_process_id': port.parent.process_id,
+                                'source_port': port.name,
+                            }
+                            for port in origins
+                        ]
                     bindings.append(binding)
             if bindings:
                 bindings.sort(
@@ -3507,7 +3585,11 @@ class ProcessNode(Node):
         for name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
                 continue
-            if _dependency_preds(input_node):
+            if _produced_origins(input_node):
+                # Something upstream makes this. Its identity belongs to the
+                # producer, which ancestor hashing already captures, and the
+                # produced path is rooted in a cache directory that must not
+                # reach identity.
                 continue
             values[name] = input_node.final_value
         return ub.udict(values)
@@ -3674,7 +3756,7 @@ class ProcessNode(Node):
         nodes = [
             pred.parent
             for k, v in self.inputs.items()
-            for pred in _dependency_preds(v)
+            for pred in _produced_origins(v)
         ] + self._pred_nodes_without_io_connection
         for input_node in self.inputs.values():
             if input_node._gather_members is not None:

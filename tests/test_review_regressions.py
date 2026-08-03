@@ -21,6 +21,195 @@ from kwdagger.pipeline import (
 
 
 # ---------------------------------------------------------------------------
+# 1. Produced lineage must survive an input alias
+# ---------------------------------------------------------------------------
+
+
+def _alias_chain_pipeline(*, reverse=False):
+    """
+    ``producer.output -> middle.input -> consumer.input``.
+
+    The second edge is an input alias, so ``consumer`` reuses a value
+    ``middle`` also consumes. But that value is *produced*, so ``producer``
+    still has to run and materialize it before ``consumer`` may start.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'produced_fpath': 'produced.json'},
+    )
+    middle = ProcessNode(
+        name='middle',
+        executable='python middle.py',
+        in_paths={'data_fpath'},
+        out_paths={'middle_fpath': 'middle.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['produced_fpath'].connect(middle.inputs['data_fpath'])
+    middle.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    nodes = {'producer': producer, 'middle': middle, 'consumer': consumer}
+    if reverse:
+        nodes = {k: nodes[k] for k in ['consumer', 'middle', 'producer']}
+    return Pipeline(nodes), producer, middle, consumer
+
+
+def test_alias_preserves_the_produced_dependency(tmp_path):
+    dag, producer, middle, consumer = _alias_chain_pipeline()
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+
+    # The value is the produced path, as it already was.
+    assert str(consumer.final_in_paths['data_fpath']) == str(
+        producer.outputs['produced_fpath'].final_value
+    )
+
+    # ... and the process that produces it must run first.
+    preds = consumer.predecessor_process_nodes()
+    assert producer in preds, (
+        'the producer behind the alias is a real execution dependency'
+    )
+    assert middle not in preds, (
+        'lending an input as an alias does not make the lender a dependency'
+    )
+    assert producer in consumer.ancestor_process_nodes()
+
+    assert dag.proc_graph.has_edge('producer', 'consumer')
+    assert not dag.proc_graph.has_edge('middle', 'consumer')
+    # The alias is still a configuration relationship as well.
+    assert dag.config_graph.has_edge('middle', 'consumer')
+
+
+def test_alias_produced_dependency_reaches_identity_and_provenance(tmp_path):
+    dag, producer, middle, consumer = _alias_chain_pipeline()
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+
+    # Identity: the producer speaks for itself in the consumer's depends.
+    assert 'producer' in consumer.depends
+
+    # Provenance: a reader of job_config.json can see where the aliased
+    # value actually came from.
+    record = consumer._depends_config()['__input__.data_fpath']
+    assert record['source_kind'] == 'input'
+    assert record['source'] == 'middle.data_fpath'
+    origins = record['origins']
+    assert [item['source_process_id'] for item in origins] == [
+        producer.process_id
+    ]
+    assert [item['source_port'] for item in origins] == ['produced_fpath']
+
+
+def test_alias_lineage_is_independent_of_node_insertion_order(tmp_path):
+    forward, _, _, consumer1 = _alias_chain_pipeline()
+    reverse, _, _, consumer2 = _alias_chain_pipeline(reverse=True)
+    forward.configure({}, root_dpath=tmp_path, cache=False)
+    reverse.configure({}, root_dpath=tmp_path, cache=False)
+
+    assert consumer1.process_id == consumer2.process_id
+    assert sorted(n.name for n in consumer1.predecessor_process_nodes()) == (
+        sorted(n.name for n in consumer2.predecessor_process_nodes())
+    )
+
+
+def test_a_configured_alias_stays_configuration_only(tmp_path):
+    """
+    The complement of the fix: an alias that forwards an externally known
+    value must not gain execution ordering. This is the property that makes
+    a direct configuration and an equivalent alias interchangeable.
+    """
+    source = ProcessNode(
+        name='source',
+        executable='python source.py',
+        in_paths={'data_fpath': '/data/default.json'},
+        out_paths={'source_fpath': 'source.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    source.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag.configure(
+        {'source.data_fpath': '/data/current.json'},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+
+    assert consumer.final_in_paths['data_fpath'] == '/data/current.json'
+    assert source not in consumer.predecessor_process_nodes()
+    assert not dag.proc_graph.has_edge('source', 'consumer')
+    assert dag.config_graph.has_edge('source', 'consumer')
+
+    # An alias with no produced origin records none.
+    record = consumer._depends_config()['__input__.data_fpath']
+    assert 'origins' not in record
+
+    # And it is still identical to writing the value on the consumer.
+    direct = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    direct_dag = Pipeline({'consumer': direct})
+    direct_dag.configure(
+        {'consumer.data_fpath': '/data/current.json'},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    assert direct.process_id == consumer.process_id
+
+
+def test_alias_chain_recovers_a_transitive_producer(tmp_path):
+    """Aliases compose, so origin resolution has to be transitive."""
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'produced_fpath': 'produced.json'},
+    )
+    middle = ProcessNode(
+        name='middle',
+        executable='python middle.py',
+        in_paths={'data_fpath'},
+        out_paths={'middle_fpath': 'middle.json'},
+    )
+    relay = ProcessNode(
+        name='relay',
+        executable='python relay.py',
+        in_paths={'data_fpath'},
+        out_paths={'relay_fpath': 'relay.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['produced_fpath'].connect(middle.inputs['data_fpath'])
+    middle.inputs['data_fpath'].connect(relay.inputs['data_fpath'])
+    relay.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline(
+        {
+            'producer': producer,
+            'middle': middle,
+            'relay': relay,
+            'consumer': consumer,
+        }
+    )
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+
+    preds = consumer.predecessor_process_nodes()
+    assert producer in preds
+    assert middle not in preds
+    assert relay not in preds
+
+
+# ---------------------------------------------------------------------------
 # 2. Nested gather provenance must survive every concrete instance
 # ---------------------------------------------------------------------------
 
