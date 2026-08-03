@@ -314,6 +314,8 @@ class Pipeline:
 
     @classmethod
     def demo(cls) -> 'Pipeline':
+        from kwdagger.demo.demodata import demodata_pipeline
+
         return demodata_pipeline()
 
     def to_yaml_spec(self) -> dict[str, Any]:
@@ -862,323 +864,31 @@ class Pipeline:
         """
         Submits the jobs to an existing command queue or creates a new one.
 
-        Also takes care of adding special bookkeeping jobs that add helper
-        files and symlinks to node output paths.
-
-        Args:
-            log (bool):
-                If True (default), each per-node job is submitted with
-                ``log=True`` so cmd_queue tees the job's stdout/stderr
-                to ``info_dpath/status/<pathid>.logs``. This makes
-                post-mortem diagnosis of failed runs much easier. Set
-                to False to skip the tee.
+        See :func:`kwdagger._pipeline_runtime.submit_jobs` for the arguments
+        and for what gets written to the result directories.
         """
-        if isinstance(self, Pipeline) and self.has_gather_connections:
+        from kwdagger import _pipeline_runtime
+
+        if self.has_gather_connections:
+            # A gather's membership is only known once the whole matrix has
+            # been compiled, so a logical pipeline cannot answer what a
+            # consumer's collection contains. This precondition belongs to
+            # the logical layer, not to submission.
             raise RuntimeError(
                 'Gather pipelines must be compiled across all matrix rows '
                 'before submission. Use Pipeline.compile_configurations(...) '
                 'or kwdagger schedule.'
             )
-
-        import json
-        import shlex
-
-        import cmd_queue
-        import networkx as nx
-
-        if queue is None:
-            queue = {}
-
-        if isinstance(queue, dict):
-            # Create a simple serial queue if an existing one isn't given.
-            default_queue_kw = {
-                'backend': 'serial',
-                'name': 'unnamed-kwdagger-pipeline',
-                'size': 1,
-                'gres': None,
-            }
-            queue_kw = ub.udict(default_queue_kw) | queue
-            # The merged mapping is heterogeneous, so its inferred value type
-            # is too wide for ``create``'s ``backend: str``. Pull the backend
-            # out by hand rather than relying on how a checker widens the merge.
-            backend = cast('str', queue_kw.pop('backend'))
-            queue = cmd_queue.Queue.create(backend=backend, **queue_kw)
-
-        node_order = list(nx.topological_sort(self.proc_graph))
-
-        assert isinstance(self.proc_graph, nx.DiGraph)
-        for node_name in node_order:
-            node_data = self.proc_graph.nodes[node_name]
-            try:
-                node = node_data['node']
-            except KeyError:
-                import rich
-
-                rich.print('[red]ERROR')
-                print('node_name = {}'.format(ub.urepr(node_name, nl=1)))
-                print('node_data = {}'.format(ub.urepr(node_data, nl=1)))
-                raise
-            node.will_exist = None
-
-        summary = {'queue': queue, 'node_status': {}}
-        node_status = summary['node_status']
-
-        assert isinstance(self.proc_graph, nx.DiGraph)
-        for node_name in node_order:
-            node = self.proc_graph.nodes[node_name]['node']
-            # print('-----')
-            # print(f'node_name={node_name}')
-            # print(f'node.enabled={node.enabled}')
-            if not node.enabled:
-                node_status[node_name] = 'disabled'
-                node.will_exist = node.does_exist
-                continue
-
-            assert isinstance(self.proc_graph, nx.DiGraph)
-            pred_node_names = list(self.proc_graph.predecessors(node_name))
-            pred_nodes = [
-                self.proc_graph.nodes[n]['node'] for n in pred_node_names
-            ]
-
-            ancestors_will_exist = all(n.will_exist for n in pred_nodes)
-            if skip_existing and node.enabled != 'redo' and node.does_exist:
-                node.enabled = False
-
-            node.will_exist = (
-                node.enabled and ancestors_will_exist
-            ) or node.does_exist
-            if 0:
-                print(f'node.final_out_paths={node.final_out_paths}')
-                print(f'Checking {node_name}, will_exist={node.will_exist}')
-
-            skip_node = not (node.will_exist and node.enabled)
-
-            if skip_node:
-                node_status[node_name] = 'skipped'
-            else:
-                node_procid = node.process_id
-                node_job = None
-                pred_node_procids = [
-                    n.process_id for n in pred_nodes if n.enabled
-                ]
-                is_slurm = 'slurm' in queue.__class__.__name__.lower()
-                has_gather = any(
-                    input_node._gather_members is not None
-                    for input_node in node.inputs.values()
-                )
-                invoke_fpath = node.final_node_dpath / 'invoke.sh'
-                invoke_text = node._invocation_script_text()
-                invoke_prewritten = False
-
-                # Slurm serializes each job through ``sbatch --wrap``. A large
-                # gather heredoc would therefore become one large argv entry at
-                # submission time even though the heredoc itself is safe once
-                # Bash reads it. Materialize the complete standalone invocation
-                # file while compiling the queue and submit only a short
-                # ``bash invoke.sh`` command. This preserves the ability to run
-                # the graph without importing or invoking kwdagger.
-                if is_slurm and has_gather:
-                    invoke_fpath.parent.ensuredir()
-                    invoke_fpath.write_text(invoke_text)
-                    invoke_fpath.chmod(0o775)
-                    invoke_prewritten = True
-                    node_command = '\n'.join(
-                        [
-                            '# kwdagger gather is materialized in the '
-                            'standalone invocation script below',
-                            'bash ' + shlex.quote(os.fspath(invoke_fpath)),
-                        ]
-                    )
-                else:
-                    node_command = node.final_command()
-
-                # Another configuration may have submitted this job already
-                if node_procid not in queue.named_jobs:
-                    extra_submitkw: dict[str, Any] = {}
-                    # Forward the log flag so cmd_queue tees stdout/stderr
-                    # to info_dpath/status/<pathid>.logs for post-mortem
-                    # diagnosis of node failures.
-                    extra_submitkw['log'] = log
-
-                    # Forward the resource lifecycle to cmd_queue: ``setup`` is
-                    # a gating precondition run before the command (e.g. acquire
-                    # a GPU lease) and ``teardown`` is cleanup that always runs
-                    # after the command -- on success, failure, and SIGTERM --
-                    # provided setup succeeded (e.g. release the lease). This is
-                    # the job-level try/finally; it co-locates acquire+release
-                    # in the job rather than as separate, skippable DAG nodes.
-                    # Works uniformly on the serial/tmux and slurm backends.
-                    node_setup = getattr(node, 'setup', None)
-                    node_teardown = getattr(node, 'teardown', None)
-                    if node_setup:
-                        extra_submitkw['setup'] = node_setup
-                    if node_teardown:
-                        extra_submitkw['teardown'] = node_teardown
-                    if is_slurm:
-                        # Global slurm options apply to every job.
-                        extra_submitkw.update(
-                            coerce_slurm_options(
-                                getattr(self, '__slurm_options__', {})
-                            )
-                        )
-                        # Allow per-node overrides specified on the class or via
-                        # configuration.
-                        extra_submitkw.update(
-                            coerce_slurm_options(
-                                getattr(node, 'slurm_options', None)
-                            )
-                        )
-                        # Set the slurm output file to be in the node directory
-                        # to make debugging somewhat easier.  Need to see if
-                        # there is a cleaner way to do this.
-                        extra_submitkw.setdefault(
-                            'output_fpath',
-                            node.final_node_dpath
-                            / f'slurm-output-{node_procid}.log',
-                        )
-
-                    # Bash heredoc terminators must begin in column zero.
-                    # cmd_queue normally indents dependency-guarded jobs, which
-                    # would invalidate the gather manifest delimiter. The shell
-                    # does not require commands inside an ``if`` body to be
-                    # indented, so disable formatting indentation whenever the
-                    # concrete consumer command contains a gather heredoc.
-                    if has_gather and not is_slurm:
-                        extra_submitkw['allow_indent'] = False
-
-                    # TODO: we need to be able to pass per-job slurm options
-                    node_job = queue.submit(
-                        command=node_command,
-                        depends=pred_node_procids,
-                        name=node_procid,
-                        **extra_submitkw,
-                    )
-                    node_status[node_name] = 'new_submission'
-                else:
-                    # Some other config submitted this job, we can skip the
-                    # rest of the work for this node.
-                    node_status[node_name] = 'duplicate_submission'
-                    continue
-
-                # We might want to execute a few boilerplate instructions
-                # before running each node.
-                before_node_commands = []
-
-                # Add symlink jobs that make the graph structure traversable in
-                # the flat output directories.
-                if enable_links:
-                    # TODO: ability to bind jobs to be run in the same queue
-                    # together
-
-                    # TODO: should we filter the nodes where they are only linked
-                    # via inputs?
-                    for pred in node.predecessor_process_nodes():
-                        link_path1 = (
-                            pred.final_node_dpath
-                            / '.succ'
-                            / node.name
-                            / node.process_id
-                        )
-                        target_path1 = node.final_node_dpath
-                        link_path2 = (
-                            node.final_node_dpath
-                            / '.pred'
-                            / pred.name
-                            / pred.process_id
-                        )
-                        target_path2 = pred.final_node_dpath
-                        target_path1 = os.path.relpath(
-                            target_path1.absolute(),
-                            link_path1.absolute().parent,
-                        )
-                        target_path2 = os.path.relpath(
-                            target_path2.absolute(),
-                            link_path2.absolute().parent,
-                        )
-
-                        parts = [
-                            f'mkdir -p {link_path1.parent}',
-                            f'mkdir -p {link_path2.parent}',
-                            f'ln -sfT "{target_path1}" "{link_path1}"',
-                            f'ln -sfT "{target_path2}" "{link_path2}"',
-                        ]
-                        # command = '(' + ' && '.join(parts) + ')'
-                        before_node_commands.extend(parts)
-
-                if write_invocations and not invoke_prewritten:
-                    # Write the exact independently executable command. For a
-                    # gathered consumer this includes the quoted manifest
-                    # heredoc and all cache guards.
-                    command = bash_heredoc_write_command(
-                        invoke_text,
-                        invoke_fpath,
-                        label=f'KWDAGGER_INVOKE_{node.name}',
-                    )
-                    before_node_commands.extend(
-                        [
-                            command,
-                            'chmod +x -- '
-                            + shlex.quote(os.fspath(invoke_fpath)),
-                        ]
-                    )
-
-                if write_configs:
-                    depends_config = node._depends_config()
-                    # Add a job that writes a file with the command used to
-                    # execute this node.
-                    job_config_fpath = node.final_node_dpath / 'job_config.json'
-                    json_text = json.dumps(depends_config)
-                    if is_slurm and has_gather:
-                        # Gather provenance can be as large as the manifest.
-                        # Keep it out of a second Slurm ``--wrap`` argument.
-                        job_config_fpath.parent.ensuredir()
-                        if _has_jq():
-                            json_text = json.dumps(depends_config, indent=4)
-                        job_config_fpath.write_text(json_text)
-                    else:
-                        command = bash_heredoc_write_command(
-                            json_text,
-                            job_config_fpath,
-                            label=f'KWDAGGER_CONFIG_{node.name}',
-                            filter_command='jq .' if _has_jq() else None,
-                        )
-                        before_node_commands.append(command)
-
-                if before_node_commands:
-                    if has_gather:
-                        before_node_commands.insert(
-                            0,
-                            '# kwdagger bookkeeping only; the gather manifest '
-                            'is materialized by the consumer command/invoke.sh',
-                        )
-                    # TODO: nicer infastructure mechanisms (make the code
-                    # prettier and easier to reason about)
-                    before_command = '\n'.join(
-                        ['(', 'set -e', *before_node_commands, ')']
-                    )
-                    _procid = 'before_' + node_procid
-                    if _procid not in queue.named_jobs:
-                        before_submitkw = {}
-                        if not is_slurm:
-                            # Invocation and config artifacts are serialized with
-                            # quoted heredocs. Dependent jobs must not indent
-                            # their terminators inside cmd_queue's status guard.
-                            before_submitkw['allow_indent'] = False
-                        _job = queue.submit(
-                            command=before_command,
-                            depends=pred_node_procids,
-                            bookkeeper=1,
-                            name=_procid,
-                            tags=['boilerplate'],
-                            **before_submitkw,
-                        )
-                        if node_job is not None:
-                            if node_job.depends is None:
-                                node_job.depends = []
-                            cast(list, node_job.depends).append(_job)
-
-        # print(f'queue={queue}')
-        return summary
+        return _pipeline_runtime.submit_jobs(
+            self.proc_graph,
+            slurm_options=self.__slurm_options__,
+            queue=queue,
+            skip_existing=skip_existing,
+            enable_links=enable_links,
+            write_invocations=write_invocations,
+            write_configs=write_configs,
+            log=log,
+        )
 
     make_queue = submit_jobs
 
@@ -1415,11 +1125,33 @@ class CompiledPipeline:
             vertical_chains=True,
         )
 
-    def submit_jobs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        # This class intentionally satisfies the subset of Pipeline's runtime
-        # interface used by submit_jobs without inheriting from Pipeline.
-        pipeline = cast(Pipeline, self)
-        return Pipeline.submit_jobs(pipeline, *args, **kwargs)
+    def submit_jobs(
+        self,
+        queue: Any = None,
+        skip_existing: bool = False,
+        enable_links: bool = True,
+        write_invocations: bool = True,
+        write_configs: bool = True,
+        log: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Submits the jobs to an existing command queue or creates a new one.
+
+        A compiled pipeline is already concrete, so it has no precondition to
+        check: it goes straight to the shared runtime submitter.
+        """
+        from kwdagger import _pipeline_runtime
+
+        return _pipeline_runtime.submit_jobs(
+            self.proc_graph,
+            slurm_options=self.__slurm_options__,
+            queue=queue,
+            skip_existing=skip_existing,
+            enable_links=enable_links,
+            write_invocations=write_invocations,
+            write_configs=write_configs,
+            log=log,
+        )
 
     make_queue = submit_jobs
 
@@ -2089,10 +1821,6 @@ def bash_heredoc_write_command(
             text + delimiter,
         ]
     )
-
-
-def _has_jq() -> str | list[str] | None:
-    return ub.find_exe('jq')
 
 
 class Node(ub.NiceRepr):
@@ -4241,199 +3969,6 @@ def _fixup_config_serializability(config: Any) -> dict[str, Any]:
     return fixed_config
 
 
-def demodata_pipeline() -> Pipeline:
-    """
-    A simple test pipeline.
-
-    Example:
-        >>> # Self test
-        >>> from kwdagger.pipeline import *  # NOQA
-        >>> demodata_pipeline()
-    """
-    dpath = ub.Path.appdir('kwdagger/tests/pipeline').ensuredir()
-    dpath.delete().ensuredir()
-    script_dpath = (dpath / 'src').ensuredir()
-    inputs_dpath = (dpath / 'inputs').ensuredir()
-    runs_dpath = (dpath / 'runs').ensuredir()
-
-    # Make simple scripts to stand in for the more complex processes that we
-    # will orchestrate. The important thing is they have CLI input and output
-    # paths / arguments.
-    fpath1 = script_dpath / 'demo_script1.py'
-    fpath2 = script_dpath / 'demo_script2.py'
-    fpath3 = script_dpath / 'demo_script3.py'
-    fpath1.write_text(
-        ub.codeblock(
-            """
-        import ubelt as ub
-        src = ub.Path(ub.argval('--src'))
-        dst = ub.Path(ub.argval('--dst'))
-        dst.parent.ensuredir()
-        algo_param1 = ub.argval('--algo_param1', default='')
-        perf_param1 = ub.argval('--perf_param1', default='')
-        dst.write_text(src.read_text() + algo_param1)
-        """
-        )
-    )
-    fpath2.write_text(
-        ub.codeblock(
-            """
-        import ubelt as ub
-        src1 = ub.Path(ub.argval('--src1'))
-        src2 = ub.Path(ub.argval('--src2'))
-        dst1 = ub.Path(ub.argval('--dst1'))
-        dst2 = ub.Path(ub.argval('--dst2'))
-        dst1.parent.ensuredir()
-        dst2.parent.ensuredir()
-        algo_param2 = ub.argval('--algo_param2', default='')
-        perf_param2 = ub.argval('--perf_param2', default='')
-        dst1.write_text(src1.read_text() + algo_param2)
-        dst2.write_text(src2.read_text() + algo_param2)
-        """
-        )
-    )
-    fpath3.write_text(
-        ub.codeblock(
-            """
-        import ubelt as ub
-        src1 = ub.Path(ub.argval('--src1'))
-        src2 = ub.Path(ub.argval('--src2'))
-        dst = ub.Path(ub.argval('--dst'))
-        dst.parent.ensuredir()
-        algo_param3 = ub.argval('--algo_param3', default='')
-        perf_param3 = ub.argval('--perf_param3', default='')
-        dst.write_text(src1.read_text() + algo_param3 + src2.read_text())
-        """
-        )
-    )
-    executable1 = f'python {fpath1}'
-    executable2 = f'python {fpath2}'
-    executable3 = f'python {fpath3}'
-
-    # Now that we have executables we need to create a ProcessNode that
-    # describes how each process might be run. This can be done via inheritence
-    # or specifying constructor variables.
-    node_A1 = ProcessNode(
-        name='node_A1',
-        in_paths={
-            'src',
-        },
-        algo_params={
-            'algo_param1': '',
-        },
-        perf_params={
-            'perf_param1': '',
-        },
-        out_paths={'dst': 'out.txt'},
-        executable=executable1,
-    )
-    node_A2 = ProcessNode(
-        name='node_A2',
-        in_paths={
-            'src',
-        },
-        algo_params={
-            'algo_param1': '',
-        },
-        perf_params={
-            'perf_param1': '',
-        },
-        out_paths={'dst': 'out.txt'},
-        executable=executable1,
-    )
-    node_B1 = ProcessNode(
-        name='node_B1',
-        in_paths={'src1', 'src2'},
-        algo_params={
-            'algo_param2': '',
-        },
-        perf_params={
-            'perf_param2': '',
-        },
-        out_paths={'dst1': 'out1.txt', 'dst2': 'out2.txt'},
-        executable=executable2,
-    )
-    node_C1 = ProcessNode(
-        name='node_C1',
-        in_paths={'src1', 'src2'},
-        algo_params={
-            'algo_param3': '',
-        },
-        perf_params={
-            'perf_param3': '',
-        },
-        out_paths={'dst': 'out.txt'},
-        executable=executable3,
-    )
-
-    # Given the process nodes we need to connect their inputs / outputs for
-    # form a pipeline.
-    node_A1.outputs['dst'].connect(node_B1.inputs['src1'])
-    node_A2.outputs['dst'].connect(node_B1.inputs['src2'])
-    node_A2.inputs['src'].connect(node_C1.inputs['src1'])
-    node_B1.outputs['dst1'].connect(node_C1.inputs['src2'])
-
-    # The pipeline is just a container for the nodes
-    nodes = [node_A1, node_A2, node_B1, node_C1]
-    dag = Pipeline(nodes=nodes)
-
-    # Given a dag, there will often be top level input parameters that must be
-    # configured along with any other algorithm or performance parameters
-
-    # Create the inputs and configure the graph
-    input1_fpath = inputs_dpath / 'input1.txt'
-    input2_fpath = inputs_dpath / 'input2.txt'
-    input1_fpath.write_text('spam')
-    input2_fpath.write_text('eggs')
-
-    dag.configure(
-        {
-            'node_A1.src': str(input1_fpath),
-            'node_A2.src': str(input2_fpath),
-            'node_A2.dst': dpath / 'DST_OVERRIDE',
-            'node_C1.perf_param3': 'GOFAST',
-        },
-        root_dpath=runs_dpath,
-        cache=False,
-    )
-
-    return dag
-
-
-def demo_pipeline_run() -> None:
-    """
-    A simple test pipeline.
-
-    CommandLine:
-        xdoctest -m kwdagger.pipeline demo_pipeline_run
-
-    Example:
-        >>> # Self test
-        >>> from kwdagger.pipeline import *  # NOQA
-        >>> demo_pipeline_run()
-    """
-    dag = Pipeline.demo()
-
-    dag.print_graphs()
-    dag.inspect_configurables()
-
-    # The jobs can now be submitted to a command queue which can be
-    # executed or inspected at your leasure.
-    status = dag.submit_jobs(
-        queue=ub.udict(
-            {
-                'backend': 'serial',
-            }
-        )
-    )
-    queue = status['queue']
-    # queue.print_commands(exclude_tags='boilerplate', with_locks=False)
-    queue.print_commands(
-        with_status=False, with_gaurds=False, with_locks=1, exclude_tags=None
-    )
-    queue.run()
-
-
 def coerce_pipeline(pipeline: Any) -> Pipeline:
     """
     Attempts to resolve a concise expression (typically from the command line) into a pre-defined pipeline.
@@ -4563,3 +4098,20 @@ def _coerce_modpath(modpath_or_name: Any) -> str:
         else:
             raise ValueError('Cannot find module={}'.format(modpath_or_name))
     return modpath
+
+
+def __getattr__(name: str) -> Any:
+    """
+    Keep the demo pipeline reachable from its historical home.
+
+    ``demodata_pipeline`` and ``demo_pipeline_run`` moved to
+    :mod:`kwdagger.demo.demodata`, but ``kwdagger.pipeline.demodata_pipeline()``
+    is a documented pipeline expression and is resolved by name, so it must
+    still work. Resolving lazily also keeps the import direction one-way: the
+    demo package imports this module, not the other way around.
+    """
+    if name in {'demodata_pipeline', 'demo_pipeline_run'}:
+        from kwdagger.demo import demodata
+
+        return getattr(demodata, name)
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

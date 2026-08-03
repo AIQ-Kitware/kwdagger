@@ -26,6 +26,14 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 * A declared `in_paths` default no longer overrides a connected upstream
   output; connections outrank defaults.
 
+* Queue submission moved out of `Pipeline` into `kwdagger._pipeline_runtime`.
+  `Pipeline.submit_jobs()` and `CompiledPipeline.submit_jobs()` now call one
+  shared function that takes the process graph, instead of a compiled pipeline
+  being cast to a `Pipeline`. Both public methods behave as before.
+* `demodata_pipeline` and `demo_pipeline_run` moved to `kwdagger.demo.demodata`.
+  They remain importable from `kwdagger.pipeline`, so
+  `--pipeline=kwdagger.pipeline.demodata_pipeline()` still resolves.
+
 ### Removed
 
 * The historical template-output-discovery subsystem, which no longer had a
