@@ -519,7 +519,9 @@ def test_gather_provenance_uses_the_public_group_by_schema():
             'require': record['require'],
         }
     )
-    assert restored == scorer.inputs['preds_fpath']._gather_connection.spec
+    connection = scorer.inputs['preds_fpath']._gather_connection
+    assert connection is not None
+    assert restored == connection.spec
 
 
 def test_unmapped_gather_provenance_keeps_plain_names():

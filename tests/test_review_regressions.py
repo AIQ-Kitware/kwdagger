@@ -104,10 +104,12 @@ def test_nested_gather_provenance_keeps_each_consumer_instance(tmp_path):
     assert len(merges) == 2
     assert len(reports) == 1
 
+    for node in merges:
+        assert node.inputs['parts_fpath']._gather_members is not None
     expected_member_sets = {
         frozenset(
             member.parent.process_id
-            for member in node.inputs['parts_fpath']._gather_members
+            for member in node.inputs['parts_fpath']._gather_members or []
         )
         for node in merges
     }
@@ -164,7 +166,8 @@ def test_qualified_group_by_accepts_mapping_values(tmp_path):
         node for node in compiled.nodes.values() if node.name == 'collect'
     ]
     assert len(collectors) == 1
-    assert len(collectors[0].inputs['checkpoints_fpath']._gather_members) == 2
+    members = collectors[0].inputs['checkpoints_fpath']._gather_members
+    assert members is not None and len(members) == 2
 
 
 def test_gather_provenance_uses_public_group_by_shape(tmp_path):

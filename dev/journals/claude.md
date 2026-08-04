@@ -1113,3 +1113,35 @@ has no branch, and the wart where a dict key could disagree with `node.name`
 is gone by construction rather than by discipline.
 
 377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 14:22:12 -0400
+
+Checked the "one canonical container per class" property the maintainer asked
+about. `Pipeline` held it: `nodes` is the list, `node_dict` is derived, and the
+four graphs are derived caches -- an AST sweep confirms every `add_node` /
+`add_edge` is inside `build_nx_graphs` or its local helper, gated by `_dirty`.
+
+`CompiledPipeline` did not: three names over two containers. `proc_graph` was
+canonical, `nodes` was a dict *snapshot* of it taken at construction, and
+`node_dict` was a plain alias attribute for that snapshot. Nothing could drift
+today, because nothing mutates a compiled graph after construction -- but that
+is a convention, not an invariant, and a construction-time snapshot is exactly
+the shape that goes stale the first time someone adds a mutation. `nodes` is a
+`cached_property` over `proc_graph` now, and `node_dict` is gone.
+
+Removing it immediately caught something, which is the useful part. A test
+helper I had edited an hour earlier from `dag.nodes.values()` to
+`dag.node_dict.values()` broke -- it is called with a *compiled* pipeline. That
+edit had been silently correct only because the alias existed, and it was the
+name clash doing exactly what I predicted it would: `Pipeline.node_dict` is
+name-keyed, `CompiledPipeline.node_dict` was process_id-keyed, and I had
+treated them as the same thing while arguing that nobody should.
+
+Typing the new property also made ty see through `compiled.nodes[...]` to a
+real `ProcessNode` for the first time, which surfaced five unnarrowed optionals
+in tests (`_gather_members`, `_gather_connection`). Same class as the
+`sorted(n.name ...)` findings: not bugs in the tests as written, but assertions
+that would report a confusing failure rather than a clear one if the
+precondition ever broke.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.

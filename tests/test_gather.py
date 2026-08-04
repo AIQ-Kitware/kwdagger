@@ -1287,7 +1287,10 @@ def _compile(dag, root_dpath, matrix=None):
 
 
 def _instances(dag, name):
-    return [n for n in dag.node_dict.values() if n.name == name]
+    # A *compiled* pipeline: its nodes are keyed by process_id, because one
+    # template may have several concrete instances, which is the whole point
+    # of asking this question.
+    return [n for n in dag.nodes.values() if n.name == name]
 
 
 def _assert_partitioned_by_dataset(dag):
@@ -1680,6 +1683,7 @@ def test_group_by_may_name_the_key_differently_on_each_side():
     assert len(scores) == 2, 'one score per dataset'
     for node in scores:
         members = node.inputs['preds_fpath']._gather_members
+        assert members is not None, 'the port gathered'
         assert len(members) == 2, 'both models for that dataset'
         truth = node.final_input_config['truth_fpath']
         for member in members:

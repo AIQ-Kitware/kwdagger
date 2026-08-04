@@ -68,6 +68,13 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+* `CompiledPipeline.node_dict`. It was an alias for `CompiledPipeline.nodes`,
+  which is keyed by `process_id` rather than by name -- a compiled pipeline may
+  hold several concrete instances of one template. Sharing an attribute name
+  with `Pipeline.node_dict`, which *is* name-keyed, made the two look
+  interchangeable when they are not. Use `.nodes`. `CompiledPipeline.nodes` is
+  now derived from `proc_graph` rather than snapshotted beside it, so the graph
+  is the one container.
 * `ProcessNode.pred` and `ProcessNode.succ`. Only ports carry graph edges; a
   process's relationships are derived from its ports'. The process-level lists
   were written alongside the port edges and read by nothing (the compiler

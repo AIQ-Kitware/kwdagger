@@ -23,6 +23,7 @@ from collections import defaultdict
 # inside the isinstance branch and every `key['src']` looks like an error. The
 # typing aliases have been deprecated since 3.9 in any case.
 from collections.abc import Mapping, Sequence
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import networkx as nx
@@ -59,16 +60,30 @@ class CompiledPipeline:
         slurm_options: Mapping[str, Any] | None = None,
         compile_summary: Mapping[str, Any] | None = None,
     ) -> None:
+        #: The one container. Everything else about this pipeline's nodes is
+        #: derived from it, so there is nothing to keep in step with it.
         self.proc_graph = proc_graph
         self.root_dpath = ub.Path(root_dpath)
-        self.nodes = {
-            key: data['node'] for key, data in proc_graph.nodes(data=True)
-        }
-        self.node_dict = self.nodes
         self.compile_summary = dict(compile_summary or {})
         # Pipeline-wide options, handed to the shared runtime submitter
         # alongside the process graph.
         self.__slurm_options__ = dict(slurm_options or {})
+
+    @cached_property
+    def nodes(self) -> dict[str, ProcessNode]:
+        """
+        The concrete nodes, keyed by ``process_id``.
+
+        Note the key: a compiled pipeline may hold several instances of one
+        template, so a name does not identify a node here as it does on
+        :class:`~kwdagger.pipeline.Pipeline`. Derived from ``proc_graph``
+        rather than stored beside it -- it was a snapshot taken at
+        construction, which is the shape that goes stale the first time
+        someone adds a mutation.
+        """
+        return {
+            key: data['node'] for key, data in self.proc_graph.nodes(data=True)
+        }
 
     def _edge_cardinality_records(self) -> list[dict[str, Any]]:
         """Summarize concrete edge multiplicity by logical port binding."""
