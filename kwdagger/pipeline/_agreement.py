@@ -83,6 +83,9 @@ def execution_snapshot(node: Any) -> dict[str, Any]:
             pred.process_id
             for pred in node.effective_predecessor_process_nodes()
         ),
+        # Finer than the prerequisite union: two requests can need the same
+        # jobs while disagreeing about which inputs those jobs supply.
+        'delivery': dict(node.delivery_signature()),
     }
     try:
         snapshot['command'] = node.final_command()
@@ -147,6 +150,29 @@ def check_execution_agreement(
             'describes the computation, not how the value arrives, so these '
             'requests cannot be told apart. Use the same delivery in both, or '
             'give them differing parameters.'
+        )
+
+    if canonical['delivery'] != duplicate['delivery']:
+        differing = sorted(
+            name
+            for name in set(canonical['delivery']) | set(duplicate['delivery'])
+            if canonical['delivery'].get(name)
+            != duplicate['delivery'].get(name)
+        )
+        raise ValueError(
+            f'Conflicting input delivery for process {template_name!r}. '
+            f'{canonical_label.capitalize()} and {duplicate_label} resolve to '
+            f'the same process identity {process_id!r} and need the same jobs '
+            f'to run first, but disagree about where {differing} come from:\n'
+            f'  {canonical_label}: '
+            f'{ {k: canonical["delivery"].get(k) for k in differing} }\n'
+            f'  {duplicate_label}: '
+            f'{ {k: duplicate["delivery"].get(k) for k in differing} }\n'
+            'One request takes an input from a producer while another supplies '
+            'the same path directly. They are the same computation and hash '
+            'the same, but only one requested-experiment record can be written '
+            'for the result directory they share, so they cannot both be kept. '
+            'Use the same delivery in both, or give them differing parameters.'
         )
 
     for label, field in _FINALIZED_EXECUTION_STATE:

@@ -654,3 +654,54 @@ original change.
 TA1 fingerprints unchanged this round: the cards use absolute roots and scalar
 paths, so neither the recursive canonicalization nor the new arbitration
 touches them.
+
+## 2026-08-04 10:40:00 -0400
+
+One real hole and two cleanups. The hole is instructive because it is a case
+where my fix was correct in shape and too coarse in detail.
+
+Arbitration compared the *union* of effective predecessor process ids. That is
+enough when a consumer reads one producer, but not when it reads two outputs of
+the same producer and only one of them is overridden: the producer stays a
+prerequisite either way, so the sets match, the duplicate is accepted, and
+whichever request arrived first writes `job_config.json` for the directory they
+share. Reversing rows changed the persisted provenance.
+
+The fix is a per-input delivery signature -- for each port, the sorted
+`process_id:port` of whatever effectively supplies it, or empty when the value
+came from configuration. It lives on `ProcessNode` rather than in `_agreement`,
+which stays a dependency-free leaf reading everything duck-typed.
+
+The thing I want to record is *why* the union was tempting. It is derivable
+from the per-input answer, so it looked like the same information cheaply
+summarised. It is not: aggregation destroys exactly the distinction the check
+exists to make. That is the third time in this review sequence I have reached
+for a coarser representation of something I had already computed precisely, and
+the tell each time was that the coarser form was a set or a union.
+
+Worth being explicit that this rejection does **not** put lineage back into
+identity. The two requests still hash identically, and there is a test asserting
+that -- it exists so that a future reader who sees "we reject differing
+delivery" does not conclude that delivery is identity material. It is not; the
+conflict is over which requested-experiment record gets written for a shared
+result directory.
+
+Two smaller ones. `invoke.sh` still listed structural ancestry in its
+`# See Also:` comments, so a consumer whose producer was overridden pointed at
+a directory it never read, and which unread producer got named depended on
+compile order. That artifact is meant to be independently inspectable, so it
+now follows effective ancestry. And the recursive root canonicalization
+rewrote mapping values but not mapping keys, so a dict keyed by produced path
+kept the absolute cache root in the hash.
+
+The remaining documentation with the old model was the twostage tutorial --
+user-facing, and claiming both that the hash includes perf params and that
+`job_config.json` contains exactly the hashed configuration. Both false now, and
+the second in a way that matters: `job_config.json` is deliberately a *superset*
+of the hashed config, because that is where the things identity drops are kept.
+Rewrote it to say so, and grepped the whole tree afterwards for "ancestor
+hashing" and "produced-artifact lineage" -- no hits left. I should have run that
+grep when I first changed the model rather than after being asked twice.
+
+TA1 fingerprints unchanged: the cards do not override connected inputs, use
+scalar absolute paths, and never key a config by a path.

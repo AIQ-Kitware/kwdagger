@@ -306,15 +306,24 @@ we are currently working on updating the API for more streamlined usage.
 Where parameter hash IDs come from
 ----------------------------------
 
-Each job folder name encodes a short hash of the resolved parameters for that
-node (algo + perf params plus any injected context such as resolved input
-paths). ``keyword_sentiment_predict_id_f4ea8a15`` and
+Each job folder name encodes a short hash of what that node will compute: its
+algorithm parameters and the effective values of its inputs.
+``keyword_sentiment_predict_id_f4ea8a15`` and
 ``sentiment_evaluate_id_b55860da`` are examples you will see after running this
-tutorial. ``job_config.json`` inside the folder contains the exact
-configuration that produced the hash. Identical configurations reuse the same
-directory, so reruns can skip existing work, while the hash provides a stable
-key during aggregation (see the "Varied Parameter LUT" section in the example
-output).
+tutorial. Identical configurations reuse the same directory, so reruns can skip
+existing work, while the hash provides a stable key during aggregation (see the
+"Varied Parameter LUT" section in the example output).
+
+Two things are deliberately *not* in that hash. ``perf_params`` -- workers,
+verbosity, and the like -- change how a node runs, not what it computes. And
+how an input value arrived does not matter either: a path a producer writes and
+the same path given by hand are the same computation and share a directory.
+
+``job_config.json`` inside the folder is therefore a superset of the hashed
+configuration: it records the requested experiment, including performance
+settings and where each input came from. Use it to understand what was asked
+for; use the directory name to understand what was computed. See
+:doc:`../../technical/hashing_scheme` for the full rule.
 
 Backends
 --------

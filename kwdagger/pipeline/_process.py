@@ -1329,6 +1329,36 @@ class ProcessNode(Node):
         return self._predecessors(_produced_origins)
 
     @memoize_configured_method
+    def delivery_signature(self) -> dict[str, Any]:
+        """
+        Answers: *where does each input's value come from, port by port?*
+
+        Arbitration between requests that share an identity needs this, and the
+        union of predecessors is too coarse for it: a consumer reading two
+        outputs of one producer keeps that producer as a prerequisite even when
+        one of the two inputs is supplied by hand instead. The requests would
+        then agree on prerequisites while disagreeing about what
+        ``job_config.json`` should say.
+
+        Deliberately **not** identity material. Two requests whose delivery
+        differs still describe the same computation and still hash the same;
+        they simply cannot share one canonical request while demanding
+        different provenance records.
+        """
+        signature: dict[str, Any] = {}
+        for name, input_node in self.inputs.items():
+            if input_node._gather_members is not None:
+                signature[name] = 'gather'
+                continue
+            signature[name] = tuple(
+                sorted(
+                    f'{port.parent.process_id}:{port.name}'
+                    for port in _effective_origins(input_node)
+                )
+            )
+        return signature
+
+    @memoize_configured_method
     def effective_predecessor_process_nodes(self) -> Any:
         """
         Answers: *which jobs must finish before this concrete command runs?*
@@ -1803,7 +1833,10 @@ class ProcessNode(Node):
     def _invocation_script_text(self) -> str:
         """Build the complete standalone ``invoke.sh`` file contents."""
         invoke_lines = ['#!/bin/bash']
-        depend_nodes = list(self.ancestor_process_nodes())
+        # Effective, not structural: a producer this command does not read
+        # has no business being listed as where these results came from, and
+        # which unread producer got picked would depend on compile order.
+        depend_nodes = list(self.effective_ancestor_process_nodes())
         if depend_nodes:
             invoke_lines.append('# See Also:')
             for depend_node in depend_nodes:
@@ -1917,7 +1950,9 @@ def _root_relative(value: Any, root_dpath: Any) -> Any:
 
     def rewrite(item: Any) -> Any:
         if isinstance(item, Mapping):
-            return {key: rewrite(sub) for key, sub in item.items()}
+            # Keys as well as values: a mapping from produced path to weight
+            # would otherwise keep the cache root in the hash.
+            return {rewrite(key): rewrite(sub) for key, sub in item.items()}
         if isinstance(item, (list, tuple)):
             return [rewrite(sub) for sub in item]
         if not isinstance(item, str):

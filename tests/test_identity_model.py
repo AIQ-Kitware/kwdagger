@@ -746,3 +746,159 @@ def test_a_path_merely_sharing_the_roots_prefix_is_left_alone(tmp_path):
         {'consumer.data_fpath': outsider}, root_dpath=root, cache=False
     )
     assert consumer.depends['__inputs__']['data_fpath'] == outsider
+
+
+# ---------------------------------------------------------------------------
+# Delivery conflicts the prerequisite union cannot see
+# ---------------------------------------------------------------------------
+
+
+def _two_output_pipeline():
+    """
+    One producer feeding two of a consumer's inputs. Overriding just one of
+    them leaves the producer a prerequisite either way, so the union of
+    predecessors is blind to the difference.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'out_a_fpath': 'a.json', 'out_b_fpath': 'b.json'},
+        node_dpath='.',
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'in_a_fpath', 'in_b_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['out_a_fpath'].connect(consumer.inputs['in_a_fpath'])
+    producer.outputs['out_b_fpath'].connect(consumer.inputs['in_b_fpath'])
+    return Pipeline({'producer': producer, 'consumer': consumer})
+
+
+def _delivery_rows(root):
+    dag = _two_output_pipeline()
+    dag.configure(config={}, root_dpath=root, cache=False)
+    produced_a = str(dag.node_dict['consumer'].final_in_paths['in_a_fpath'])
+    return {}, {'consumer.in_a_fpath': produced_a}
+
+
+def test_delivery_conflict_is_caught_when_prerequisites_agree(tmp_path):
+    """
+    Both rows need the producer -- ``in_b_fpath`` still comes from it -- so
+    the prerequisite sets match and the coarse check passes. They still
+    disagree about where ``in_a_fpath`` came from, and only one requested
+    record can be written for the directory they share.
+    """
+    produced_row, manual_row = _delivery_rows(tmp_path)
+    for rows in ([produced_row, manual_row], [manual_row, produced_row]):
+        with pytest.raises(ValueError, match='input delivery') as excinfo:
+            _submit_rows(_two_output_pipeline(), rows, tmp_path)
+        assert 'in_a_fpath' in str(excinfo.value)
+        assert 'in_b_fpath' not in str(excinfo.value)
+
+
+def test_delivery_conflict_is_caught_by_the_compiler_too(tmp_path):
+    """The same conflict, on the full-matrix path."""
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+
+    def build():
+        dag = _two_output_pipeline()
+        nodes = dict(dag.node_dict)
+        nodes.update({'shard': shard, 'merge': merge})
+        return Pipeline(nodes)
+
+    base = {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
+    probe = build().compile_configurations(
+        [dict(base)], root_dpath=tmp_path, cache=False
+    )
+    consumer = [n for n in probe.nodes.values() if n.name == 'consumer'][0]
+    produced_a = str(consumer.final_in_paths['in_a_fpath'])
+    rows = [
+        dict(base),
+        dict(base, **{'consumer.in_a_fpath': produced_a}),
+    ]
+    for ordering in (rows, list(reversed(rows))):
+        with pytest.raises(ValueError, match='input delivery'):
+            build().compile_configurations(
+                ordering, root_dpath=tmp_path, cache=False
+            )
+
+
+def test_differing_delivery_still_hashes_the_same(tmp_path):
+    """
+    The point of rejecting: these are the *same computation*. Rejection is
+    about which requested record gets written, not about identity -- if this
+    ever starts failing, lineage has crept back into the hash.
+    """
+    produced_row, manual_row = _delivery_rows(tmp_path)
+    ids = []
+    for row in (produced_row, manual_row):
+        dag = _two_output_pipeline()
+        dag.configure(config=row, root_dpath=tmp_path, cache=False)
+        ids.append(dag.node_dict['consumer'].process_id)
+    assert ids[0] == ids[1]
+
+
+def test_invoke_sh_lineage_comments_follow_effective_ancestry(tmp_path):
+    """
+    ``invoke.sh`` is meant to be independently inspectable, so its ``See Also``
+    lineage must not point at a producer the command never read -- and must not
+    depend on which row supplied the canonical node.
+    """
+    producer = _producer()
+    consumer = _consumer()
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag.configure(
+        {'consumer.data_fpath': '/precomputed/data'},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    script = consumer._invocation_script_text()
+    assert str(producer.final_node_dpath) not in script
+
+    # The complement: a producer that *is* read stays listed.
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+    assert str(producer.final_node_dpath) in consumer._invocation_script_text()
+
+
+def test_mapping_keys_are_root_relative_too():
+    """A produced path can be a dict key, not only a value."""
+    ids = {}
+    for location in ['key-a', 'key-b']:
+        root = (
+            ub.Path.appdir(f'kwdagger/tests/identity/{location}')
+            .delete()
+            .ensuredir()
+        )
+        producer = _producer()
+        consumer = _consumer()
+        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag.configure({}, root_dpath=root, cache=False)
+        produced = str(producer.outputs['data_fpath'].final_value)
+        dag.configure(
+            {'consumer.data_fpath': {produced: {'weight': 1}}},
+            root_dpath=root,
+            cache=False,
+        )
+        ids[location] = consumer.process_id
+        hashed = consumer.depends['__inputs__']['data_fpath']
+    assert ids['key-a'] == ids['key-b']
+    assert all('{root}' in key for key in hashed)

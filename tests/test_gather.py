@@ -1334,10 +1334,10 @@ def test_gather_qualified_key_must_name_a_node_both_ends_can_see(tmp_path):
 
 
 def test_gather_groups_on_a_connected_input_path(tmp_path):
-    # A connected in_path is excluded from final_algo_config so hashing does
-    # not double-count identity already captured by ancestor hashing. That
-    # exclusion is right for hashing and wrong for grouping, and the common
-    # ancestor's port names the same path from both ends.
+    # A connected in_path is excluded from final_algo_config because paths are
+    # not algorithm parameters -- it still reaches identity as an effective
+    # input value. That exclusion is right for algo_id and wrong for grouping,
+    # and the common ancestor's port names the same path from both ends.
     _assert_partitioned_by_dataset(
         _compile(_fanout_pipeline(['prepare.data_fpath']), tmp_path / 'c2')
     )
