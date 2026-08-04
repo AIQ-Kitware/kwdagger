@@ -181,11 +181,32 @@ stable hand-written path.
    another explicit artifact identifier as a parameter.  Path equality does not
    guarantee byte equality, and this tradeoff is intentional.
 
-Because identity determines the command, the converse must hold too: **equal
-``process_id`` implies equal command-defining finalized state**.  Nothing may
-reach the command, the node directory, or the output paths without also
-reaching identity.  Compilation raises an internal-consistency error if two
-matrix rows collapse onto one node whose finalized commands or paths differ.
+Because identity determines the computation, a converse holds too: **equal
+``process_id`` implies equal command-defining state, apart from state that is
+deliberately unhashed.**
+
+The deliberate exceptions are ``perf_params``, ``__enabled__``, Slurm options,
+and output-path overrides.  All of them change how a process runs without
+changing what it computes, which is why they are excluded from identity -- and
+precisely because identity cannot tell such rows apart, matrix rows that
+collapse onto one process must *agree* on them.  Compilation reports a
+disagreement as a user-facing ``ValueError``.
+
+Delivery mechanism is the other case identity cannot arbitrate.  Two rows may
+be the same computation while requiring different jobs to run first -- one
+taking an input from a producer, another supplying the same path directly.
+Compilation reports that as a conflict as well, rather than letting whichever
+row compiled first decide what the process waits for.
+
+Anything *else* that reaches the command or the node directory without
+reaching identity is a defect in the payload, and compilation raises an
+internal-consistency error for it.
+
+Paths inside kwdagger's own root are hashed relative to that root, so moving a
+cache does not change any identity.  Paths outside it are hashed as given: they
+identify external data.  A hand-supplied path that happens to point inside the
+root canonicalizes exactly as a produced one does, which is what keeps the two
+delivery mechanisms equal.
 
 Process ID: ``process_id``
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -301,7 +322,7 @@ Even though the hash encoding scheme is now consistent (base36), mismatches betw
 different *inputs*:
 
 * Pipeline folder suffixes are derived from :meth:`ProcessNode.process_id`, which hashes
-  the ancestry mapping returned by :meth:`ProcessNode.depends`.
+  the effective-computation payload returned by :meth:`ProcessNode.depends`.
 
 * ``param_hashid`` is derived from :meth:`Aggregator.build_effective_params`, which hashes
   a normalized subset of requested parameters (and may ignore some columns).

@@ -543,3 +543,58 @@ Also resolved a loose end I had been misreporting for several entries: the
 `ModuleNotFoundError: No module named 'kwimage'` -- an optional dependency
 missing from this environment. I had been carrying it as "pre-existing failure"
 without ever reading the reason.
+
+## 2026-08-04 07:20:00 -0400
+
+Three integration consequences of the identity correction, all confirmed by
+reproduction before fixing, plus a set of docstrings that still described the
+discarded model.
+
+**Absolute cache roots had entered identity.** Putting effective input values
+back into the hash brought the root they sit under with them, so the same
+pipeline under `/cache/a` and `/cache/b` produced different downstream ids. I
+noticed this risk while implementing and decided to "flag it and proceed"; the
+reviewer was right that it contradicts the gather contract in `AGENTS.md`
+outright. Paths under the kwdagger root now hash relative to it, external paths
+hash as given, and a hand-supplied path pointing inside the root canonicalizes
+exactly like a produced one -- so the fix costs nothing of the produced/manual
+equality it might have threatened.
+
+**My collision guard outlawed `perf_params`.** I wrote "equal process_id
+implies equal command" as an invariant and asserted it. But `perf_params` are
+excluded from identity *by design* and do change the command -- so a matrix
+sweeping `workers` would have failed with "Internal consistency error", telling
+a user their configuration was an internal defect. The existing
+`test_perf_params_are_not_identity_bearing` only escaped because it compiles one
+row at a time. That is what an over-strong invariant costs: it does not fail in
+tests, it fails on a real user's matrix.
+
+The correction is that `perf_params` and output-path overrides belong in the
+same family as `__enabled__` and Slurm options -- declared state identity cannot
+arbitrate, so rows sharing an identity must *agree* on it, reported as a
+user-facing `ValueError`. The docs now name the exceptions instead of asserting
+an invariant with holes in it.
+
+**Delivery mechanism is the third thing identity cannot arbitrate.** Now that a
+produced path and the same manual path are one computation, two rows can be the
+same process and still need different jobs first. I rejected rather than
+unioned. Union is defensible -- depending on the producer is conservative, and
+`will_exist` handles the already-exists case -- but I have twice this week
+reached for a clever aggregate and been wrong about a seam, so a clear error is
+the better default. The message names both rows and both prerequisite sets, and
+the aggregation option is written down for whoever wants it.
+
+TA1 ids moved again, only for nodes downstream of a produced or gathered input,
+which is the root-relative canonicalization landing. Structure unchanged.
+
+Two process notes worth keeping. First: this is the fifth review round, and the
+reviewer has now caught three things I saw and set aside. The pattern is not
+that I miss them -- it is that I treat "known and noted" as equivalent to
+"handled". A journal entry is not where a risk goes to be resolved.
+
+Second, a plain mistake: I ran the TA1 fingerprint from the parent repository
+and the shell stayed there, so the previous commit for this work landed in
+`aiq-eval-runner` instead of `kwdagger` -- taking two deliberately-uncommitted
+submodule pointers with it. Reset and redone here. `cd` inside a long-running
+session is state, and I should treat an absolute path as the default rather
+than assuming where I am.

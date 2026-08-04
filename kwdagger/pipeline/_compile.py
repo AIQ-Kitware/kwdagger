@@ -585,9 +585,22 @@ def _normalize_enabled(value: Any) -> Any:
 #: cannot distinguish two otherwise-identical process instances. Each entry is
 #: the config key users write, the node attribute it lands in, and a
 #: normalizer that reduces a value to the form the scheduler actually reads.
+#: Declared state that changes how a process runs but is deliberately kept out
+#: of ``process_id``. Rows that share an identity must agree on all of it --
+#: identity cannot tell them apart, so the surviving row would otherwise decide
+#: silently. This is a user-facing conflict, not an internal defect.
 _UNHASHED_EXECUTION_STATE = [
     ('__enabled__', 'enabled', _normalize_enabled),
     ('__slurm_options__', 'slurm_options', dict),
+    # perf_params reach the command but not identity, by design.
+    ('perf_params', 'final_perf_config', dict),
+    # Output paths are excluded from identity too, and an override moves both
+    # the command and where results land.
+    (
+        'out_paths',
+        'final_out_paths',
+        lambda paths: {k: str(v) for k, v in dict(paths).items()},
+    ),
 ]
 
 
@@ -596,10 +609,6 @@ _UNHASHED_EXECUTION_STATE = [
 #: decides what actually runs.
 _FINALIZED_EXECUTION_STATE = [
     ('node directories', lambda node: str(node.final_node_dpath)),
-    (
-        'output paths',
-        lambda node: {k: str(v) for k, v in node.final_out_paths.items()},
-    ),
     ('commands', lambda node: node.final_command()),
     ('setup commands', lambda node: getattr(node, 'setup', None)),
     ('teardown commands', lambda node: getattr(node, 'teardown', None)),
@@ -643,6 +652,36 @@ def _check_execution_state_agreement(
     # or the output paths without reaching identity is a modelling bug, not a
     # user error -- but it would show up as row-order-dependent execution, so
     # catch it here rather than let the first row silently win.
+    # Identity no longer records *how* a value was delivered, which is what
+    # makes a produced path and the same manual path one computation. The
+    # prerequisites still differ: one row waits for the producer and the other
+    # does not. Nothing in the payload can distinguish them, so keeping the
+    # first row's edges would put row order back in charge of whether the
+    # consumer runs.
+    canonical_preds = sorted(
+        node.process_id
+        for node in canonical.effective_predecessor_process_nodes()
+    )
+    duplicate_preds = sorted(
+        node.process_id
+        for node in duplicate.effective_predecessor_process_nodes()
+    )
+    if canonical_preds != duplicate_preds:
+        raise ValueError(
+            f'Conflicting execution prerequisites for process '
+            f'{template_name!r}. Rows {canonical_row_idx} and '
+            f'{duplicate_row_idx} compile to the same process identity '
+            f'{process_id!r} -- the same command over the same inputs -- but '
+            f'require different jobs to run first:\n'
+            f'  row {canonical_row_idx}: {canonical_preds or "nothing"}\n'
+            f'  row {duplicate_row_idx}: {duplicate_preds or "nothing"}\n'
+            'This usually means one row takes an input from a producer while '
+            'another supplies the same path directly. Identity describes the '
+            'computation, not how the value arrives, so these rows cannot be '
+            'told apart. Use the same delivery in both, or give them '
+            'differing parameters.'
+        )
+
     for label, getter in _FINALIZED_EXECUTION_STATE:
         try:
             lhs = getter(canonical)

@@ -116,9 +116,13 @@ def test_alias_produced_dependency_reaches_identity_and_provenance(tmp_path):
     # Identity: the produced path is the consumer's effective input value,
     # and it carries the producer's process_id, so the producer reaches
     # identity through the value rather than as a lineage record.
-    assert str(consumer.depends['__inputs__']['data_fpath']) == str(
-        producer.outputs['produced_fpath'].final_value
-    )
+    # Hashed relative to the cache root, so moving the root does not move
+    # every downstream id -- but still containing the producer's process_id,
+    # which is how the producer reaches identity at all.
+    hashed = consumer.depends['__inputs__']['data_fpath']
+    assert hashed.startswith('{root}/')
+    assert producer.process_id in hashed
+    assert hashed.endswith('produced.json')
     assert not any(k.startswith('__input__') for k in consumer.depends)
 
     # Provenance: a reader of job_config.json can see where the aliased
@@ -721,9 +725,9 @@ def test_aliasing_a_gathered_input_depends_on_the_manifest_writer():
     # The manifest path is the borrower's effective input value, and it sits
     # under merge's result directory, so identity follows the writer through
     # the value. No lineage record is added.
-    assert str(audit_node.depends['__inputs__']['parts_fpath']) == str(
-        merge_node.inputs['parts_fpath'].gather_manifest_fpath
-    )
+    hashed = audit_node.depends['__inputs__']['parts_fpath']
+    assert hashed.startswith('{root}/')
+    assert merge_node.process_id in hashed
     assert not any(k.startswith('__input__') for k in audit_node.depends)
 
     # Provenance still says who supplied it.

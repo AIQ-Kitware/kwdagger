@@ -153,6 +153,12 @@ def test_a_producer_change_that_moves_its_output_moves_the_consumer(tmp_path):
     assert seen['x'][1] != seen['y'][1]
     # The reason is the value, not a separately injected producer id.
     assert seen['x'][0] in seen['x'][2]
+    # The hashed form is root-relative, so the cache location is not identity.
+    hashed = _consumer().depends.get('__inputs__', {})
+    assert all(
+        not str(v).startswith('/') or '{root}' not in str(v)
+        for v in hashed.values()
+    )
     assert not any(key.startswith('__input__') for key in _consumer().depends)
 
 
@@ -378,3 +384,205 @@ def test_a_path_template_may_not_name_another_nodes_id(tmp_path):
     message = str(excinfo.value)
     assert 'producer_id' in message
     assert 'own ids' in message
+
+
+# ---------------------------------------------------------------------------
+# Identity must not depend on where the cache lives
+# ---------------------------------------------------------------------------
+
+
+def _root_probe_pipeline():
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+    producer = _producer()
+    consumer = _consumer()
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    return Pipeline(
+        {
+            'shard': shard,
+            'merge': merge,
+            'producer': producer,
+            'consumer': consumer,
+        }
+    )
+
+
+ROOT_PROBE_ROWS = [
+    {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
+]
+
+
+def test_moving_the_cache_root_does_not_change_any_identity():
+    """
+    A produced path contains the root the pipeline runs under. Hashing that
+    verbatim would make every downstream id change when the cache moves --
+    which is not a different computation, and which the gather contract in
+    ``AGENTS.md`` forbids outright. Values inside the root hash relative to it.
+
+    Covers ordinary produced inputs *and* gather membership, which are hashed
+    through separate code paths.
+    """
+    ids = {}
+    edges = {}
+    for location in ['root-a', 'root-b']:
+        root = (
+            ub.Path.appdir(f'kwdagger/tests/identity/{location}')
+            .delete()
+            .ensuredir()
+        )
+        compiled = _root_probe_pipeline().compile_configurations(
+            ROOT_PROBE_ROWS, root_dpath=root, cache=False
+        )
+        ids[location] = {n.name: n.process_id for n in compiled.nodes.values()}
+        edges[location] = sorted(
+            (compiled.nodes[a].name, compiled.nodes[b].name)
+            for a, b in compiled.proc_graph.edges()
+        )
+    assert ids['root-a'] == ids['root-b']
+    assert edges['root-a'] == edges['root-b']
+    # An external input is *not* rewritten, so it still identifies the data.
+    consumer = _consumer()
+    Pipeline({'consumer': consumer}).configure(
+        {'consumer.data_fpath': '/outside/the/root.json'},
+        root_dpath=ub.Path.appdir('kwdagger/tests/identity/root-a'),
+        cache=False,
+    )
+    assert consumer.depends['__inputs__']['data_fpath'] == (
+        '/outside/the/root.json'
+    )
+
+
+# ---------------------------------------------------------------------------
+# Canonicalization of rows that share an identity
+# ---------------------------------------------------------------------------
+
+
+def _mixed_delivery_pipeline():
+    """A gather elsewhere, so the full-matrix path is taken at all."""
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+    producer = _producer(node_dpath='.')
+    consumer = _consumer()
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    return Pipeline(
+        {
+            'shard': shard,
+            'merge': merge,
+            'producer': producer,
+            'consumer': consumer,
+        }
+    )
+
+
+def test_one_produced_row_and_one_manual_row_are_a_reported_conflict():
+    """
+    The cost of taking delivery out of identity: two rows can be the same
+    computation and still need different jobs to run first. Nothing in the
+    payload can distinguish them, so keeping whichever compiled first would
+    put row order back in charge of whether the consumer waits for the
+    producer -- and, if that producer were disabled, of whether it runs at all.
+
+    Rejected in both orders, with the same message, rather than silently
+    resolved.
+    """
+    base = {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
+    root = ub.Path.appdir('kwdagger/tests/identity/mixed').delete().ensuredir()
+    probe = _mixed_delivery_pipeline().compile_configurations(
+        [dict(base)], root_dpath=root, cache=False
+    )
+    consumer = [n for n in probe.nodes.values() if n.name == 'consumer'][0]
+    produced_path = str(consumer.final_in_paths['data_fpath'])
+
+    produced_row = dict(base)
+    manual_row = dict(base, **{'consumer.data_fpath': produced_path})
+    messages = []
+    for rows in ([produced_row, manual_row], [manual_row, produced_row]):
+        with pytest.raises(ValueError) as excinfo:
+            _mixed_delivery_pipeline().compile_configurations(
+                rows, root_dpath=root, cache=False
+            )
+        messages.append(str(excinfo.value))
+    assert 'execution prerequisites' in messages[0]
+    assert 'consumer' in messages[0]
+    # Both orders report the same conflict, not two different outcomes.
+    assert set(messages[0].split()) == set(messages[1].split())
+
+
+def test_perf_params_may_differ_between_rows_only_by_agreeing(tmp_path):
+    """
+    ``perf_params`` reach the command but not identity -- deliberately. So two
+    rows sweeping only a perf value are one process with two commands, which
+    identity cannot arbitrate. That is a user-facing conflict in the same
+    family as ``__enabled__`` and Slurm options, and must be reported as one
+    rather than as an internal consistency failure.
+    """
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+    predict = ProcessNode(
+        name='predict',
+        executable='python predict.py',
+        out_paths={'out_fpath': 'out.json'},
+        algo_params={'model': 'm'},
+        perf_params={'workers': 4},
+    )
+    dag = Pipeline({'shard': shard, 'merge': merge, 'predict': predict})
+    base = {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
+    rows = [
+        dict(base, **{'predict.workers': workers, 'predict.model': 'm'})
+        for workers in [4, 16]
+    ]
+    with pytest.raises(ValueError, match='perf_params'):
+        dag.compile_configurations(rows, root_dpath=tmp_path, cache=False)
+
+    # Agreeing rows compile, and the perf value still reaches the command.
+    agreeing = [dict(base, **{'predict.workers': 8, 'predict.model': 'm'})]
+    compiled = dag.compile_configurations(
+        agreeing, root_dpath=tmp_path, cache=False
+    )
+    node = [n for n in compiled.nodes.values() if n.name == 'predict'][0]
+    assert '--workers=8' in node.command

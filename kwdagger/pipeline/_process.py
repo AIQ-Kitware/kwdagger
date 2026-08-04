@@ -1142,20 +1142,16 @@ class ProcessNode(Node):
     @memoize_configured_property
     def final_input_config(self) -> Any:
         """
-        Resolved values of inputs that no ancestor produced.
+        The resolved value of every input, however it arrived.
 
-        An input supplied by the matrix (``unconnected``) or shared from a
-        peer's input (``aliased``) has no producing instance, so nothing
-        upstream carries its identity. It has to enter ``depends``
-        directly, or two runs over different data would be
-        indistinguishable.
+        Supplied by the matrix, forwarded from a peer's input, or produced
+        upstream -- all of them are here, because identity is the effective
+        computation and the value is what the command reads. Which route it
+        took is provenance, not identity.
 
-        A ``connected`` input is excluded: the producing instance's
-        identity is already folded in through ancestor hashing, and
-        including the path as well would double-count it. A ``gathered``
-        input is excluded because its manifest path is derived from
-        ``process_id``, which would be circular; membership enters
-        identity through ``depends['__gather__.<port>']`` instead.
+        The one exception is a ``gathered`` input, whose manifest path is
+        derived from ``process_id`` and would therefore be circular;
+        membership enters identity through ``depends['__gather__.<port>']``.
         """
         if self._no_inarg:
             return ub.udict({})
@@ -1182,10 +1178,9 @@ class ProcessNode(Node):
         or from an upstream node -- which made ``algo_id`` incomparable
         across pipelines that wire a computation differently.
 
-        Data identity is not lost: it lives in
-        :func:`final_input_config` for inputs nothing produced, and in
-        ancestor hashing for inputs something did. Both reach
-        ``process_id`` through ``depends``.
+        Data identity is not lost: every input's effective value lives in
+        :func:`final_input_config` and reaches ``process_id`` through
+        ``depends``.
         """
         # Paths and performance knobs are not part of the algorithm.
         non_algo_sets = [self.out_paths, self.perf_params, self.in_paths]
@@ -1406,10 +1401,14 @@ class ProcessNode(Node):
         """
         Every process whose work this one's result actually derives from.
 
-        This is the identity answer. It walks
-        :meth:`effective_predecessor_process_nodes`, so a producer whose output
-        is overridden before it reaches this node drops out of the chain --
-        along with everything that only reached here through it.
+        Answers *what must have run for this to be meaningful?* -- used for
+        the requested-lineage record, and deterministic because it follows
+        effective values rather than wiring. **Not** the identity answer:
+        identity hashes effective values and no ancestor ids at all.
+
+        A producer whose output is overridden before it reaches this node
+        drops out of the chain, along with anything that only reached here
+        through it.
         """
         return self._ancestors('effective_predecessor_process_nodes')
 
@@ -1461,7 +1460,9 @@ class ProcessNode(Node):
                 # What the manifest will contain, in the order the command
                 # reads it -- not the traversal that found the members.
                 'members': [
-                    os.fspath(member.final_value)
+                    _root_relative(
+                        os.fspath(member.final_value), self.root_dpath
+                    )
                     for member in input_node._gather_members
                 ],
             }
@@ -1475,7 +1476,9 @@ class ProcessNode(Node):
             # hash the same, or the invariant would hold everywhere except
             # where it is most load-bearing.
             depends['__inputs__'] = {
-                key: _jsonable_config_value(value)
+                key: _root_relative(
+                    _jsonable_config_value(value), self.root_dpath
+                )
                 for key, value in sorted(input_config.items())
             }
         # An explicit ordering edge carries no value, so there is no effective
@@ -1520,11 +1523,14 @@ class ProcessNode(Node):
     @memoize_configured_property
     def process_id(self) -> str:
         """
-        A unique id to represent the output of a deterministic process in a
-        pipeline. This id combines the hashes of all ancestors in the DAG with
-        its own hashed id.
+        The identity of the computation this process will perform.
 
-        This DOES have a dependency on the larger DAG.
+        Hashes :meth:`depends`: this node's ``algo_id``, the effective value
+        of every input, and any gathered collection's contents. It does *not*
+        hash ancestor identities. Upstream still reaches it, through the
+        values those ancestors supply -- a produced path contains its
+        producer's ``process_id`` -- so this remains DAG-dependent in effect
+        without recording lineage. See ``AGENTS.md``.
         """
         from kwdagger.utils.reverse_hashid import condense_config
 
@@ -1872,6 +1878,28 @@ def _fixup_config_serializability(config: Any) -> dict[str, Any]:
     for k, v in config.items():
         fixed_config[k] = _jsonable_config_value(v)
     return fixed_config
+
+
+def _root_relative(value: Any, root_dpath: Any) -> Any:
+    """
+    Express a path inside kwdagger's own cache root relative to it.
+
+    Identity hashes effective input values, and a produced path contains the
+    root the pipeline happens to be running under. Hashing that would make
+    every downstream id change when the cache moves, which is neither a
+    different computation nor allowed by the gather contract in ``AGENTS.md``.
+
+    Only paths genuinely under the root are rewritten, so an external input
+    keeps its absolute form -- and a hand-supplied path that happens to point
+    inside the root canonicalizes exactly as the produced one does, which is
+    what keeps produced and manual delivery equal.
+    """
+    if not isinstance(value, str):
+        return value
+    root = str(root_dpath)
+    if root and value.startswith(root + os.sep):
+        return '{root}' + value[len(root) :]
+    return value
 
 
 def _format_node_template(

@@ -195,12 +195,31 @@ identity is required it must be supplied explicitly — a checksum, a
 content-addressed path, or another explicit artifact identifier used as a
 parameter. Do not infer it from producer relationships.
 
-A corollary, stated because it has been violated: **equal `process_id` must
-imply equal command-defining finalized state.** Nothing may reach the command,
-the node directory, or the output paths without also reaching identity. Path
-templates may therefore use only the node's own ids; substituting an ancestor's
-id was removed for exactly this reason. Compilation asserts this when two
-matrix rows collapse onto one node.
+Paths inside kwdagger's own root hash **relative to that root**, so relocating
+a cache changes no identity. Paths outside it hash as given, because they
+identify external data. A hand-supplied path pointing inside the root
+canonicalizes exactly as a produced one does, which is what keeps the two
+delivery mechanisms equal.
+
+A corollary, stated because it has been violated: **equal `process_id` implies
+equal command-defining state, apart from state that is deliberately unhashed.**
+Path templates may therefore use only the node's own ids; substituting an
+ancestor's id was removed for exactly this reason.
+
+Two things identity deliberately cannot arbitrate, which matrix rows sharing an
+identity must therefore agree on — compilation reports each as a user-facing
+`ValueError`:
+
+- **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
+  and output-path overrides. These change how a process runs, not what it
+  computes.
+- **Delivery mechanism:** two rows can be one computation and still need
+  different jobs to run first, if one takes an input from a producer and
+  another supplies the same path directly.
+
+Anything else reaching the command or the node directory without reaching
+identity is a payload defect, and compilation raises an internal-consistency
+error for it.
 
 ### Current gather shell constraints
 
