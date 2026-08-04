@@ -66,9 +66,8 @@ class Pipeline:
         >>> node_B1.connect(node_B2)
         >>> node_B2.connect(node_B3)
         >>> #
-        >>> # You can connect nodes to nodes that dont share input/output names
-        >>> # If you specify the mapping (NOT RECOMMENDED)
-        >>> node_A3.connect(node_B1, src_map={'dst': 'path1'})
+        >>> # Ports that are named differently must be named explicitly
+        >>> node_A3.outputs['dst'].connect(node_B1.inputs['path1'])
         >>> #
         >>> # You can connect inputs to other inputs, which effectively
         >>> # forwards the input path to the destination

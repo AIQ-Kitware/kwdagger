@@ -932,3 +932,50 @@ most likely to bite a real user, and it deserves to be found in the changelog
 rather than in a traceback.
 
 Full suite 339 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:34:36 -0400
+
+Answered the old `_connect_single` TODO and then acted on it. The TODO said
+"these rules are too complex and confusing. There is a reasonable subset here;
+find and restrict to that." The subset is: **there is one primitive, an edge
+between two ports.** Everything else is sugar that resolves to a set of those.
+
+What made it confusing is that the function was a base case and a fan-out fused
+together, with the dispatch at the *end* -- `if self_is_proc or other_is_proc:`
+after thirty lines that only matter in that branch. The port-to-port case ran
+all of it as a no-op and then fell out of the bottom.
+
+Three things fell out of reading it that way. The process-level edge added at
+the top was written for every case and read by nothing (the compiler already
+cleared it on every clone), so it was an empty list that looked like an answer.
+The `inputs = {self.name: other}` line keyed the destination by the *source's*
+name, purely so the generic name-matching would find a match for a relationship
+the caller had already stated -- the abstraction manufacturing dictionaries to
+rediscover what it was told.
+
+And the real bug: matched names were paired by `zip` over two dicts that each
+kept their own insertion order, so two nodes enumerating the same names in
+different orders got their ports crossed. It needs two shared names, so a
+set-declared `in_paths` is enough to trigger it and one output hides it. I
+reproduced it before touching anything -- `alpha` wired to `beta` with
+identical names on both sides.
+
+The rewrite is `_connect_port` (validate, then mutate), `_resolve_node_pairs`
+(the inference, by name), and a `connect` that dispatches between them. The
+maintainer wanted node-to-node kept, and I agree with the reasoning: it is the
+cheap way to say "one major artifact per stage, named consistently", and it is
+not a hot path -- YAML and the compiler always connect explicit ports.
+
+Two things I want on record because they are judgement calls rather than
+fixes. Moving `pred`/`succ` down to `IONode` makes "only ports carry edges" a
+structural fact instead of a convention -- `_connect_port` now *cannot* be
+handed a process, because there is nothing to append to. That is a public
+attribute disappearing; I think failing loudly beats returning a plausible
+empty list, but it is a break. And `ProcessNode.__nice__` now shows only the
+name: it deliberately does *not* call `predecessor_process_nodes()`, because
+that memoizes on a cache only `configure` and `build_nx_graphs` clear, and a
+repr taken during construction would prime it with the answer for an
+unconnected node. That is the construction-time staleness lesson already in
+`dev/lessons/lessons.md`, and a repr is exactly where it would sneak back in.
+
+354 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.

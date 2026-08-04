@@ -17,6 +17,17 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+* `Node.connect()` no longer takes `param_mapping`, `src_map`, or `dst_map`.
+  A node-level connection now means exactly one thing: every output whose name
+  is also an input name of the target is connected, and nothing else. Renaming
+  both sides into a shared intermediate namespace was more work than naming the
+  ports directly, which is the only reason the convenience exists.
+* A port edge is now validated. The three that mean something --
+  `output -> input`, `input -> input`, `param -> param` -- are accepted and
+  every other pair raises `TypeError`. An `output -> output` edge was
+  previously recorded silently and then meant nothing to anything that reads
+  the graph; YAML could produce one, since `_resolve_endpoint` prefers outputs
+  when a node has an input and an output of the same name.
 * **Process identities change in this release.** Input paths moved out of
   `final_algo_config` into `final_input_config`, `algo_id` now hashes the node
   name as part of its payload, and dependency-only edges contribute a
@@ -45,6 +56,13 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+* `ProcessNode.pred` and `ProcessNode.succ`. Only ports carry graph edges; a
+  process's relationships are derived from its ports'. The process-level lists
+  were written alongside the port edges and read by nothing (the compiler
+  already cleared them on every clone), so they were an empty list that looked
+  like an answer. `predecessor_process_nodes()`, `successor_process_nodes()`,
+  and `Pipeline.print_graphs()` are the ways to ask. `ProcessNode.__nice__` no
+  longer reports them.
 * The historical template-output-discovery subsystem, which no longer had a
   consumer in scheduling, compilation, aggregation, tests, examples, or docs,
   and which overlapped with result loading: `ProcessNode.find_template_outputs`,
@@ -60,6 +78,14 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+* A node-level `a.connect(b)` paired the matched names *positionally*, over
+  two dictionaries that each kept their own insertion order, so a producer and
+  a consumer that enumerated the same names in a different order had their
+  ports silently crossed. It needs two or more shared names to bite -- with one
+  match, positional and by-name pairing coincide -- which is why it survived: a
+  set-declared `in_paths` makes the order arbitrary. Pairing is now by name.
+* `connect()` resolves and validates every pair before adding any edge, so a
+  call that raises part-way through no longer leaves a half-connected graph.
 * Requests sharing one `process_id` are now arbitrated against the
   requested-experiment record itself -- what would be written to
   `job_config.json` -- rather than against a summary of where each input's

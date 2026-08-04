@@ -11,7 +11,6 @@ processes that own the ports. Port parents are duck-typed through
 from __future__ import annotations
 
 import os
-import typing
 
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
 # type checker no class to narrow on, so a `str | Mapping` union stays a union
@@ -425,6 +424,133 @@ def _supplying_ports(port: 'InputNode', seen: set[int]) -> list['IONode']:
     return _effective_origins_impl(port, seen)
 
 
+#: The port pairs an edge may connect, and what each one means. There are only
+#: three, and everything else in this module is either one of them or sugar
+#: that resolves to a set of them.
+_LEGAL_PORT_EDGES = {
+    ('output', 'input'): 'a produced artifact',
+    ('input', 'input'): 'a forwarded input value',
+    ('param', 'param'): 'a forwarded algorithm parameter',
+}
+
+
+def _port_kind(node: Any) -> str | None:
+    """
+    Which of the three port kinds this is, or ``None`` for a process.
+
+    The process/port split asks ``__node_type__`` rather than ``isinstance``
+    for the reason given on :class:`Node`; the kind of a port is a plain
+    ``isinstance``, since the three are siblings under :class:`IONode`.
+    """
+    if getattr(node, '__node_type__', None) != 'io':
+        return None
+    if isinstance(node, OutputNode):
+        return 'output'
+    if isinstance(node, ParamNode):
+        return 'param'
+    if isinstance(node, InputNode):
+        return 'input'
+    return None
+
+
+def _validate_port_edge(source: Any, target: Any) -> None:
+    """
+    Reject a port pair that has no meaning to give the graph.
+
+    An output wired to an output, or a parameter to an input, used to be
+    recorded silently and then to mean nothing to anything that reads the
+    graph. Parameter forwarding in particular predates parameter ports, so the
+    old generic machinery accepted mixed edges that only failed later, during
+    configuration, somewhere else entirely.
+
+    Raises:
+        TypeError: the pair is not one of :data:`_LEGAL_PORT_EDGES`.
+    """
+    kinds = (_port_kind(source), _port_kind(target))
+    if kinds in _LEGAL_PORT_EDGES:
+        return
+    legal = ', '.join(
+        f'{s} -> {t} ({meaning})'
+        for (s, t), meaning in _LEGAL_PORT_EDGES.items()
+    )
+    raise TypeError(
+        f'Cannot connect {source.key!r} to {target.key!r}: a '
+        f'{kinds[0] or "process"} may not supply a {kinds[1] or "process"}. '
+        f'The legal port edges are: {legal}.'
+    )
+
+
+def _connect_port(source: Any, target: Any) -> None:
+    """
+    The one connection primitive: an edge between two ports.
+
+    Every other form in this module resolves to a set of calls to this. Ports
+    are the only things that carry ``pred`` / ``succ`` -- a process holds no
+    edges of its own, and its relationships are derived from its ports' -- so
+    this is also the only function that appends one.
+    """
+    _validate_port_edge(source, target)
+    if target not in source.succ:
+        source.succ.append(target)
+    if source not in target.pred:
+        target.pred.append(source)
+
+
+def _outgoing_ports(node: Any) -> Mapping[str, Any]:
+    """The ports a connection may leave ``node`` by, keyed by port name."""
+    if node.__node_type__ == 'process':
+        return cast(Mapping[str, Any], node.outputs)
+    return {node.name: node}
+
+
+def _incoming_ports(node: Any) -> Mapping[str, Any]:
+    """The ports a connection may enter ``node`` by, keyed by port name."""
+    if node.__node_type__ == 'process':
+        return cast(Mapping[str, Any], node.inputs)
+    return {node.name: node}
+
+
+def _resolve_node_pairs(source: Any, target: Any) -> list[tuple[Any, Any]]:
+    """
+    What a node-level connection stands for: matching names, and nothing else.
+
+    ``producer.connect(consumer)`` is a convenience for the common shape where
+    a stage's outputs and the next stage's inputs are deliberately named alike
+    -- typically one major artifact each. Every output whose name is also an
+    input name is connected; nothing else is. Algorithm parameters are not
+    considered, because :func:`ProcessNode.param_ports` is deliberately not
+    part of ``inputs``: a parameter is not data the node reads.
+
+    Either endpoint may be a port instead of a process, which simply pins that
+    side to one name. Two ports never reach here -- the caller already knows
+    that pair and :func:`_connect_port` takes it directly.
+
+    Matching is by name on both sides. It used to pair positionally, over two
+    dicts that each kept their own insertion order, so a producer and consumer
+    that enumerated the same names in different orders got their ports crossed
+    without a word.
+
+    Returns:
+        list: the ``(output_port, input_port)`` pairs to connect.
+
+    Raises:
+        ValueError: no name is shared, so there is nothing to connect.
+    """
+    outputs = _outgoing_ports(source)
+    inputs = _incoming_ports(target)
+    common = sorted(set(outputs) & set(inputs))
+    if not common:
+        raise ValueError(
+            f'Cannot connect {source.name!r} to {target.name!r}: they share no '
+            f'port name. {source.name!r} offers {sorted(outputs)} and '
+            f'{target.name!r} accepts {sorted(inputs)}. A node-level '
+            'connection joins outputs to inputs of the same name; to connect '
+            'ports that are named differently, name them explicitly, as in '
+            'a.outputs[...].connect(b.inputs[...]).'
+        )
+    return [(outputs[name], inputs[name]) for name in common]
+
+
 class Node(ub.NiceRepr):
     """
     Abstract base class for a Process or IO Node.
@@ -432,121 +558,43 @@ class Node(ub.NiceRepr):
 
     __node_type__ = 'abstract'  # used to workaround IPython isinstance issues
 
-    def __nice__(self) -> str:
-        return f'{self.name!r}, pred={[n.name for n in self.pred]}, succ={[n.name for n in self.succ]}'
-
     def __init__(self, name: Any) -> None:
         self.name = name
-        self.pred: list[Any] = []
-        self.succ: list[Any] = []
-
-    def _connect_single(
-        self, other: Any, src_map: Mapping[str, str], dst_map: Mapping[str, str]
-    ) -> None:
-        """
-        Handles connection rules between this node and another one.
-
-        TODO: cleanup, these rules are too complex and confusing.
-        There is a reasonable subset here; find and restrict to that.
-        """
-        # Keep parameter forwarding distinct from filesystem IO. The generic
-        # connection machinery predates parameter ports and otherwise accepts
-        # nonsensical output->parameter or parameter->input edges that only
-        # fail later during configuration.
-        if isinstance(self, ParamNode) or isinstance(other, ParamNode):
-            if not isinstance(self, ParamNode) or not isinstance(
-                other, ParamNode
-            ):
-                raise TypeError(
-                    'Algorithm parameter ports may only connect to other '
-                    f'algorithm parameter ports; got {self.key!r} -> '
-                    f'{other.key!r}'
-                )
-
-        # TODO: CLEANUP
-        # print(f'Connect {type(self).__name__} {self.name} to '
-        #       f'{type(other).__name__} {other.name}')
-        if other not in self.succ:
-            self.succ.append(other)
-        if self not in other.pred:
-            other.pred.append(self)
-
-        self_is_proc = self.__node_type__ == 'process'
-        if self_is_proc:
-            # ``outputs`` lives on ProcessNode, not the base Node; access it
-            # dynamically (guarded by __node_type__) to stay well-typed.
-            assert hasattr(self, 'outputs')
-            outputs = getattr(self, 'outputs')
-        else:
-            assert self.__node_type__ == 'io'
-            outputs = {self.name: self}
-
-        other_is_proc = other.__node_type__ == 'process'
-        if other_is_proc:
-            inputs = other.inputs
-        else:
-            assert other.__node_type__ == 'io'
-            if not self_is_proc:
-                # In this case we can make the name map implicit
-                inputs = {self.name: other}
-            else:
-                inputs = {other.name: other}
-
-        assert isinstance(outputs, typing.Mapping)
-        src_map = cast(Any, src_map)
-        dst_map = cast(Any, dst_map)
-        outmap = ub.udict({src_map.get(k, k): k for k in outputs.keys()})
-        inmap = ub.udict({dst_map.get(k, k): k for k in inputs.keys()})
-
-        common = outmap.keys() & inmap.keys()
-        if len(common) == 0:
-            print('inmap = {}'.format(ub.urepr(inmap, nl=1)))
-            print('outmap = {}'.format(ub.urepr(outmap, nl=1)))
-            raise Exception(
-                f'Unknown io relationship {self.name=}, {other.name=}'
-            )
-
-        if self_is_proc or other_is_proc:
-            # print(f'Connect Process to Process {self.name=} to {other.name=}')
-            self_output_keys = (outmap & common).values()  # type: ignore
-            other_input_keys = (inmap & common).values()  # type: ignore
-
-            for out_key, in_key in zip(self_output_keys, other_input_keys):
-                out_node = outputs[out_key]
-                in_node = inputs[in_key]
-                # out_node._connect_single(in_node, src_map, dst_map)
-                assert hasattr(out_node, '_connect_single')
-                out_node._connect_single(in_node, {}, {})
 
     def connect(
         self,
         *others: Any,
-        param_mapping: Mapping[str, str] | None = None,
-        src_map: Mapping[str, str] | None = None,
-        dst_map: Mapping[str, str] | None = None,
         gather: GatherSpec | Mapping[str, Any] | None = None,
     ) -> 'Node':
         """
-        Connect the outputs of ``self`` to the inputs of ``others``.
+        Connect this node or port to ``others``.
 
-        Conceptually, this creates an edge between the two nodes. When
+        Two ports connect directly. Anything involving a process is resolved
+        to port pairs by name first; see :func:`_resolve_node_pairs`. When
         ``gather`` is given, the edge is a compile-time many-to-one edge and
         must connect one :class:`OutputNode` to one or more
         :class:`InputNode` objects.
+
+        Every pair is resolved and validated before any edge is added, so a
+        call that raises leaves nothing half-connected.
+
+        Returns:
+            Node: ``self``, so connections can be chained.
         """
-        # Connect these two nodes and return the original.
-        if param_mapping is None:
-            param_mapping = {}
-
-        if src_map is None:
-            src_map = param_mapping
-
-        if dst_map is None:
-            dst_map = param_mapping
-
         if gather is None:
+            pairs: list[tuple[Any, Any]] = []
             for other in others:
-                self._connect_single(other, src_map, dst_map)
+                if (
+                    _port_kind(self) is not None
+                    and _port_kind(other) is not None
+                ):
+                    pairs.append((self, other))
+                else:
+                    pairs.extend(_resolve_node_pairs(self, other))
+            for source, target in pairs:
+                _validate_port_edge(source, target)
+            for source, target in pairs:
+                _connect_port(source, target)
         else:
             gather_spec = GatherSpec.coerce(gather)
             if not isinstance(self, OutputNode):
@@ -618,10 +666,18 @@ def _config_values_equal(left: Any, right: Any) -> bool:
 class IONode(Node):
     __node_type__ = 'io'
 
+    def __nice__(self) -> str:
+        return f'{self.name!r}, pred={[n.name for n in self.pred]}, succ={[n.name for n in self.succ]}'
+
     def __init__(
         self, name: str, parent: Any, default_value: Any = _UNSET
     ) -> None:
         super().__init__(name)
+        # Only ports carry graph edges. A process has no connections of its
+        # own: its relationships are derived from its ports', which is why
+        # these live here rather than on Node.
+        self.pred: list[Any] = []
+        self.succ: list[Any] = []
         self.parent = parent
         self.default_value = default_value
         self._final_value = _UNSET

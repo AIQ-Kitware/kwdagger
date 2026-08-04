@@ -360,6 +360,14 @@ class ProcessNode(Node):
 
     __node_type__ = 'process'
 
+    def __nice__(self) -> str:
+        # Deliberately not the predecessors: they are memoized on a cache that
+        # only ``configure`` and ``build_nx_graphs`` clear, so a repr taken
+        # during construction would prime it with the answer for a node that
+        # is not connected yet. Ask ``predecessor_process_nodes()`` or
+        # ``Pipeline.print_graphs()`` for lineage.
+        return f'{self.name!r}'
+
     name: str | None = None
 
     # A path that will specified directly after the DAG root dpath.

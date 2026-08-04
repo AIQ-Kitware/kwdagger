@@ -312,8 +312,6 @@ class CompiledPipeline:
 def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
     """Deep-copy a node while removing all template graph connections."""
     node = copy.deepcopy(template)
-    node.pred = []
-    node.succ = []
     node._pred_nodes_without_io_connection = []
     for input_node in node.inputs.values():
         input_node.parent = node
