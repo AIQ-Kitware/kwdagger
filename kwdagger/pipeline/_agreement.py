@@ -4,10 +4,17 @@ Arbitration between requests that share one process identity.
 Identity describes the computation, so two requests that hash alike run one
 job in one result directory. But several things deliberately do *not* reach
 identity -- ``perf_params``, ``__enabled__``, Slurm options, output overrides,
-and, since delivery mechanism left the hash, which jobs must run first. When
-requests that share an identity disagree about any of those, nothing in the
-payload can arbitrate, and whichever request arrived first would silently
-decide what actually runs.
+and, since delivery mechanism left the hash, which jobs must run first and how
+the experiment was requested. When requests that share an identity disagree
+about any of those, nothing in the payload can arbitrate, and whichever request
+arrived first would silently decide what actually runs and what is recorded.
+
+The load-bearing comparison is the requested-experiment record itself -- what
+would be written to ``job_config.json``. Anything derived from it is a summary,
+and a summary can only lose distinctions the record was keeping on purpose. The
+prerequisite and delivery comparisons above it are kept because they name the
+two common conflicts precisely; the record comparison is what makes the check
+complete.
 
 This lives in its own leaf because *both* scheduling paths need it and they
 sit at opposite ends of the package: gather pipelines compile the whole matrix
@@ -86,12 +93,54 @@ def execution_snapshot(node: Any) -> dict[str, Any]:
         # Finer than the prerequisite union: two requests can need the same
         # jobs while disagreeing about which inputs those jobs supply.
         'delivery': dict(node.delivery_signature()),
+        # The record itself, which is what the other two summarize. Only one
+        # job_config.json can be written for a result directory, so anything
+        # that record distinguishes has to agree -- including distinctions no
+        # summary of delivery carries, such as which of two aliases supplied
+        # the value and which was outranked.
+        'requested': dict(node.requested_provenance_record()),
     }
     try:
         snapshot['command'] = node.final_command()
     except Exception:  # pragma: no cover - diagnostics must not break work
         snapshot['command'] = None
     return snapshot
+
+
+def _abbreviate(value: Any, limit: int = 400) -> str:
+    """Keep a gather membership or a long path list readable in a message."""
+    if value is None:
+        return '<not requested>'
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + '...'
+
+
+def _describe_record_conflict(
+    canonical: dict[str, Any],
+    duplicate: dict[str, Any],
+    differing: list[str],
+    canonical_label: str,
+    duplicate_label: str,
+    max_keys: int = 5,
+) -> str:
+    """Render the requested-record keys two requests disagree about."""
+    lines = []
+    for key in differing[:max_keys]:
+        lines.append(f'  {key}:')
+        lines.append(
+            f'    {canonical_label}: '
+            f'{_abbreviate(canonical["requested"].get(key))}'
+        )
+        lines.append(
+            f'    {duplicate_label}: '
+            f'{_abbreviate(duplicate["requested"].get(key))}'
+        )
+    remaining = len(differing) - max_keys
+    if remaining > 0:
+        lines.append(f'  ... and {remaining} more key(s)')
+    return '\n'.join(lines) + '\n'
 
 
 def check_execution_agreement(
@@ -173,6 +222,32 @@ def check_execution_agreement(
             'the same, but only one requested-experiment record can be written '
             'for the result directory they share, so they cannot both be kept. '
             'Use the same delivery in both, or give them differing parameters.'
+        )
+
+    if canonical['requested'] != duplicate['requested']:
+        differing = sorted(
+            key
+            for key in set(canonical['requested']) | set(duplicate['requested'])
+            if canonical['requested'].get(key)
+            != duplicate['requested'].get(key)
+        )
+        raise ValueError(
+            f'Conflicting requested experiment for process {template_name!r}. '
+            f'{canonical_label.capitalize()} and {duplicate_label} resolve to '
+            f'the same process identity {process_id!r} -- the same command '
+            f'over the same inputs, needing the same jobs to run first -- but '
+            f'describe what was asked for differently:\n'
+            + _describe_record_conflict(
+                canonical,
+                duplicate,
+                differing,
+                canonical_label,
+                duplicate_label,
+            )
+            + 'Only one job_config.json can be written for the result '
+            'directory they share, so keeping both would make the persisted '
+            'record depend on which request arrived first. Ask for the same '
+            'thing in both, or give them differing parameters.'
         )
 
     for label, field in _FINALIZED_EXECUTION_STATE:

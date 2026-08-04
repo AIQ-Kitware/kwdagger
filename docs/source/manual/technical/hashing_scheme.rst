@@ -192,11 +192,16 @@ precisely because identity cannot tell such rows apart, matrix rows that
 collapse onto one process must *agree* on them.  Compilation reports a
 disagreement as a user-facing ``ValueError``.
 
-Delivery mechanism is the other case identity cannot arbitrate.  Two rows may
-be the same computation while requiring different jobs to run first -- one
-taking an input from a producer, another supplying the same path directly.
-Compilation reports that as a conflict as well, rather than letting whichever
-row compiled first decide what the process waits for.
+The requested experiment is the other case identity cannot arbitrate.  Two rows
+may be the same computation and still require different jobs to run first --
+one taking an input from a producer, another supplying the same path directly
+-- or ask for that computation in two different ways: through one input alias
+rather than another, through a different parameter port, over a different
+gather membership.  Identity drops all of it, provenance keeps all of it, and
+only one ``job_config.json`` can be written for the result directory the rows
+share.  Compilation compares that record and reports a disagreement as a
+conflict, rather than letting whichever row compiled first decide what is
+persisted.
 
 Anything *else* that reaches the command or the node directory without
 reaching identity is a defect in the payload, and compilation raises an
@@ -206,7 +211,11 @@ Paths inside kwdagger's own root are hashed relative to that root, so moving a
 cache does not change any identity.  Paths outside it are hashed as given: they
 identify external data.  A hand-supplied path that happens to point inside the
 root canonicalizes exactly as a produced one does, which is what keeps the two
-delivery mechanisms equal.
+delivery mechanisms equal.  Canonicalization is recursive and rewrites mapping
+keys as well as values.  It is many-to-one, so two keys of one mapping that
+canonicalize to the same key are rejected with a ``ValueError`` rather than
+merged: dropping an entry would leave two different configurations sharing one
+identity.
 
 Process ID: ``process_id``
 ^^^^^^^^^^^^^^^^^^^^^^^^^

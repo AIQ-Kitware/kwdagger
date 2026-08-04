@@ -140,10 +140,19 @@ def submit_jobs(
     # arbitration, because it configures and submits a row at a time. The
     # registry hangs off the queue since that is what survives between rows,
     # whoever is driving the loop.
-    requests = getattr(queue, '__kwdagger_requests__', None)
-    if requests is None:
-        requests = {}
-        queue.__kwdagger_requests__ = requests  # type: ignore
+    registry: dict[str, Any] | None = getattr(
+        queue, '__kwdagger_requests__', None
+    )
+    if registry is None:
+        # Counted per submission rather than per registered node: the number a
+        # user can act on is which call to ``submit_jobs`` -- which row of
+        # their loop -- not how many nodes happened to be registered before
+        # this one.
+        registry = {'submissions': 0, 'by_process_id': {}}
+        queue.__kwdagger_requests__ = registry  # type: ignore
+    registry['submissions'] += 1
+    requests: dict[str, Any] = registry['by_process_id']
+    submission_label = f'request {registry["submissions"]}'
 
     for node_name in node_order:
         node = proc_graph.nodes[node_name]['node']
@@ -155,7 +164,7 @@ def submit_jobs(
         if _previous is None:
             requests[_procid] = {
                 'snapshot': _snapshot,
-                'label': f'request {len(requests)}',
+                'label': submission_label,
             }
         else:
             check_execution_agreement(
@@ -164,7 +173,7 @@ def submit_jobs(
                 template_name=node.name,
                 process_id=_procid,
                 canonical_label=_previous['label'],
-                duplicate_label=f'request {len(requests)}',
+                duplicate_label=submission_label,
             )
         # print('-----')
         # print(f'node_name={node_name}')

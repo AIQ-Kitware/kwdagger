@@ -13,6 +13,7 @@ layer. Never the other way around.
 from __future__ import annotations
 
 import functools
+import json
 import os
 import warnings
 from collections import defaultdict
@@ -1329,16 +1330,51 @@ class ProcessNode(Node):
         return self._predecessors(_produced_origins)
 
     @memoize_configured_method
+    def requested_provenance_record(self) -> dict[str, str]:
+        """
+        Answers: *what would this request write to ``job_config.json``?*
+
+        This is what arbitration between requests sharing an identity compares.
+        Only one requested-experiment record can be written for a result
+        directory, so the thing that has to agree is the record itself, not a
+        summary of it: any distinction the record keeps -- which alias supplied
+        a value and which was outranked, a parameter forwarded from a different
+        port, a gather membership, a default versus an equal explicit
+        request -- is a distinction that would otherwise be settled by whichever
+        request happened to arrive first. Two requests that serialize
+        identically have nothing left to arbitrate, by construction.
+
+        Keyed by dotted config key with each value serialized, so a
+        disagreement can be reported as the keys that differ rather than as two
+        opaque blobs. The serialization is the one
+        :func:`kwdagger.pipeline.submit_jobs` writes with, so what is compared
+        is what lands on disk.
+
+        Deliberately **not** identity material. Two requests whose provenance
+        differs still describe the same computation and still hash the same;
+        they simply cannot share one result directory while demanding different
+        records of what was asked for.
+        """
+        return {
+            key: json.dumps(value, sort_keys=True, default=str)
+            for key, value in self._depends_config().items()
+        }
+
+    @memoize_configured_method
     def delivery_signature(self) -> dict[str, Any]:
         """
         Answers: *where does each input's value come from, port by port?*
 
-        Arbitration between requests that share an identity needs this, and the
-        union of predecessors is too coarse for it: a consumer reading two
-        outputs of one producer keeps that producer as a prerequisite even when
-        one of the two inputs is supplied by hand instead. The requests would
-        then agree on prerequisites while disagreeing about what
-        ``job_config.json`` should say.
+        A refinement of the prerequisite union, which is too coarse on its own:
+        a consumer reading two outputs of one producer keeps that producer as a
+        prerequisite even when one of the two inputs is supplied by hand
+        instead. Both requests would then agree on prerequisites while
+        disagreeing about what ``job_config.json`` should say.
+
+        This exists for the *message* it lets arbitration give for the common
+        produced-versus-manual case, and covers only produced origins. The
+        guarantee is :meth:`requested_provenance_record`, which is complete
+        because it is the record itself.
 
         Deliberately **not** identity material. Two requests whose delivery
         differs still describe the same computation and still hash the same;
@@ -1939,22 +1975,61 @@ def _root_relative(value: Any, root_dpath: Any) -> Any:
     happens to sit inside the root. Paths outside the root keep their given
     form, because they identify external data.
 
+    Rewriting is many-to-one, so two distinct mapping keys can land on one
+    canonical key. That is refused rather than resolved: rebuilding the
+    dictionary would drop an entry, leaving a mapping whose identity payload is
+    indistinguishable from a genuinely smaller one while the commands still
+    differ.
+
+    Raises:
+        ValueError: two keys of one mapping canonicalize to the same key.
+
     Example:
         >>> _root_relative({'files': ['/r/x.json', 'plain']}, '/r')
         {'files': ['{root}/x.json', 'plain']}
         >>> _root_relative('/r-backup/x.json', '/r')
         '/r-backup/x.json'
+        >>> _root_relative({'/r/a/../x.json': 1, '/r/x.json': 2}, '/r')
+        Traceback (most recent call last):
+        ...
+        ValueError: Mapping keys ... name one file...
     """
     root = os.path.abspath(str(root_dpath))
     root_parts = _path_parts(root)
+
+    def rewrite_key(key: Any) -> Any:
+        # Only scalars can be keys, so a key never takes the collection branch
+        # below -- which would hand back an unhashable list for a tuple key.
+        if isinstance(key, os.PathLike):
+            return rewrite(os.fspath(key))
+        if isinstance(key, str):
+            return rewrite(key)
+        return key
 
     def rewrite(item: Any) -> Any:
         if isinstance(item, Mapping):
             # Keys as well as values: a mapping from produced path to weight
             # would otherwise keep the cache root in the hash.
-            return {rewrite(key): rewrite(sub) for key, sub in item.items()}
+            rewritten: dict[Any, Any] = {}
+            sources: dict[Any, Any] = {}
+            for key, sub in item.items():
+                canonical_key = rewrite_key(key)
+                if canonical_key in rewritten:
+                    raise ValueError(
+                        f'Mapping keys {sources[canonical_key]!r} and {key!r} '
+                        f'both canonicalize to {canonical_key!r} relative to '
+                        f'the kwdagger root {root!r}, so they name one file. '
+                        'Keeping both would drop an entry from the hashed '
+                        'payload and let two different configurations share a '
+                        'result directory. Use one key per file.'
+                    )
+                rewritten[canonical_key] = rewrite(sub)
+                sources[canonical_key] = key
+            return rewritten
         if isinstance(item, (list, tuple)):
             return [rewrite(sub) for sub in item]
+        if isinstance(item, os.PathLike):
+            item = os.fspath(item)
         if not isinstance(item, str):
             return item
         if not (os.path.isabs(item) or os.sep in item):

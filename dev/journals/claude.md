@@ -739,3 +739,59 @@ need cmd_queue's cooperation rather than a local annotation.
 Confident about: the upgrade itself. Full suite is 302 passed / 18 skipped,
 flake8's wider `F401,F811,F841` selection clean, ruff check and format clean.
 Nothing in the identity/arbitration work depends on a version that moved.
+
+## 2026-08-04 11:53:31 -0400
+
+The GPT 5.6 review found the same class of defect for the fourth time, and I
+think this round finally closes it rather than moving it.
+
+The hole: `delivery_signature()` distinguished which *producer outputs* supply
+each input, and collapsed everything else to an empty tuple. So a consumer fed
+by two input aliases, with one row supplying `left.data` and the other
+`right.data` at the same value, agreed on identity, on prerequisites, and on
+delivery -- and disagreed on `job_config.json`. Reversing the rows changed the
+persisted record. Shared parameter ports were worse: they have no entry in the
+delivery signature at all.
+
+I stopped trying to summarise. The arbitration exists because one result
+directory holds one `job_config.json`, so what it compares is now the
+serialized `_depends_config()` itself, keyed per dotted key so a conflict can
+name what differs. That is complete by construction in a way no derived form
+can be: two requests that would write the same file have nothing left to
+arbitrate. The prerequisite and delivery comparisons stay in front of it,
+purely because they give a precise message for the two common shapes, and both
+`_agreement.py` and AGENTS.md now say that is the only reason they exist.
+
+Recording the pattern, because it is the fourth instance and the tell was the
+same every time: ancestor set, prerequisite union, per-input delivery
+signature. Each was a *derived* representation of something already computed
+precisely, each looked like a cheap summary of the same information, and each
+lost exactly the distinction the check was there to make. Written up in
+`dev/lessons/lessons.md`.
+
+Second finding was smaller and I agree with it fully: rewriting mapping keys
+root-relative is many-to-one, and a dict comprehension reassembling them drops
+entries silently. That one is genuinely unarbitrable -- two schedules that
+never meet cannot be compared after the fact -- so it has to be refused where
+it happens, and it now raises naming both keys. Chose refusal over the
+reviewer's other option (a tagged sorted pair sequence) because that would
+change the hash of every mapping-valued input, invalidating caches to fix a
+case nobody has hit. I also made `PathLike` keys canonicalize like string ones,
+which they did not; that *is* a small hash change, but the old behavior kept
+the absolute cache root in the hash for such a key, which the relocation
+invariant forbids. It also removes a latent crash: a tuple key would have come
+back as an unhashable list.
+
+Two things I am less sure about. The requested-record comparison is broader
+than the checks it backs up, so it could in principle reject a pair of rows a
+user considers equivalent -- the honest answer is that if the records differ,
+one of them was going to be discarded silently, but I would not be surprised by
+a report of a surprising rejection. And it calls `_depends_config()` once more
+per node per submission; that is cheap next to compiling commands, but it is
+not free on a wide matrix.
+
+Also bumped to 0.3.0 at the maintainer's request, corrected a CHANGELOG entry
+still claiming producer `process_id` enters consumer identity (it was written
+mid-sequence and was left contradicting the entry below it), and updated the
+hashing-scheme doc for both findings. Full suite 313 passed / 18 skipped,
+doctests 90 passed, ruff/ty/flake8 clean.

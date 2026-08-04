@@ -2,7 +2,7 @@
 We [keep a changelog](https://keepachangelog.com/en/1.0.0/).
 We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## Version 0.2.7 - Unreleased
+## Version 0.3.0 - Unreleased
 
 ### Added
 
@@ -60,6 +60,25 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+* Requests sharing one `process_id` are now arbitrated against the
+  requested-experiment record itself -- what would be written to
+  `job_config.json` -- rather than against a summary of where each input's
+  value came from. The summary covered produced origins only, so two requests
+  could agree on identity, on prerequisites, and on producer origins while
+  still asking for different things: which of two input aliases supplied the
+  value and which was left unresolved, which parameter port forwarded a shared
+  algorithm value, or a gather membership. Whichever request arrived first
+  decided the persisted record, so reversing a matrix changed what was written.
+  Delivery still does not reach `process_id`; the conflicting requests are the
+  same computation and still hash alike.
+* Canonicalizing a mapping's keys relative to the cache root is many-to-one, so
+  two distinct keys could land on one canonical key and the rebuilt dictionary
+  silently dropped an entry -- leaving a mapping whose hashed payload matched a
+  genuinely smaller one while the commands still differed, which no arbitration
+  can catch across two separate schedules. A collision now raises a `ValueError`
+  naming both keys. A `PathLike` mapping key is canonicalized like the
+  equivalent string, which it previously was not, so such a key no longer keeps
+  the absolute cache root in the hash.
 * `compile_configurations` raised `KeyError` when a node forwarded a value to
   one of its own ports, which `Pipeline.configure` has always allowed.
 * A wired algorithm parameter whose source never resolved a value wrote a
@@ -172,13 +191,13 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   why: the manifest is written by that process, so it cannot also be one of
   its own inputs.
 * A consumer that read a produced value through an input alias did not record
-  *which* producer instance made it. The ancestor payload carries `algo_id`,
-  which is deliberately blind to a producer's own inputs, so two producers
-  running one algorithm over different data were indistinguishable there: both
-  consumers hashed to one `process_id` and shared a result directory, and
-  whichever compiled first supplied the surviving command. An input's producing
-  ports now contribute `process_id` and port name to the consumer's identity,
-  whether wired directly or reached through an alias.
+  *which* producer instance made it, so two producers running one algorithm
+  over different data were indistinguishable in the consumer's record. The
+  alias-recovered producer is now named in provenance as `origins` on the
+  `__input__.<port>` record, and is a real scheduling dependency of the
+  consumer. It does not enter the consumer's identity: the produced path
+  already contains the producer's `process_id`, so two consumers reading
+  different files hash differently through the value they read.
 * Aliasing a gathered input handed out the path to a manifest with no
   dependency on the job that writes it, so the borrower could run first and
   read a file that did not exist yet. A gathered port's owner is now a real

@@ -17,6 +17,8 @@ at a path. See ``docs/source/manual/technical/hashing_scheme.rst``.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import ubelt as ub
 
@@ -902,3 +904,219 @@ def test_mapping_keys_are_root_relative_too():
         hashed = consumer.depends['__inputs__']['data_fpath']
     assert ids['key-a'] == ids['key-b']
     assert all('{root}' in key for key in hashed)
+
+
+# ---------------------------------------------------------------------------
+# Provenance conflicts no summary of delivery can see
+# ---------------------------------------------------------------------------
+#
+# Arbitration exists because one result directory holds one requested-experiment
+# record. Comparing a summary of where values came from -- producer origins,
+# prerequisite sets -- can only catch the conflicts that summary happens to
+# represent. These are the ones it does not: the requests agree on identity, on
+# prerequisites, and on producer origins, and still ask for different things.
+
+
+def _two_alias_pipeline():
+    """
+    Two peers forwarding into one consumer port. Neither is a producer, so
+    there are no origins and no prerequisites to disagree about -- but which
+    peer supplied the value is part of what was requested.
+    """
+    left = ProcessNode(
+        name='left',
+        executable='python left.py',
+        in_paths={'data_fpath'},
+        out_paths={'left_fpath': 'left.json'},
+    )
+    right = ProcessNode(
+        name='right',
+        executable='python right.py',
+        in_paths={'data_fpath'},
+        out_paths={'right_fpath': 'right.json'},
+    )
+    consumer = _consumer()
+    left.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    right.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    return Pipeline({'left': left, 'right': right, 'consumer': consumer})
+
+
+_ALIAS_ROWS = [
+    {'left.data_fpath': '/same/path', 'consumer.thresh': 0.5},
+    {'right.data_fpath': '/same/path', 'consumer.thresh': 0.5},
+]
+
+
+def test_which_alias_supplied_the_value_is_a_requested_difference(tmp_path):
+    """
+    The premise, stated separately so a failure says which half broke: the two
+    rows are one computation, and they ask for different things.
+    """
+    ids = []
+    records = []
+    for row in _ALIAS_ROWS:
+        dag = _two_alias_pipeline()
+        dag.configure(config=row, root_dpath=tmp_path, cache=False)
+        consumer = dag.node_dict['consumer']
+        assert str(consumer.final_in_paths['data_fpath']) == '/same/path'
+        ids.append(consumer.process_id)
+        records.append(json.dumps(consumer._depends_config(), sort_keys=True))
+    assert ids[0] == ids[1], 'delivery must stay out of the hash'
+    assert records[0] != records[1], 'the persisted records genuinely differ'
+
+
+@pytest.mark.parametrize('order', [[0, 1], [1, 0]])
+def test_alias_provenance_conflict_is_reported_in_either_order(order, tmp_path):
+    """Neither row may be silently adopted as the canonical request."""
+    rows = [_ALIAS_ROWS[idx] for idx in order]
+    with pytest.raises(ValueError, match='requested experiment') as excinfo:
+        _submit_rows(_two_alias_pipeline(), rows, tmp_path)
+    assert '__input__.data_fpath' in str(excinfo.value)
+
+
+@pytest.mark.parametrize('order', [[0, 1], [1, 0]])
+def test_alias_provenance_conflict_reaches_the_compiler_too(order, tmp_path):
+    """The same conflict on the full-matrix path, which a gather forces."""
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+
+    def build():
+        nodes = dict(_two_alias_pipeline().node_dict)
+        nodes.update({'shard': shard, 'merge': merge})
+        return Pipeline(nodes)
+
+    base = {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
+    rows = [dict(base, **_ALIAS_ROWS[idx]) for idx in order]
+    with pytest.raises(ValueError, match='requested experiment'):
+        build().compile_configurations(rows, root_dpath=tmp_path, cache=False)
+
+
+def test_agreeing_alias_rows_still_deduplicate(tmp_path):
+    """
+    The complement, and the reason this cannot simply reject every duplicate:
+    two identical requests share a record and must still collapse to one job.
+    """
+    rows = [dict(_ALIAS_ROWS[0]), dict(_ALIAS_ROWS[0])]
+    _queue, statuses = _submit_rows(_two_alias_pipeline(), rows, tmp_path)
+    assert statuses[0]['consumer'] == 'new_submission'
+    assert statuses[1]['consumer'] == 'duplicate_submission'
+
+
+def _param_alias_pipeline():
+    """The same shape one layer over, on a shared algorithm parameter."""
+    left = ProcessNode(
+        name='left',
+        executable='python left.py',
+        out_paths={'left_fpath': 'left.json'},
+        algo_params={'thresh'},
+    )
+    right = ProcessNode(
+        name='right',
+        executable='python right.py',
+        out_paths={'right_fpath': 'right.json'},
+        algo_params={'thresh'},
+    )
+    consumer = _consumer()
+    left.param_ports['thresh'].connect(consumer.param_ports['thresh'])
+    right.param_ports['thresh'].connect(consumer.param_ports['thresh'])
+    return Pipeline({'left': left, 'right': right, 'consumer': consumer})
+
+
+@pytest.mark.parametrize('order', [[0, 1], [1, 0]])
+def test_which_parameter_port_supplied_the_value_is_arbitrated(order, tmp_path):
+    """
+    Forwarded parameters are not delivery in the input sense at all -- they
+    have no port in the delivery signature -- so nothing derived from input
+    origins could ever see this.
+    """
+    rows = [
+        {'left.thresh': 0.25, 'consumer.data_fpath': '/data'},
+        {'right.thresh': 0.25, 'consumer.data_fpath': '/data'},
+    ]
+    ordered = [rows[idx] for idx in order]
+    ids = []
+    for row in ordered:
+        dag = _param_alias_pipeline()
+        dag.configure(config=row, root_dpath=tmp_path, cache=False)
+        ids.append(dag.node_dict['consumer'].process_id)
+    assert ids[0] == ids[1], 'the same parameter value is the same computation'
+
+    with pytest.raises(ValueError, match='requested experiment') as excinfo:
+        _submit_rows(_param_alias_pipeline(), ordered, tmp_path)
+    assert '__parameter__.thresh' in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# Canonicalization must not merge distinct mapping entries
+# ---------------------------------------------------------------------------
+
+
+def test_colliding_canonical_mapping_keys_are_refused(tmp_path):
+    """
+    Rewriting a key is many-to-one. Rebuilding the dictionary would drop an
+    entry, leaving a two-entry mapping whose hashed payload is identical to a
+    genuinely one-entry mapping while the commands still differ -- and two
+    schedules that never see each other cannot be arbitrated after the fact.
+    """
+    consumer = _consumer()
+    dag = Pipeline({'consumer': consumer})
+    inside = str(tmp_path / 'x.json')
+    aliased = str(tmp_path / 'sub' / '..' / 'x.json')
+    with pytest.raises(ValueError, match='canonicalize'):
+        dag.configure(
+            {'consumer.data_fpath': {inside: 1, aliased: 2}},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+
+
+def test_distinct_mapping_keys_are_still_hashed_together(tmp_path):
+    """The complement: only genuine collisions are refused."""
+    consumer = _consumer()
+    dag = Pipeline({'consumer': consumer})
+    mapping = {
+        str(tmp_path / 'x.json'): 1,
+        str(tmp_path / 'y.json'): 2,
+        'plain': 3,
+    }
+    dag.configure(
+        {'consumer.data_fpath': mapping}, root_dpath=tmp_path, cache=False
+    )
+    hashed = consumer.depends['__inputs__']['data_fpath']
+    assert sorted(hashed) == ['plain', '{root}/x.json', '{root}/y.json']
+
+
+def test_a_pathlike_mapping_key_canonicalizes_like_a_string_one(tmp_path):
+    """
+    A produced value arrives as a ``Path`` and a hand-written one as a
+    ``str``. Keys were exempt from that equivalence, so the same mapping kept
+    the absolute cache root in the hash depending on how it was spelled.
+    """
+    ids = []
+    for key in [str(tmp_path / 'x.json'), ub.Path(tmp_path / 'x.json')]:
+        consumer = _consumer()
+        dag = Pipeline({'consumer': consumer})
+        dag.configure(
+            {'consumer.data_fpath': {key: 1}},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+        hashed = consumer.depends['__inputs__']['data_fpath']
+        assert list(hashed) == ['{root}/x.json']
+        ids.append(consumer.process_id)
+    assert ids[0] == ids[1]

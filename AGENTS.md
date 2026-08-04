@@ -199,7 +199,11 @@ Paths inside kwdagger's own root hash **relative to that root**, so relocating
 a cache changes no identity. Paths outside it hash as given, because they
 identify external data. A hand-supplied path pointing inside the root
 canonicalizes exactly as a produced one does, which is what keeps the two
-delivery mechanisms equal.
+delivery mechanisms equal. Canonicalization is recursive and rewrites mapping
+keys as well as values. It is many-to-one, so two keys of one mapping that
+canonicalize alike are rejected rather than merged: silently dropping an entry
+would leave two different configurations with one identity, and separate
+schedules cannot be arbitrated against each other after the fact.
 
 A corollary, stated because it has been violated: **equal `process_id` implies
 equal command-defining state, apart from state that is deliberately unhashed.**
@@ -213,9 +217,20 @@ identity must therefore agree on — compilation reports each as a user-facing
 - **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
   and output-path overrides. These change how a process runs, not what it
   computes.
-- **Delivery mechanism:** two rows can be one computation and still need
-  different jobs to run first, if one takes an input from a producer and
-  another supplies the same path directly.
+- **The requested experiment:** everything provenance keeps and identity drops
+  -- which producer supplied each input, which alias or parameter port
+  forwarded a value and which was outranked, gather membership. Two rows can be
+  one computation and still need different jobs to run first, or ask for the
+  same computation in two different ways. Only one `job_config.json` can be
+  written for the directory they share.
+
+  Arbitration therefore compares the **record itself**, `_depends_config()`, not
+  a summary derived from it. Every attempt to compare a derived summary -- a
+  prerequisite union, a per-port delivery signature -- has lost a distinction
+  the record was keeping on purpose. Those summaries are still checked first,
+  but only because they name the two common conflicts precisely; the record
+  comparison is what makes the check complete. Do not replace it with a cheaper
+  representation of the same information.
 
 Anything else reaching the command or the node directory without reaching
 identity is a payload defect, and compilation raises an internal-consistency
