@@ -80,7 +80,7 @@ class Pipeline:
 
     def __init__(
         self,
-        nodes: Mapping[str, ProcessNode] | Sequence[ProcessNode] | None = None,
+        nodes: dict[str, Any] | list[Any] | None = None,
         config: Mapping[str, Any] | None = None,
         root_dpath: PathSpec | None = None,
     ) -> None:
@@ -90,14 +90,19 @@ class Pipeline:
         self.io_graph: nx.DiGraph = nx.DiGraph()
         if nodes is None:
             nodes = []
-        # Accepted as ``Mapping`` / ``Sequence`` for variance -- a dict of
-        # ``ProcessNode`` *subclasses* is the normal way to build a pipeline,
-        # and ``dict`` is invariant -- but held as given rather than copied,
-        # because a caller expects the pipeline to hold their container. The
-        # two concrete forms are what ``node_dict`` and ``submit`` support.
-        self.nodes: dict[str, ProcessNode] | list[ProcessNode] = cast(
-            Any, nodes
-        )
+        # ``dict`` and ``list`` exactly, not ``Mapping`` and ``Sequence``:
+        # ``node_dict`` branches on ``isinstance(..., dict)`` and ``submit``
+        # appends, so another mapping type would fall through to the sequence
+        # branch and iterate keys. Both forms are used -- the YAML loader
+        # passes a mapping so ``aggregate`` can find per-node result loaders --
+        # and the container is held as given rather than copied, because a
+        # caller expects the pipeline to hold theirs.
+        #
+        # The value type is ``Any`` rather than ``ProcessNode`` because
+        # ``dict`` is invariant: ``{'a': SubclassA(), 'b': SubclassB()}`` is
+        # how pipelines are normally written, and it is not a
+        # ``dict[str, ProcessNode]``.
+        self.nodes: dict[str, Any] | list[Any] = nodes
         self.config: Any = None
         #: Where results are rooted, once ``configure`` has been told. Declared
         #: here so the attribute always exists: it is public state a caller
