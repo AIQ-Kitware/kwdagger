@@ -1457,10 +1457,10 @@ def test_effective_ancestry_drops_what_only_reached_here_through_an_override(
         ids[algo] = node_c.process_id
         last = node_c
 
-    assert sorted(n.name for n in last.effective_ancestor_process_nodes()) == [
-        'node_b'
-    ]
-    assert sorted(n.name for n in last.ancestor_process_nodes()) == [
+    assert sorted(
+        str(n.name) for n in last.effective_ancestor_process_nodes()
+    ) == ['node_b']
+    assert sorted(str(n.name) for n in last.ancestor_process_nodes()) == [
         'node_a',
         'node_b',
     ]

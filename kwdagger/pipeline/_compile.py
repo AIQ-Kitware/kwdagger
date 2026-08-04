@@ -40,6 +40,7 @@ from kwdagger.pipeline._connections import (
     OutputNode,
 )
 from kwdagger.pipeline._process import ProcessNode
+from kwdagger.pipeline._runtime import QueueSpec
 
 if TYPE_CHECKING:
     from kwdagger.pipeline._logical import Pipeline
@@ -52,7 +53,7 @@ class CompiledPipeline:
         self,
         *,
         proc_graph: nx.DiGraph,
-        root_dpath: Any,
+        root_dpath: str | os.PathLike[str],
         slurm_options: Mapping[str, Any] | None = None,
         compile_summary: Mapping[str, Any] | None = None,
     ) -> None:
@@ -279,7 +280,7 @@ class CompiledPipeline:
 
     def submit_jobs(
         self,
-        queue: Any = None,
+        queue: QueueSpec = None,
         skip_existing: bool = False,
         enable_links: bool = True,
         write_invocations: bool = True,
@@ -441,7 +442,7 @@ def _node_param_value(node: 'ProcessNode', key: str) -> Any:
         f'Node {node.name!r} has no parameter, input, or ancestor providing '
         f'{key!r}; algo={sorted(node.final_algo_config)} '
         f'inputs={sorted(node.inputs)} '
-        f'ancestors={sorted(n.name for n in node.ancestor_process_nodes())}. '
+        f'ancestors={sorted(str(n.name) for n in node.ancestor_process_nodes())}. '
         f'Qualify the key as "<node>.<param>" to group on another node.'
     )
 
@@ -469,7 +470,7 @@ def _resolve_named_nodes(
         raise KeyError(
             f'Cannot group {node.name!r} by a parameter of {node_name!r}: '
             f'it is not this node nor one of its ancestors '
-            f'({sorted(n.name for n in node.ancestor_process_nodes())}). '
+            f'({sorted(str(n.name) for n in node.ancestor_process_nodes())}). '
             f"Note that a gather's own source is not yet an ancestor while "
             f'that gather is being resolved.'
         )
@@ -576,7 +577,7 @@ def _compile_pipeline_configurations(
     template: Pipeline,
     *,
     configs: Sequence[Mapping[str, Any]],
-    root_dpath: Any,
+    root_dpath: str | os.PathLike[str] | None,
     cache: bool,
 ) -> CompiledPipeline:
     """Compile a matrix-expanded template into a concrete static DAG."""

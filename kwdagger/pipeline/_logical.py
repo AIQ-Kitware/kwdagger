@@ -12,6 +12,7 @@ the pipeline rather than the other way around.
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
@@ -34,6 +35,7 @@ from kwdagger.pipeline._connections import (
     _produced_origins,
 )
 from kwdagger.pipeline._process import ProcessNode
+from kwdagger.pipeline._runtime import QueueSpec
 from kwdagger.pipeline._slurm import coerce_slurm_options
 from kwdagger.utils import util_dotdict
 
@@ -428,7 +430,10 @@ class Pipeline:
         rich.print(util_yaml.Yaml.dumps(default))
 
     def configure(
-        self, config: Any = None, root_dpath: Any = None, cache: bool = True
+        self,
+        config: Mapping[str, Any] | None = None,
+        root_dpath: str | os.PathLike[str] | None = None,
+        cache: bool = True,
     ) -> None:
         """
         Update the DAG configuration
@@ -677,7 +682,7 @@ class Pipeline:
 
     def submit_jobs(
         self,
-        queue: Any = None,
+        queue: QueueSpec = None,
         skip_existing: bool = False,
         enable_links: bool = True,
         write_invocations: bool = True,
@@ -894,16 +899,19 @@ def _resolve_pipeline(pipeline: Any) -> Any:
         raise ValueError(pipeline)
 
 
-def _coerce_modpath(modpath_or_name: Any) -> str:
+def _coerce_modpath(modpath_or_name: str | os.PathLike[str]) -> str:
     import os
     import types
 
     if isinstance(modpath_or_name, types.ModuleType):
         raise TypeError('Expected a static module but got a dynamic one')
-    modpath = ub.modname_to_modpath(modpath_or_name)
+    # A path may arrive as a Path; everything below, and every caller, wants
+    # the string form.
+    name = os.fspath(modpath_or_name)
+    modpath = ub.modname_to_modpath(name)
     if modpath is None:
-        if os.path.exists(modpath_or_name):
-            modpath = modpath_or_name
+        if os.path.exists(name):
+            modpath = name
         else:
-            raise ValueError('Cannot find module={}'.format(modpath_or_name))
+            raise ValueError('Cannot find module={}'.format(name))
     return modpath

@@ -8,12 +8,18 @@ neither should have to import the other to get it.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, TypeAlias
 
 import kwutil
 
+#: Slurm options as a caller may write them: a mapping, a YAML string, or
+#: nothing. :func:`coerce_slurm_options` is what turns any of those into the
+#: dict the rest of the package passes around.
+SlurmOptions: TypeAlias = 'Mapping[str, Any] | str | None'
 
-def coerce_slurm_options(slurm_options: Any) -> dict[str, Any]:
+
+def coerce_slurm_options(slurm_options: SlurmOptions) -> dict[str, Any]:
     """
     Normalize slurm option dictionaries.
     """

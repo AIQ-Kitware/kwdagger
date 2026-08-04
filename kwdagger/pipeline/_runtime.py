@@ -20,7 +20,7 @@ the class that owns the precondition.
 from __future__ import annotations
 
 import os
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import networkx as nx
 import ubelt as ub
@@ -30,7 +30,15 @@ from kwdagger.pipeline._agreement import (
     execution_snapshot,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
-from kwdagger.pipeline._slurm import coerce_slurm_options
+from kwdagger.pipeline._slurm import SlurmOptions, coerce_slurm_options
+
+if TYPE_CHECKING:
+    import cmd_queue
+
+#: A queue to submit to, or the keyword arguments to build one with. A plain
+#: ``dict`` rather than a ``Mapping``: that is what the construction branch
+#: tests for, so anything else is taken to be a queue already.
+QueueSpec: TypeAlias = 'cmd_queue.Queue | dict[str, Any] | None'
 
 
 def _has_jq() -> str | list[str] | None:
@@ -39,8 +47,8 @@ def _has_jq() -> str | list[str] | None:
 
 def submit_jobs(
     proc_graph: nx.DiGraph,
-    slurm_options: Any = None,
-    queue: Any = None,
+    slurm_options: SlurmOptions = None,
+    queue: QueueSpec = None,
     skip_existing: bool = False,
     enable_links: bool = True,
     write_invocations: bool = True,
@@ -58,11 +66,11 @@ def submit_jobs(
             the configured process graph. Each node carries the concrete
             :class:`ProcessNode` under its ``'node'`` attribute.
 
-        slurm_options (Any):
+        slurm_options (SlurmOptions):
             pipeline-wide Slurm options applied to every job, before any
             per-node override. Ignored on non-Slurm backends.
 
-        queue (Any):
+        queue (QueueSpec):
             an existing cmd_queue queue, or a dict of keyword arguments used
             to construct one. Defaults to a serial queue.
 
@@ -161,7 +169,7 @@ def submit_jobs(
     # ``skip_existing`` is deliberately absent: it selects which requests are
     # made rather than what a request asks for, and reversing two calls that
     # differ in it leaves the same queue.
-    submission_state = {
+    submission_state: dict[str, Any] = {
         'slurm_options': slurm_options,
         'log': log,
         'enable_links': enable_links,

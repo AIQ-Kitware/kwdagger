@@ -26,12 +26,25 @@ seen the original request's state is gone unless it was captured.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from kwdagger.pipeline._slurm import coerce_slurm_options
 
+if TYPE_CHECKING:
+    # Annotation only: ``_process`` sits above this leaf, and the layering
+    # test in ``tests/test_import_compat.py`` allows an upward reference that
+    # costs nothing at runtime and cannot create a cycle.
+    from kwdagger.pipeline._process import ProcessNode
 
-def _normalize_enabled(value: Any) -> Any:
+#: One request's comparable state. The keys are fixed -- see
+#: :func:`execution_snapshot`, which is the only thing that builds one -- but
+#: the values are deliberately heterogeneous: they are whatever the scheduler
+#: acts on, from a bool to a serialized provenance record.
+Snapshot: TypeAlias = 'dict[str, Any]'
+
+
+def _normalize_enabled(value: Any) -> Literal['redo'] | bool:
     """
     Reduce an ``__enabled__`` value to how ``submit_jobs`` actually reads it.
 
@@ -44,7 +57,7 @@ def _normalize_enabled(value: Any) -> Any:
     return bool(value)
 
 
-def _normalize_paths(paths: Any) -> dict[str, str]:
+def _normalize_paths(paths: Mapping[str, Any]) -> dict[str, str]:
     return {k: str(v) for k, v in dict(paths).items()}
 
 
@@ -52,7 +65,7 @@ def _normalize_paths(paths: Any) -> dict[str, str]:
 #: of ``process_id``. Requests sharing an identity must agree on all of it.
 #: Each entry is the config key a user writes, the snapshot field, and how to
 #: read a value down to what the scheduler acts on.
-_UNHASHED_EXECUTION_STATE = [
+_UNHASHED_EXECUTION_STATE: list[tuple[str, str, Callable[[Any], Any]]] = [
     ('__enabled__', 'enabled', _normalize_enabled),
     ('__slurm_options__', 'slurm_options', dict),
     # perf_params reach the command but not identity, by design.
@@ -64,7 +77,7 @@ _UNHASHED_EXECUTION_STATE = [
 
 #: State that ``process_id`` is supposed to determine. A disagreement here is
 #: a defect in the identity payload, not a user error.
-_FINALIZED_EXECUTION_STATE = [
+_FINALIZED_EXECUTION_STATE: list[tuple[str, str]] = [
     ('node directories', 'node_dpath'),
     ('commands', 'command'),
     ('setup commands', 'setup'),
@@ -73,8 +86,8 @@ _FINALIZED_EXECUTION_STATE = [
 
 
 def execution_snapshot(
-    node: Any, submission: dict[str, Any] | None = None
-) -> dict[str, Any]:
+    node: ProcessNode, submission: Mapping[str, Any] | None = None
+) -> Snapshot:
     """
     Capture everything a duplicate request must be compared against.
 
@@ -83,9 +96,9 @@ def execution_snapshot(
     against itself.
 
     Args:
-        node (Any): the configured process node.
+        node (ProcessNode): the configured process node.
 
-        submission (dict | None): request state that is not on the node.
+        submission (Mapping | None): request state not on the node.
             ``'slurm_options'`` are the pipeline-wide options, which an
             ordinary pipeline keeps on the :class:`Pipeline` and never copies
             onto a node; every other key is a bookkeeping choice made by the
@@ -94,7 +107,7 @@ def execution_snapshot(
             ``None`` at compile time, where nothing has been submitted yet.
     """
     submission = dict(submission or {})
-    snapshot: dict[str, Any] = {
+    snapshot: Snapshot = {
         'enabled': node.enabled,
         # Effective, because neither half is the whole answer: the submitter
         # applies pipeline-wide options first and the node's own on top.
@@ -129,7 +142,7 @@ def execution_snapshot(
     return snapshot
 
 
-def _abbreviate(value: Any, limit: int = 400) -> str:
+def _abbreviate(value: str | None, limit: int = 400) -> str:
     """Keep a gather membership or a long path list readable in a message."""
     if value is None:
         return '<not requested>'
@@ -140,8 +153,8 @@ def _abbreviate(value: Any, limit: int = 400) -> str:
 
 
 def _describe_record_conflict(
-    canonical: dict[str, Any],
-    duplicate: dict[str, Any],
+    canonical: Snapshot,
+    duplicate: Snapshot,
     differing: list[str],
     canonical_label: str,
     duplicate_label: str,
@@ -166,8 +179,8 @@ def _describe_record_conflict(
 
 
 def check_execution_agreement(
-    canonical: dict[str, Any],
-    duplicate: dict[str, Any],
+    canonical: Snapshot,
+    duplicate: Snapshot,
     *,
     template_name: str,
     process_id: str,
@@ -178,8 +191,8 @@ def check_execution_agreement(
     Reject requests that share a process identity but disagree on state.
 
     Args:
-        canonical (dict): snapshot of the request that was accepted.
-        duplicate (dict): snapshot of a later request with the same identity.
+        canonical (Snapshot): the request that was accepted.
+        duplicate (Snapshot): a later request with the same identity.
         template_name (str): the logical node name, for the message.
         process_id (str): the shared identity, for the message.
         canonical_label (str): how to name the first request to a user, e.g.

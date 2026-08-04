@@ -215,7 +215,7 @@ class GatherConnection:
     spec: GatherSpec
 
 
-def _dependency_preds(input_node: Any) -> list:
+def _dependency_preds(input_node: 'InputNode') -> list['IONode']:
     """
     Predecessors of an input that represent a real data dependency.
 
@@ -229,12 +229,12 @@ def _dependency_preds(input_node: Any) -> list:
     return [pred for pred in input_node.pred if not isinstance(pred, InputNode)]
 
 
-def _alias_preds(input_node: Any) -> list:
+def _alias_preds(input_node: 'InputNode') -> list['InputNode']:
     """Predecessors of an input that only share its value."""
     return [pred for pred in input_node.pred if isinstance(pred, InputNode)]
 
 
-def _is_gathered(port: Any) -> bool:
+def _is_gathered(port: 'IONode') -> bool:
     """
     Whether a port's value is a gather manifest.
 
@@ -249,7 +249,7 @@ def _is_gathered(port: Any) -> bool:
     )
 
 
-def _alias_origins(input_node: Any) -> list:
+def _alias_origins(input_node: 'InputNode') -> list['IONode']:
     """
     Producers reached by walking this input's alias edges backwards.
 
@@ -258,7 +258,7 @@ def _alias_origins(input_node: Any) -> list:
     forwarded value outranks a direct producer, the alias chain is the only
     part that still supplies anything.
     """
-    recovered: dict[int, Any] = {}
+    recovered: dict[int, 'IONode'] = {}
     seen = {id(input_node)}
     stack = list(_alias_preds(input_node))
     while stack:
@@ -296,7 +296,7 @@ def _alias_origins(input_node: Any) -> list:
     return sorted(recovered.values(), key=lambda port: port.key)
 
 
-def _produced_origins(input_node: Any) -> list:
+def _produced_origins(input_node: 'InputNode') -> list['IONode']:
     """
     Every port whose product could supply this input, structurally.
 
@@ -342,7 +342,7 @@ def _produced_origins(input_node: Any) -> list:
     return origins
 
 
-def _effective_origins(input_node: Any) -> list:
+def _effective_origins(input_node: 'InputNode') -> list['IONode']:
     """
     The ports that actually supply this configured input's value.
 
@@ -373,7 +373,9 @@ def _effective_origins(input_node: Any) -> list:
     return _effective_origins_impl(input_node, set())
 
 
-def _effective_origins_impl(input_node: Any, seen: set) -> list:
+def _effective_origins_impl(
+    input_node: 'InputNode', seen: set[int]
+) -> list['IONode']:
     if id(input_node) in seen:
         return []
     seen.add(id(input_node))
@@ -392,7 +394,7 @@ def _effective_origins_impl(input_node: Any, seen: set) -> list:
         # each source the same question is the only way to see that; walking
         # the chain structurally would report a producer that two hops of
         # overrides ago stopped being read.
-        origins: dict[int, Any] = {}
+        origins: dict[int, 'IONode'] = {}
         for alias in _alias_preds(input_node):
             if alias._resolved_value() is _UNSET:
                 # Supplies nothing, so it cannot be the effective source.
@@ -408,7 +410,7 @@ def _effective_origins_impl(input_node: Any, seen: set) -> list:
     return []
 
 
-def _supplying_ports(port: Any, seen: set) -> list:
+def _supplying_ports(port: 'InputNode', seen: set[int]) -> list['IONode']:
     """
     The ports that produce the value ``port`` currently holds.
 

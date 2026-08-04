@@ -19,7 +19,7 @@ import warnings
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, Generic, Protocol, TypeVar, cast, overload
 
 import ubelt as ub
 
@@ -79,19 +79,42 @@ def _classvar_init(self: Any, args: Any, fallbacks: Any) -> None:
         setattr(self, key, value)
 
 
-class memoize_configured_method(object):
+#: What a memoized member gives back. Both decorators are generic in it so the
+#: annotation on the decorated function survives to the call site; an untyped
+#: decorator erases it, which is what left most of this module's configured
+#: state as ``Any`` everywhere it was read.
+_T = TypeVar('_T')
+_T_co = TypeVar('_T_co', covariant=True)
+
+
+class _NamedFunction(Protocol[_T_co]):
+    """
+    What both decorators actually require: a *named* function.
+
+    ``Callable`` is not enough -- the cache key is derived from ``__name__``,
+    which an arbitrary callable does not have.
+    """
+
+    __name__: str
+
+    def __call__(self, *args: Any, **kwargs: Any) -> _T_co: ...
+
+
+class memoize_configured_method(Generic[_T]):
     """
     ubelt memoize_method but uses a special cache name
     """
 
-    def __init__(self, func: Any) -> None:
+    def __init__(self, func: _NamedFunction[_T]) -> None:
         self._func = func
         self._cache_name = '_cache__' + func.__name__
         # Mimic attributes of a bound method
         self.__func__ = func
         functools.update_wrapper(self, func)
 
-    def __get__(self, instance: Any, cls: Any = None) -> Any:
+    def __get__(
+        self, instance: Any, cls: Any = None
+    ) -> memoize_configured_method[_T]:
         """
         Descriptor get method. Called when the decorated method is accessed
         from an object instance.
@@ -103,7 +126,7 @@ class memoize_configured_method(object):
         self._instance = instance
         return self
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+    def __call__(self, *args: Any, **kwargs: Any) -> _T:
         """
         The wrapped function call
         """
@@ -114,30 +137,55 @@ class memoize_configured_method(object):
         cache = func_cache.setdefault(self._cache_name, {})
         key = _make_signature_key(args, kwargs)
         if key in cache:
-            return cache[key]
+            return cast(_T, cache[key])
         else:
             value = cache[key] = self._func(self._instance, *args, **kwargs)
             return value
 
 
-def memoize_configured_property(fget: Any) -> Any:
+class memoize_configured_property(Generic[_T]):
     """
-    ubelt memoize_property but uses a special cache name
+    ubelt memoize_property but uses a special cache name.
+
+    A descriptor rather than a ``property`` so that the decorated function's
+    return annotation reaches whoever reads the attribute. It is still a *data*
+    descriptor -- ``__set__`` raises, as a setter-less ``property`` does -- so
+    assignment and shadowing behave exactly as before.
     """
-    # Unwrap any existing property decorator
-    while hasattr(fget, 'fget'):
-        fget = fget.fget
 
-    attr_name = '_' + fget.__name__
+    def __init__(self, fget: _NamedFunction[_T]) -> None:
+        # Unwrap any existing property decorator
+        while hasattr(fget, 'fget'):
+            fget = fget.fget  # type: ignore
+        self._fget = fget
+        self._attr_name = '_' + fget.__name__
+        # ``update_wrapper`` only setattrs, but its stub demands a callable
+        # wrapper and a data descriptor is not one.
+        functools.update_wrapper(cast(Any, self), fget)
 
-    @functools.wraps(fget)
-    def fget_memoized(self: Any) -> Any:
-        cache = self._configured_cache
-        if attr_name not in cache:
-            cache[attr_name] = fget(self)
-        return cache[attr_name]
+    @overload
+    def __get__(
+        self, instance: None, owner: type | None = None
+    ) -> memoize_configured_property[_T]: ...
 
-    return property(fget_memoized)
+    @overload
+    def __get__(self, instance: object, owner: type | None = None) -> _T: ...
+
+    def __get__(self, instance: Any, owner: Any = None) -> Any:
+        if instance is None:
+            # Accessed on the class: hand back the descriptor, as a property
+            # does, so introspection and documentation tools still work.
+            return self
+        cache = instance._configured_cache
+        if self._attr_name not in cache:
+            cache[self._attr_name] = self._fget(instance)
+        return cache[self._attr_name]
+
+    def __set__(self, instance: Any, value: Any) -> None:
+        raise AttributeError(
+            f'property {self._attr_name[1:]!r} of '
+            f'{type(instance).__name__!r} object has no setter'
+        )
 
 
 # Uncomment for debugging
@@ -804,7 +852,7 @@ class ProcessNode(Node):
         self._finalize_templates()
 
     @memoize_configured_property
-    def condensed(self) -> Any:
+    def condensed(self) -> dict[str, str]:
         """
         This is the dictionary that supplies the templated strings with the
         values we will finalize them with. We may want to change the name.
@@ -859,7 +907,7 @@ class ProcessNode(Node):
         return self.final
 
     @memoize_configured_property
-    def final_config(self) -> Any:
+    def final_config(self) -> ub.UDict[str, Any]:
         """
         This is not really "final" in the aggregate sense.
         It is more of a "finalized" requested config.
@@ -1077,6 +1125,7 @@ class ProcessNode(Node):
         for depend_node in list(self.effective_ancestor_process_nodes()) + [
             self
         ]:
+            assert isinstance(depend_node.name, str)
             by_name[depend_node.name].append(depend_node)
 
         depends_config: dict[str, Any] = {}
@@ -1132,7 +1181,7 @@ class ProcessNode(Node):
         return depends_config
 
     @memoize_configured_property
-    def final_perf_config(self) -> Any:
+    def final_perf_config(self) -> ub.UDict[str, Any]:
         assert self.perf_params is not None
         final_perf_config = self.config & set(self.perf_params)  # type: ignore
         if isinstance(self.perf_params, dict):
@@ -1142,7 +1191,7 @@ class ProcessNode(Node):
         return final_perf_config
 
     @memoize_configured_property
-    def final_input_config(self) -> Any:
+    def final_input_config(self) -> ub.UDict[str, Any]:
         """
         The resolved value of every input, however it arrived.
 
@@ -1170,7 +1219,7 @@ class ProcessNode(Node):
         return ub.udict(values)
 
     @memoize_configured_property
-    def final_algo_config(self) -> Any:
+    def final_algo_config(self) -> ub.UDict[str, Any]:
         """
         The parameters that define *what algorithm* this node runs.
 
@@ -1215,7 +1264,7 @@ class ProcessNode(Node):
         return final_algo_config
 
     @memoize_configured_property
-    def final_in_paths(self) -> Any:
+    def final_in_paths(self) -> dict[str, Any]:
         in_paths = self.in_paths
         final_in_paths: dict[str, Any]
         if in_paths is None:
@@ -1230,7 +1279,7 @@ class ProcessNode(Node):
         return final_in_paths
 
     @memoize_configured_property
-    def template_out_paths(self) -> Any:
+    def template_out_paths(self) -> dict[str, str | None]:
         """
         Note: template out paths are not impacted by out path config overrides,
         but the final out paths are.
@@ -1252,7 +1301,7 @@ class ProcessNode(Node):
         return template_out_paths
 
     @memoize_configured_property
-    def final_out_paths(self) -> Any:
+    def final_out_paths(self) -> dict[str, Any]:
         """
         These are the locations each output will actually be written to.
 
@@ -1272,7 +1321,7 @@ class ProcessNode(Node):
         return final_out_paths
 
     @memoize_configured_property
-    def final_node_dpath(self) -> Any:
+    def final_node_dpath(self) -> ub.Path:
         """
         The configured directory where all outputs are relative to.
         """
@@ -1283,7 +1332,7 @@ class ProcessNode(Node):
         )
 
     @property
-    def template_group_dpath(self) -> Any:
+    def template_group_dpath(self) -> ub.Path:
         """
         The template for the directory where the configured node dpath will be placed.
 
@@ -1301,7 +1350,7 @@ class ProcessNode(Node):
             return self.root_dpath / self.group / self.name
 
     @memoize_configured_property
-    def template_node_dpath(self) -> Any:
+    def template_node_dpath(self) -> ub.Path:
         """
         The template for the configured directory where all outputs are relative to.
         """
@@ -1312,7 +1361,7 @@ class ProcessNode(Node):
         return self.template_group_dpath / ('{' + key + '}')
 
     @memoize_configured_method
-    def predecessor_process_nodes(self) -> Any:
+    def predecessor_process_nodes(self) -> list['ProcessNode']:
         """
         Process nodes that this one depends on.
 
@@ -1395,7 +1444,7 @@ class ProcessNode(Node):
         return signature
 
     @memoize_configured_method
-    def effective_predecessor_process_nodes(self) -> Any:
+    def effective_predecessor_process_nodes(self) -> list['ProcessNode']:
         """
         Answers: *which jobs must finish before this concrete command runs?*
 
@@ -1430,7 +1479,7 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    def successor_process_nodes(self) -> Any:
+    def successor_process_nodes(self) -> list['ProcessNode']:
         """
         Process nodes that depend on this one.
 
@@ -1449,7 +1498,7 @@ class ProcessNode(Node):
         return nodes
 
     @memoize_configured_method
-    def ancestor_process_nodes(self) -> Any:
+    def ancestor_process_nodes(self) -> list['ProcessNode']:
         """
         Every process that could have to run before this one, transitively.
 
@@ -1468,7 +1517,7 @@ class ProcessNode(Node):
         return self._ancestors('predecessor_process_nodes')
 
     @memoize_configured_method
-    def effective_ancestor_process_nodes(self) -> Any:
+    def effective_ancestor_process_nodes(self) -> list['ProcessNode']:
         """
         Every process whose work this one's result actually derives from.
 
@@ -1499,7 +1548,7 @@ class ProcessNode(Node):
         return ancestors
 
     @memoize_configured_property
-    def depends(self) -> Any:
+    def depends(self) -> dict[str, Any]:
         """
         The payload ``process_id`` hashes: the computation this will perform.
 
