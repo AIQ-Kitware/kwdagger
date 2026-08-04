@@ -31,6 +31,7 @@ from kwdagger.pipeline._connections import (
     _alias_preds,
     _effective_origins,
     _origin_identity_bindings,
+    _supplying_ports,
     _origin_kind,
     _produced_origins,
 )
@@ -874,22 +875,35 @@ class ProcessNode(Node):
         return final_config
 
     def _ordinary_input_provenance(self) -> dict[str, Any]:
-        """Describe the exact upstream port bound to each ordinary input."""
+        """
+        Describe the exact upstream port bound to each ordinary input.
+
+        Every wired source is recorded, because the wiring is part of what was
+        requested. But a port may be wired to a producer and still not read
+        it -- an explicit value outranks a producer -- so a source that did not
+        supply the value carries ``supplied: false``. Without that, this record
+        and the requested configuration beside it contradict each other, and a
+        reader has no way to tell which one describes the command that ran.
+        """
         provenance = {}
         for input_name, input_node in self.inputs.items():
             bindings = []
+            effective = {
+                id(port) for port in _effective_origins(input_node)
+            }
             for source_port in input_node.pred:
                 assert isinstance(source_port, IONode)
                 if isinstance(source_port, OutputNode):
                     # A produced value: identity lives in the producing
-                    # instance, which ancestor hashing captures.
-                    bindings.append(
-                        {
-                            'source_process_id': source_port.parent.process_id,
-                            'source_port': source_port.name,
-                            'source_kind': 'output',
-                        }
-                    )
+                    # instance, which the ``__input__`` binding captures.
+                    binding = {
+                        'source_process_id': source_port.parent.process_id,
+                        'source_port': source_port.name,
+                        'source_kind': 'output',
+                    }
+                    if id(source_port) not in effective:
+                        binding['supplied'] = False
+                    bindings.append(binding)
                 else:
                     # An alias carries an already-known value, so it is not
                     # itself a process dependency: record the fully-qualified
@@ -903,7 +917,7 @@ class ProcessNode(Node):
                         'source_kind': 'input',
                     }
                     binding.update(_source_value_record(source_port))
-                    origins = _effective_origins(source_port)
+                    origins = _supplying_ports(source_port, set())
                     if origins:
                         # ... but if that value is produced, the reader still
                         # needs to know which process made it.
@@ -914,6 +928,10 @@ class ProcessNode(Node):
                             }
                             for port in origins
                         ]
+                    if not effective and origins:
+                        # The alias supplies this port, but something on this
+                        # port outranks it.
+                        binding['supplied'] = False
                     bindings.append(binding)
             if bindings:
                 bindings.sort(
@@ -1277,14 +1295,40 @@ class ProcessNode(Node):
     def predecessor_process_nodes(self) -> Any:
         """
         Process nodes that this one depends on.
+
+        Structural: every process wired to supply an input, whether or not
+        this node ends up reading what it makes. That is deliberately
+        conservative -- ordering a job that turns out not to matter costs
+        nothing, while missing one is a race. Identity asks a stricter
+        question; see :meth:`effective_predecessor_process_nodes`.
         """
+        return self._predecessors(_produced_origins)
+
+    @memoize_configured_method
+    def effective_predecessor_process_nodes(self) -> Any:
+        """
+        Process nodes whose products this one actually reads.
+
+        The same list as :meth:`predecessor_process_nodes` for an ordinary
+        pipeline. They differ only where something outranks a producer -- an
+        explicitly configured path, or a value forwarded from a peer port -- in
+        which case the wired producer supplies nothing here and has no business
+        in this node's identity. Including it would fan a producer sweep out
+        into identical consumer jobs that differ only in their result
+        directory.
+        """
+        return self._predecessors(_effective_origins)
+
+    def _predecessors(self, origins_of: Any) -> Any:
         nodes = [
             pred.parent
             for k, v in self.inputs.items()
-            for pred in _produced_origins(v)
+            for pred in origins_of(v)
         ] + self._pred_nodes_without_io_connection
         for input_node in self.inputs.values():
             if input_node._gather_members is not None:
+                # A gathered collection is read by definition: the manifest
+                # names its members and the command consumes it.
                 nodes.extend(
                     member.parent for member in input_node._gather_members
                 )
@@ -1314,6 +1358,11 @@ class ProcessNode(Node):
     @memoize_configured_method
     def ancestor_process_nodes(self) -> Any:
         """
+        Every process that must run before this one, transitively.
+
+        Structural, like :meth:`predecessor_process_nodes` -- this is the
+        scheduling answer.
+
         Example:
             >>> from kwdagger.pipeline import Pipeline
             >>> import ubelt as ub
@@ -1322,6 +1371,21 @@ class ProcessNode(Node):
             >>> ancestors = self.ancestor_process_nodes()
             >>> print('ancestors = {}'.format(ub.urepr(ancestors, nl=1)))
         """
+        return self._ancestors('predecessor_process_nodes')
+
+    @memoize_configured_method
+    def effective_ancestor_process_nodes(self) -> Any:
+        """
+        Every process whose work this one's result actually derives from.
+
+        This is the identity answer. It walks
+        :meth:`effective_predecessor_process_nodes`, so a producer whose output
+        is overridden before it reaches this node drops out of the chain --
+        along with everything that only reached here through it.
+        """
+        return self._ancestors('effective_predecessor_process_nodes')
+
+    def _ancestors(self, query: str) -> Any:
         # TODO: we need to ensure that this returns a consistent order
         seen = {}
         stack = [self]
@@ -1330,7 +1394,7 @@ class ProcessNode(Node):
             node_id = id(node)
             if node_id not in seen:
                 seen[node_id] = node
-                nodes = node.predecessor_process_nodes()
+                nodes = getattr(node, query)()
                 stack.extend(nodes)
         seen.pop(id(self))  # remove self
         ancestors = list(seen.values())
@@ -1340,8 +1404,14 @@ class ProcessNode(Node):
     def depends(self) -> Any:
         """
         Identity inputs for this process, including exact connected bindings.
+
+        Built from the *effective* ancestry: a process whose output this one
+        was wired to but does not read contributes nothing here, even though
+        it is still ordered ahead of this one. Otherwise sweeping a producer
+        whose output is overridden downstream would fan out identical consumer
+        jobs that differ only in their result directory.
         """
-        ancestors = self.ancestor_process_nodes()
+        ancestors = self.effective_ancestor_process_nodes()
         grouped_depends: dict[str, list[str]] = defaultdict(list)
         for node in ancestors:
             grouped_depends[node.name].append(node.algo_id)

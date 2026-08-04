@@ -81,6 +81,15 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   real dependencies of the final consumer, while the process that lent the
   input is still not one. An alias with no produced origin is unchanged and
   stays configuration-only.
+* An input's *effective* source is now resolved with the same precedence as
+  its value (gather, explicit, forwarded, produced, default) wherever identity
+  and provenance ask where a value came from, rather than reporting every
+  structurally reachable producer. Scheduling stays structural and
+  conservative: a process wired to supply an input is still ordered ahead of
+  its consumer even when the consumer does not read what it makes, because
+  ordering a job that turns out not to matter costs nothing while missing one
+  is a race. `ProcessNode.effective_predecessor_process_nodes` and
+  `effective_ancestor_process_nodes` expose the stricter answer.
 * An explicit value configured onto a connected input did not reach the
   consumer's identity. Explicit values outrank producers -- documented,
   deliberate precedence -- so the command read the override while identity
@@ -89,7 +98,19 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   one `process_id`, and one result directory; compilation kept whichever row it
   saw first. Identity, provenance, and `final_input_config` now resolve the
   *effective* source of an input using the same precedence as value
-  resolution, rather than every structurally reachable producer.
+  resolution, rather than every structurally reachable producer. This applies
+  through a whole alias chain: an override on an intermediate port hides the
+  producer wired behind it from everything downstream, not only from its
+  immediate neighbour.
+* A producer whose output was overridden before it was read still contributed
+  its `algo_id` to its consumer's `process_id`, because identity walked the
+  structural ancestry. Sweeping such a producer fanned out identical consumer
+  jobs differing only in result directory. Identity now walks the effective
+  ancestry.
+* `job_config.json` recorded both that a producer supplied an input and that
+  the command read an explicit override of it. The wiring is still recorded --
+  it is part of what was requested -- but a source that did not supply the
+  value is now marked `supplied: false`.
 * `Pipeline.proc_graph` described a forwarded gather manifest as
   configuration-only. The compiled graph had the edge, so this was never a
   race, but the logical graph a user reads before compiling was wrong. A

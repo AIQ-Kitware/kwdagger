@@ -368,6 +368,13 @@ def _effective_origins(input_node: Any) -> list:
     Returns:
         list: the supplying ports, or empty when nothing upstream supplies it.
     """
+    return _effective_origins_impl(input_node, set())
+
+
+def _effective_origins_impl(input_node: Any, seen: set) -> list:
+    if id(input_node) in seen:
+        return []
+    seen.add(id(input_node))
     if input_node._gather_members is not None:
         # This port's own gather. Its membership is identity-bearing through
         # ``depends['__gather__.<port>']``, not through an origin.
@@ -375,18 +382,43 @@ def _effective_origins(input_node: Any) -> list:
     if input_node._final_value is not _UNSET:
         # An explicitly configured value outranks any producer.
         return []
-    alias_origins = _alias_origins(input_node)
     if input_node._shared_value() is not _UNSET:
-        # A forwarded value outranks a producer too. Whatever the alias chain
-        # ends at is what supplies this port -- possibly nothing produced, if
-        # the far end is itself configured or defaulted.
-        return alias_origins
+        # A forwarded value outranks a producer too -- but *which* value the
+        # alias forwards is its own precedence question, not a structural one.
+        # An alias that was itself overridden supplies a configured constant,
+        # and the producer wired behind it supplies nothing to anybody. Asking
+        # each source the same question is the only way to see that; walking
+        # the chain structurally would report a producer that two hops of
+        # overrides ago stopped being read.
+        origins: dict[int, Any] = {}
+        for alias in _alias_preds(input_node):
+            if alias._resolved_value() is _UNSET:
+                # Supplies nothing, so it cannot be the effective source.
+                continue
+            for port in _supplying_ports(alias, seen):
+                origins[id(port)] = port
+        return sorted(origins.values(), key=lambda port: port.key)
     direct = _dependency_preds(input_node)
     if direct:
         return direct
     # Nothing is forwarded and nothing is wired: the declared default, if any,
     # is a value this node owns.
     return []
+
+
+def _supplying_ports(port: Any, seen: set) -> list:
+    """
+    The ports that produce the value ``port`` currently holds.
+
+    Differs from :func:`_effective_origins` in one case, which is why it is
+    separate: a gathered port *is* a producer as far as anyone borrowing its
+    value is concerned, because its owner writes the manifest. Asked about
+    itself, that same port has no origin -- its membership is identity-bearing
+    through ``__gather__.<port>``.
+    """
+    if port._gather_members is not None:
+        return [port]
+    return _effective_origins_impl(port, seen)
 
 
 def _origin_kind(port: Any) -> str:

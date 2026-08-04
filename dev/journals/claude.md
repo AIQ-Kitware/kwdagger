@@ -315,3 +315,57 @@ a checkout from before the package split, when it was
 
 TA1 fingerprints are still byte-identical, which continues to be the check that
 tells me whether I have moved something I did not mean to.
+
+## 2026-08-04 00:30:00 -0400
+
+Fourth review round. Two findings, both real, both reproduced first.
+
+**My last fix was half a fix.** `_effective_origins` asked the precedence
+question of the consumer's own port and then handed off to `_alias_origins`,
+which is deliberately structural. So an override on the consumer was honoured
+and an override one alias hop upstream was not: `producer -> lender -> consumer`
+with the override on `lender` still collided. Precedence is not a property of
+a port, it is a question you have to ask of every source in the chain, and I
+built the recursive case out of a non-recursive helper. `_supplying_ports`
+now carries the recursion, and the one place that genuinely differs -- a
+gathered port is an origin to a borrower but has no origin of its own -- is
+stated there rather than inferred.
+
+**The identity-ancestry finding was mine to own too.** `depends` folds in every
+ancestor's `algo_id`, and ancestry was structural, so a producer whose output
+was overridden before anyone read it still moved the consumer's `process_id`.
+Same command, different result directory; a producer sweep fans out identical
+consumer jobs. I had fixed the per-input binding last round and stopped there,
+which left ports effective and ancestry structural -- internally inconsistent
+in exactly the way that invites the next bug.
+
+Worth recording how I first read this: as the cost of the maintainer's decision
+to keep the conservative scheduling edge, and therefore as something to defer
+rather than fix. That was wrong, and the review was clearer than I was. The
+edge decision is about *scheduling*, where over-ordering is free. Identity is a
+different question asked at a different time -- always on a configured node,
+where the effective answer is knowable. Applying the structural/effective split
+at ancestry is the same split we already made at the port level, one level up,
+not a workaround for the compromise. The maintainer chose to fix it and was
+right to.
+
+The result is three answers where there was one, and they need to stay
+distinguishable: `predecessor_process_nodes` (structural, scheduling),
+`effective_predecessor_process_nodes` (identity), and the template graph, which
+is structural because it must be -- nothing is configured when it is built. I
+gave each a docstring saying which question it answers and why, because the
+failure mode here is not a wrong line of code, it is someone reaching for
+whichever helper is closest.
+
+One thing I deliberately did not do: `_depends_config` still starts from
+structural ancestry. AGENTS.md calls `job_config.json` the record of the
+*requested* experiment, and a producer that was scheduled is part of what was
+requested even if its output went unread. What was actually wrong there was the
+contradiction -- the record claimed the producer supplied the input while also
+recording the override. The wiring stays, marked `supplied: false`.
+
+TA1 fingerprints byte-identical again, which is what I would expect: the cards
+never override a connected input, so effective and structural coincide for
+them. That is also why none of these four rounds of identity bugs would have
+shown up in the work this branch exists to support -- worth remembering that a
+green fingerprint means "did not change what I care about", not "is correct".

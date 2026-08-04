@@ -945,3 +945,177 @@ def test_ordinary_same_node_forwarding_still_works(tmp_path):
         {'node.src_fpath': '/data/in.json'}, root_dpath=tmp_path, cache=False
     )
     assert node.final_in_paths['copy_fpath'] == '/data/in.json'
+
+
+# ---------------------------------------------------------------------------
+# 9. Effective resolution recurses; identity ancestry follows it
+# ---------------------------------------------------------------------------
+
+
+def _override_upstream_pipeline():
+    """
+    ``producer.output -> lender.input -> consumer.input``, where the override
+    lands on ``lender`` -- one alias hop away from the consumer.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'data_fpath': 'data.json'},
+        algo_params={'algo': 'x'},
+    )
+    lender = ProcessNode(
+        name='lender',
+        executable='python lender.py',
+        in_paths={'data_fpath'},
+        out_paths={'lender_fpath': 'lender.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['data_fpath'].connect(lender.inputs['data_fpath'])
+    lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline(
+        {'producer': producer, 'lender': lender, 'consumer': consumer}
+    )
+    return dag, consumer
+
+
+def test_an_override_one_alias_hop_away_still_changes_identity(tmp_path):
+    """
+    Precedence has to be asked of every source, not just the consumer's own
+    port. The lender's explicit value outranks the producer wired behind it,
+    so the producer supplies nothing to anybody -- and a structural walk of
+    the alias chain would report it anyway.
+    """
+    seen = {}
+    for override in ['/override/a', '/override/b']:
+        dag, consumer = _override_upstream_pipeline()
+        dag.configure(
+            {'lender.data_fpath': override, 'producer.algo': 'x'},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+        seen[override] = (
+            consumer.process_id,
+            str(consumer.final_in_paths['data_fpath']),
+        )
+    a, b = seen['/override/a'], seen['/override/b']
+    assert a[1] == '/override/a'
+    assert b[1] == '/override/b'
+    assert a[0] != b[0]
+
+
+def test_an_unoverridden_alias_chain_still_reaches_the_producer(tmp_path):
+    """The complement: with nothing overridden the producer is the source."""
+    dag, consumer = _override_upstream_pipeline()
+    dag.configure({'producer.algo': 'x'}, root_dpath=tmp_path, cache=False)
+    binding = consumer.depends['__input__.data_fpath']
+    assert binding['source_port'] == 'data_fpath'
+    assert binding['source_kind'] == 'output'
+    assert [
+        n.name for n in consumer.effective_predecessor_process_nodes()
+    ] == ['producer']
+
+
+def test_an_unread_producer_does_not_reach_consumer_identity(tmp_path):
+    """
+    Hold the override constant and vary only the producer's algorithm. The
+    consumer's command does not change, so neither may its result directory --
+    otherwise a producer sweep fans out into identical consumer jobs.
+    """
+    ids = {}
+    commands = {}
+    for algo in ['x', 'y']:
+        producer = ProcessNode(
+            name='producer',
+            executable='python producer.py',
+            out_paths={'data_fpath': 'data.json'},
+            algo_params={'algo': algo},
+        )
+        consumer = ProcessNode(
+            name='consumer',
+            executable='python consumer.py',
+            in_paths={'data_fpath'},
+            out_paths={'result_fpath': 'result.json'},
+        )
+        producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag.configure(
+            {'consumer.data_fpath': '/precomputed/data', 'producer.algo': algo},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+        ids[algo] = consumer.process_id
+        commands[algo] = consumer.command
+        last = (dag, consumer)
+
+    assert commands['x'] == commands['y']
+    assert ids['x'] == ids['y']
+
+    # The conservative scheduling edge is deliberately kept: ordering a job
+    # that turns out not to matter costs nothing, missing one is a race.
+    dag, consumer = last
+    assert dag.proc_graph.has_edge('producer', 'consumer')
+    assert [n.name for n in consumer.predecessor_process_nodes()] == [
+        'producer'
+    ]
+    assert consumer.effective_predecessor_process_nodes() == []
+
+
+def test_provenance_does_not_claim_an_unread_producer_supplied_the_value(
+    tmp_path,
+):
+    """
+    ``job_config.json`` recorded both that the producer supplied the input and
+    that the command read the override. One of those was false, and a reader
+    had no way to tell which.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'data_fpath': 'data.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag.configure(
+        {'consumer.data_fpath': '/precomputed/data'},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    record = consumer._depends_config()
+
+    # The wiring is still recorded -- it is part of what was requested ...
+    binding = record['__input__.data_fpath']
+    assert binding['source_port'] == 'data_fpath'
+    # ... but it is marked as not having supplied the value.
+    assert binding['supplied'] is False
+    assert record['consumer.data_fpath'] == '/precomputed/data'
+
+
+def test_a_read_producer_is_not_marked_unsupplied(tmp_path):
+    """The complement, so ``supplied`` cannot quietly become always-false."""
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'data_fpath': 'data.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+    binding = consumer._depends_config()['__input__.data_fpath']
+    assert 'supplied' not in binding

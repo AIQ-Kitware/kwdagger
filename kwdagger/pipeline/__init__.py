@@ -82,6 +82,7 @@ from kwdagger.pipeline._compile import (  # NOQA: F401
 from kwdagger.pipeline._connections import (  # NOQA: F401
     _UNSET,
     _alias_preds,
+    _effective_origins,
     _config_values_equal,
     _dependency_preds,
     _produced_origins,
