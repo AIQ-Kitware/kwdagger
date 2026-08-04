@@ -705,3 +705,37 @@ grep when I first changed the model rather than after being asked twice.
 
 TA1 fingerprints unchanged: the cards do not override connected inputs, use
 scalar absolute paths, and never key a config by a path.
+
+## 2026-08-04 11:35:35 -0400
+
+Maintenance pass rather than a design change: upgraded the pinned dependency
+set (`uv lock --upgrade`, 27 packages moved, notably pandas 3.0.3 -> 3.0.5,
+numpy gaining 2.5.1, wrapt 2.2 -> 2.3, pytest 9.0 -> 9.1) and re-ran the lint
+gate with current tool versions (ruff 0.16.1, ty 0.0.66). The point was to see
+whether the review-driven work of the last few days holds up under newer
+checkers and newer runtime libraries, not to change behavior.
+
+It nearly did. The one new diagnostic was ty rejecting the attribute stash in
+`_runtime.py` -- the per-queue `__kwdagger_requests__` registry that carries
+arbitration state across the row-at-a-time submission loop. That is a
+deliberate stash on a foreign (`cmd_queue.Queue`) object, so there is no
+declaration for a checker to find; silenced with the repo's existing
+`# type: ignore` convention rather than restructuring. I considered `setattr`
+instead and rejected it: it hides the same thing from the reader as well as
+from the checker, and the surrounding comment already explains why the registry
+lives on the queue.
+
+Worth flagging for whoever picks this up: `ty check ./tests` reports 11
+diagnostics, and they are *not* covered by the documented gate in AGENTS.md,
+which only checks `./kwdagger`. Skimming them they look like inference noise
+over JSON-shaped dicts (`b['consumer_inputs']['data_fpath']` where the value
+type widens to `str | dict`) plus `Job.allow_indent`, which cmd_queue sets
+dynamically and which the gather heredoc constraint depends on. None of them
+look like real defects, but I did not chase them, and I would not want the
+count to be read as a clean bill of health for the test directory. If we ever
+want tests inside the gate, the `allow_indent` one is the only case that would
+need cmd_queue's cooperation rather than a local annotation.
+
+Confident about: the upgrade itself. Full suite is 302 passed / 18 skipped,
+flake8's wider `F401,F811,F841` selection clean, ruff check and format clean.
+Nothing in the identity/arbitration work depends on a version that moved.

@@ -143,7 +143,7 @@ def submit_jobs(
     requests = getattr(queue, '__kwdagger_requests__', None)
     if requests is None:
         requests = {}
-        queue.__kwdagger_requests__ = requests
+        queue.__kwdagger_requests__ = requests  # type: ignore
 
     for node_name in node_order:
         node = proc_graph.nodes[node_name]['node']
