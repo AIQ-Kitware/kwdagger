@@ -19,7 +19,7 @@ KWDagger turns parameterized definitions of existing command-line programs into
 static, inspectable graphs of shell commands and hashed result directories. It
 builds on
 `cmd_queue <https://gitlab.kitware.com/computer-vision/cmd_queue>`_ and
-`scriptconfig <https://gitlab.kitware.com/utils/scriptconfig>`_ to provide:
+`kwconf <https://gitlab.kitware.com/utils/kwconf>`_ to provide:
 
 * Reusable ``kwdagger.pipeline.Pipeline`` and ``kwdagger.pipeline.ProcessNode``
   abstractions for constructing commands and wiring produced artifacts.

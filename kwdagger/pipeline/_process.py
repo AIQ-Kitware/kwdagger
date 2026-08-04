@@ -318,18 +318,18 @@ class ProcessNode(Node):
         >>> pycode = ub.codeblock(
                 '''
                 #!/usr/bin/env python3
-                import scriptconfig as scfg
+                import kwconf as kw
                 import ubelt as ub
 
-                class MyCLI(scfg.DataConfig):
+                class MyCLI(kw.Config):
                     src = None
                     dst = None
                     foo = None
                     bar = None
 
                     @classmethod
-                    def main(cls, cmdline=1, **kwargs):
-                        config = cls.cli(cmdline=cmdline, data=kwargs, strict=True)
+                    def main(cls, argv=True, **kwargs):
+                        config = cls.cli(argv=argv, data=kwargs, strict=True)
                         print('config = ' + ub.urepr(config, nl=1))
 
                 if __name__ == '__main__':
@@ -417,8 +417,9 @@ class ProcessNode(Node):
     setup: Any = None
     teardown: Any = None
 
-    # Optional scriptconfig schema for deriving path/param groups. This is the
-    # preferred mechanism; _from_scriptconfig remains for legacy compatibility.
+    # Optional kwconf schema for deriving path/param groups. This is the
+    # preferred mechanism; _from_kwconf remains for the one-class-per-node
+    # form.
     params: Any = None
     root_dpath: Any = None
 
@@ -615,47 +616,47 @@ class ProcessNode(Node):
                 )
 
     @classmethod
-    def _from_scriptconfig(cls, config_cls: Any, **kwargs: Any) -> Any:
+    def _from_kwconf(cls, config_cls: Any, **kwargs: Any) -> Any:
         """
         EXPERIMENTAL
 
-        Wrap a scriptconfig object to define a baseline process node.
+        Wrap a kwconf config to define a baseline process node.
         This is a legacy helper; prefer defining ``params`` on the node class.
 
         Ignore:
-            >>> import scriptconfig as scfg
-            >>> class Step1CLI(scfg.DataConfig):
-            >>>     src = scfg.Value(None, tags=['in_path', 'primary'])
-            >>>     dst = scfg.Value('step1_output.txt', tags=['out_path', 'primary'])
-            >>>     extra_dpath = scfg.Value('some_dpath', tags=['out_path'])
-            >>>     optional_path = scfg.Value(None, tags=['out_path'])
-            >>>     foo = scfg.Value(None, tags=['algo_param'])
-            >>>     bar = scfg.Value(None, tags=['algo_param'])
-            >>>     workers = scfg.Value(None, tags=['perf_param'])
-            >>>     verbose = scfg.Value(None, tags=['perf_param'])
+            >>> import kwconf as kw
+            >>> class Step1CLI(kw.Config):
+            >>>     src = kw.Value(None, tags=['in_path', 'primary'])
+            >>>     dst = kw.Value('step1_output.txt', tags=['out_path', 'primary'])
+            >>>     extra_dpath = kw.Value('some_dpath', tags=['out_path'])
+            >>>     optional_path = kw.Value(None, tags=['out_path'])
+            >>>     foo = kw.Value(None, tags=['algo_param'])
+            >>>     bar = kw.Value(None, tags=['algo_param'])
+            >>>     workers = kw.Value(None, tags=['perf_param'])
+            >>>     verbose = kw.Value(None, tags=['perf_param'])
             >>>     #
             >>>     @classmethod
-            >>>     def main(cls, cmdline=1, **kwargs):
-            >>>         config = cls.cli(cmdline=cmdline, data=kwargs, strict=True)
+            >>>     def main(cls, argv=True, **kwargs):
+            >>>         config = cls.cli(argv=argv, data=kwargs, strict=True)
             >>>         print('config = ' + ub.urepr(config, nl=1))
             >>> #
-            >>> class Step2CLI(scfg.DataConfig):
-            >>>     src = scfg.Value(None, tags=['in_path', 'primary'])
-            >>>     dst = scfg.Value('step2_output.txt', tags=['out_path', 'primary'])
+            >>> class Step2CLI(kw.Config):
+            >>>     src = kw.Value(None, tags=['in_path', 'primary'])
+            >>>     dst = kw.Value('step2_output.txt', tags=['out_path', 'primary'])
             >>>     thresh = 0.5
-            >>>     io_workers = scfg.Value(None, tags=['perf_param'])
-            >>>     verbose = scfg.Value(None, tags=['perf_param'])
+            >>>     io_workers = kw.Value(None, tags=['perf_param'])
+            >>>     verbose = kw.Value(None, tags=['perf_param'])
             >>>     #
             >>>     @classmethod
-            >>>     def main(cls, cmdline=1, **kwargs):
-            >>>         config = cls.cli(cmdline=cmdline, data=kwargs, strict=True)
+            >>>     def main(cls, argv=True, **kwargs):
+            >>>         config = cls.cli(argv=argv, data=kwargs, strict=True)
             >>>         print('config = ' + ub.urepr(config, nl=1))
             >>> #
             >>> config_cls = Step1CLI
             >>> from kwdagger.pipeline import Pipeline, ProcessNode
             >>> import ubelt as ub
-            >>> step1 = self = ProcessNode._from_scriptconfig(Step1CLI, executable='python step1.py', name='step1')
-            >>> step2 = ProcessNode._from_scriptconfig(Step2CLI, executable='python step2.py', name='step2')
+            >>> step1 = self = ProcessNode._from_kwconf(Step1CLI, executable='python step1.py', name='step1')
+            >>> step2 = ProcessNode._from_kwconf(Step2CLI, executable='python step2.py', name='step2')
             >>> step1.outputs['dst'].connect(step2.inputs['src'])
             >>> print(step1.command)
             >>> print(step2.command)
@@ -678,10 +679,10 @@ class ProcessNode(Node):
 
         Example:
             >>> import warnings
-            >>> import scriptconfig as scfg
-            >>> class DemoCfg(scfg.DataConfig):
-            >>>     src = scfg.Value('ignored.txt', tags=['in_path'])
-            >>>     dst = scfg.Value('schema.txt', tags=['out_path', 'primary'])
+            >>> import kwconf as kw
+            >>> class DemoCfg(kw.Config):
+            >>>     src = kw.Value('ignored.txt', tags=['in_path'])
+            >>>     dst = kw.Value('schema.txt', tags=['out_path', 'primary'])
             >>>     foo = 1
             >>> #
             >>> class DemoNode(ProcessNode):
@@ -700,7 +701,7 @@ class ProcessNode(Node):
             >>> node.out_paths['dst'] == 'explicit.txt'
             True
             >>> derived = ProcessNode._derive_groups_from_params_spec(DemoCfg)
-            >>> legacy = ProcessNode._from_scriptconfig(DemoCfg, name='demo')
+            >>> legacy = ProcessNode._from_kwconf(DemoCfg, name='demo')
             >>> legacy.in_paths == derived[0]
             True
             >>> legacy.out_paths == derived[1]

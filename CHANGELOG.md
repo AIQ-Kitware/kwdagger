@@ -19,6 +19,24 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 * The minimum `cmd_queue` is now 0.3.2, for its kwconf-native
   `CmdQueueConfigMixin`.
+* **kwdagger is kwconf-only; `scriptconfig` is no longer a dependency.** Every
+  CLI and config in the package -- `schedule`, `aggregate`, the modal entry
+  point, and the demo CLIs -- is a `kwconf.Config`, and `scriptconfig` is gone
+  from `requirements/runtime.txt`. The two libraries are close enough that the
+  port is mechanical: `scfg.DataConfig` -> `kwconf.Config`, `scfg.Value` ->
+  `kwconf.Value` with the same `nargs` / `position` / `isflag` / `type`
+  keywords and the same flag semantics, and `scfg.ModalCLI` -> `kwconf.ModalCLI`
+  with the same subclass form.
+
+  Two call-signature differences affect user code that subclasses or invokes
+  these CLIs: `Config.cli()` takes `argv=` rather than `cmdline=`, and its
+  sys.argv toggle is a `bool` rather than scriptconfig's `int` -- so
+  `main(argv=1)` becomes `main(argv=True)`. The tutorials and examples are
+  updated accordingly.
+* `ProcessNode._from_scriptconfig` is now `ProcessNode._from_kwconf`, taking a
+  `kwconf.Config` subclass. It remains the one-class-per-node helper; defining
+  `params` on the node class is still preferred.
+* The `scriptconfig_pipeline` tutorial is now `kwconf_pipeline`.
 * **`Pipeline` takes a sequence of nodes, not a mapping.** A node knows its own
   name, so the `{name: node}` form was a second place for that name to live and
   a second place for it to disagree: every graph, dotted config key, and result

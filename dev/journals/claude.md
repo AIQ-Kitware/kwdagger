@@ -1145,3 +1145,47 @@ that would report a confusing failure rather than a clear one if the
 precondition ever broke.
 
 377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 15:09:59 -0400
+
+kwdagger is kwconf-only now. I had sized this as a large job and was wrong;
+the maintainer's "there is nothing scriptconfig can do that kwconf can't, only
+small changes are necessary" was right, and I should have tested that claim
+before estimating against it.
+
+What I actually verified rather than assumed: `kwconf.Value` takes the same
+`nargs` / `position` / `isflag` / `type` keywords, and a side-by-side of flag
+and positional parsing across four argv shapes gives byte-identical results to
+scriptconfig. And `kwconf.ModalCLI` supports the same subclass-with-class-
+variables form, which I had assumed it did not after reading only its
+instance-based docstring example. That assumption would have turned a rename
+into a rewrite of every modal CLI in the tree.
+
+So the port was three names -- `Value`, `DataConfig` -> `Config`, `ModalCLI` --
+across 19 files, plus two call-signature differences that do reach user code:
+`cli()` takes `argv=` not `cmdline=`, and its sys.argv toggle is a bool rather
+than scriptconfig's int, so `main(argv=1)` becomes `main(argv=True)`. Those are
+in the changelog because anyone who wrote a node CLI against the tutorials has
+them.
+
+Two things worth recording about the mechanics. Running `ruff --fix` in the
+middle of a multi-step rename deleted an import that was unused *at that
+instant* and needed two steps later -- I should finish a rename before letting
+a fixer reason about the file. And the blanket text substitution renamed the
+`scriptconfig_pipeline` tutorial's *test id* while leaving the directory
+alone, which the tutorial test caught immediately; `git mv` sorted it out, but
+a text sweep over a tree where names are also paths wants the paths handled
+first.
+
+One thing to be honest about in the release notes: kwdagger no longer requires
+scriptconfig, but `cmd_queue.cli_boilerplate` still imports it at module
+level for its legacy `CMDQueueConfig`, so scriptconfig stays in the installed
+environment transitively. "kwdagger is kwconf-only" is true of kwdagger and
+not yet of the dependency tree.
+
+And the release-ordering constraint stands: cmd_queue 0.3.2 exists only in the
+sibling checkout. Until it is published, `cmd_queue >= 0.3.2` makes kwdagger
+0.3.0 uninstallable from an index -- the suite here only collects because I
+installed the local checkout editable.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.

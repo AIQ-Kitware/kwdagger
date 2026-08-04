@@ -4,26 +4,26 @@ from __future__ import annotations
 
 import kwcoco
 import numpy as np
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 from skimage import measure
 
 
-class ExtractBoxesConfig(scfg.DataConfig):
+class ExtractBoxesConfig(kw.Config):
     """CLI options for extracting boxes from saliency maps."""
 
-    coco_fpath = scfg.Value(
+    coco_fpath = kw.Value(
         None, help='Input kwcoco file with saliency aux data'
     )
-    dst_coco_fpath = scfg.Value(
+    dst_coco_fpath = kw.Value(
         'pred_boxes.kwcoco.json', help='Where to write box predictions'
     )
-    heatmap_channel = scfg.Value('saliency', help='Channel name to search for')
-    threshold = scfg.Value(0.5, help='Threshold for binarizing saliency')
-    min_area = scfg.Value(4, help='Filter out tiny components')
+    heatmap_channel = kw.Value('saliency', help='Channel name to search for')
+    threshold = kw.Value(0.5, help='Threshold for binarizing saliency')
+    min_area = kw.Value(4, help='Filter out tiny components')
 
     @classmethod
-    def main(cls, argv=1, **kwargs):
+    def main(cls, argv=True, **kwargs):
         config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
         run_extract_boxes(**config)
 

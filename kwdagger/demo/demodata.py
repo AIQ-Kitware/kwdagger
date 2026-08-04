@@ -65,7 +65,7 @@ This pipeline can be run through mlops with the following invocations:
         " \
         --cache_resolved_results=False
 
-It can also be run within Python because every scriptconfig CLI always has a
+It can also be run within Python because every kwconf CLI always has a
 corresponding way to invoke it with a simple python dictionary.
 
 Example:
@@ -133,8 +133,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import kwconf as kw
 import kwutil
-import scriptconfig as scfg
 import ubelt as ub
 
 from kwdagger.pipeline import Pipeline, ProcessNode
@@ -143,19 +143,19 @@ from kwdagger.utils import util_dotdict
 ### EXECUTABLE PROCESS CODE
 
 
-class Stage1PredictCLI(scfg.DataConfig):
+class Stage1PredictCLI(kw.Config):
     """
     The logic for the demo "prediction" process.
     """
 
     __command__ = 'stage1_predict'
 
-    src_fpath = scfg.Value(None, help='path to input file')
-    dst_fpath = scfg.Value(None, help='path to output file')
-    dst_dpath = scfg.Value(None, help='path to output directory')
+    src_fpath = kw.Value(None, help='path to input file')
+    dst_fpath = kw.Value(None, help='path to output file')
+    dst_dpath = kw.Value(None, help='path to output directory')
 
-    param1 = scfg.Value(None, help='some important parameter')
-    workers = scfg.Value(0, help='number of parallel workers')
+    param1 = kw.Value(None, help='some important parameter')
+    workers = kw.Value(0, help='number of parallel workers')
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs: Any) -> None:
@@ -192,17 +192,17 @@ class Stage1PredictCLI(scfg.DataConfig):
         print(f'Wrote to: dst_fpath={dst_fpath}')
 
 
-class Stage1EvaluateCLI(scfg.DataConfig):
+class Stage1EvaluateCLI(kw.Config):
     """
     The logic for the demo "evaluation" process.
     """
 
     __command__ = 'stage1_evaluate'
 
-    pred_fpath = scfg.Value(None, help='path to predicted file')
-    true_fpath = scfg.Value(None, help='path to truth file')
-    out_fpath = scfg.Value(None, help='path to evaluation file')
-    workers = scfg.Value(0, help='number of parallel workers')
+    pred_fpath = kw.Value(None, help='path to predicted file')
+    true_fpath = kw.Value(None, help='path to truth file')
+    out_fpath = kw.Value(None, help='path to evaluation file')
+    workers = kw.Value(0, help='number of parallel workers')
 
     @classmethod
     def main(cls, argv: int | bool | list[str] = 1, **kwargs: Any) -> None:
@@ -252,7 +252,7 @@ class Stage1EvaluateCLI(scfg.DataConfig):
         print(f'wrote to: out_fpath={out_fpath}')
 
 
-class DemodataScript(scfg.ModalCLI):
+class DemodataScript(kw.ModalCLI):
     """
     To self contain multiple "processes" in the same file we make a simple
     modal CLI.

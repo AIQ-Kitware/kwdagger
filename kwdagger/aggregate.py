@@ -71,10 +71,10 @@ import math
 from typing import Any, Mapping, Sequence, cast
 
 import ubelt as ub
-from scriptconfig import DataConfig, Value
+from kwconf import Config, Value
 
 
-class AggregateLoader(DataConfig):
+class AggregateLoader(Config):
     """
     Base config that will be mixed in to the :class:`AggregateEvluationConfig`.
     This config just defines parts related to constructing the

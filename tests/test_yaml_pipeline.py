@@ -415,18 +415,18 @@ def _write_eval_script(dpath):
         #!/usr/bin/env python3
         import json
         import kwutil
-        import scriptconfig as scfg
+        import kwconf as kw
         import ubelt as ub
 
 
-        class EvalCLI(scfg.DataConfig):
+        class EvalCLI(kw.Config):
             src = None
             dst = 'metrics.json'
             thresh = 0.5
             workers = 0
 
             @classmethod
-            def main(cls, argv=1, **kwargs):
+            def main(cls, argv=True, **kwargs):
                 config = cls.cli(argv=argv, data=kwargs, strict=True)
                 proc = kwutil.ProcessContext(
                     name='eval_node', type='process',

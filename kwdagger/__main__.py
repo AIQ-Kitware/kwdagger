@@ -2,12 +2,12 @@
 # PYTHON_ARGCOMPLETE_OK
 from __future__ import annotations
 
-import scriptconfig as scfg
+import kwconf as kw
 
 # from module.cli.script import ScriptCLI
 
 
-class KWDaggerModal(scfg.ModalCLI):
+class KWDaggerModal(kw.ModalCLI):
     """
     KWDagger: define bash-centric DAGs and run large parameter sweeps.
 
@@ -18,7 +18,7 @@ class KWDaggerModal(scfg.ModalCLI):
 
     from kwdagger.aggregate import AggregateEvluationConfig as aggregate
     from kwdagger.schedule import ScheduleEvaluationConfig as schedule
-    # Either add other scriptconfig clis as class variables here
+    # Either add other kwconf clis as class variables here
     # from module.cli.script import ScriptCLI as script
 
 

@@ -161,6 +161,6 @@ def test_schedule_cli_log_default_tees(tmp_path):
             'default --log was expected to be True (tee on), but '
             f"section {i} has no '| tee '. If you intentionally flipped "
             'the default to False, update this test together with the '
-            'scfg.Value(...) default and submit_jobs default. '
+            'kw.Value(...) default and submit_jobs default. '
             f'Section was:\n{section}'
         )

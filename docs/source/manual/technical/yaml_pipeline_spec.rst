@@ -276,7 +276,7 @@ behavioral overrides that the data schema cannot express:
   alone;
 * **bespoke result parsing** -- a ``load_result`` more involved than the generic
   loader (the ``load_result:`` dotted path above is the narrow form of this);
-* **scriptconfig-derived groups** -- a node that sets ``params = SomeCLI`` to
+* **kwconf-derived groups** -- a node that sets ``params = SomeCLI`` to
   derive its port/parameter groups from a schema class.
 
 Rather than serialize that code, **point at the class**. A node spec may set

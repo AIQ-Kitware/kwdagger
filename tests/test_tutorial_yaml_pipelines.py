@@ -22,7 +22,7 @@ TUTORIALS = ub.Path(__file__).parent.parent / 'docs/source/manual/tutorials'
 # (tutorial dir, module, builder func, yaml file, representative matrix row)
 CASES = [
     (
-        'scriptconfig_pipeline',
+        'kwconf_pipeline',
         'example_user_module.pipelines',
         'my_sentiment_pipeline',
         'pipeline.yaml',

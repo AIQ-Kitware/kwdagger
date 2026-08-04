@@ -12,12 +12,12 @@ def demodata_pipeline(dpath):
     script_text = ub.codeblock(
         """
         #!/usr/bin/env python3
-        import scriptconfig as scfg
+        import kwconf as kw
         import ubelt as ub
         import json
 
 
-        class ScriptCLI(scfg.DataConfig):
+        class ScriptCLI(kw.Config):
             src = 'input.json'
             dst = 'output.json'
             param1 = None
@@ -25,7 +25,7 @@ def demodata_pipeline(dpath):
             param3 = None
 
             @classmethod
-            def main(cls, argv=1, **kwargs):
+            def main(cls, argv=True, **kwargs):
                 config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
                 src_fpath = ub.Path(config.src)
                 dst_fpath = ub.Path(config.dst)
