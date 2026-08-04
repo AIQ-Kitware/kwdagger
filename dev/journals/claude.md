@@ -869,3 +869,66 @@ phrasings in the gather code that mean group membership, not `process_id`, and
 would mislead exactly the reader this documentation exists to stop.
 
 Full suite 327 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:05:30 -0400
+
+Typing pass first, then a fourth review round.
+
+The typing work had one real lever and the rest followed from it.
+`memoize_configured_property` returned a plain `property` and
+`memoize_configured_method` was annotated `Any`, so the return annotation of
+every decorated function was erased at the call site -- sixteen members
+carrying the node's entire configured state, all reading as `Any` everywhere
+they were used. Both are now generic descriptors. I kept the property a *data*
+descriptor, with `__set__` raising the way a setter-less property does, so
+assignment and shadowing behave identically; that felt worth the extra method
+to avoid a subtle semantic change in a core mechanism. A `_NamedFunction`
+protocol states what the decorators actually need, which `Callable` cannot: the
+cache key comes from `__name__`.
+
+Three latent bugs fell out, all on paths that had never run:
+`sorted(n.name for ...)` in two error messages raises `TypeError` if any node
+name is `None`, and `_coerce_modpath` could return the `PathLike` it was handed
+where every caller wants a string. That is the argument for the exercise -- not
+the annotations themselves but what they surface.
+
+I deliberately stopped at the pipeline package. `aggregate.py` alone has 151
+`Any`, and the ones I left are mostly honest: coercion boundaries like
+`coerce_pipeline` really do take anything.
+
+Then the review. The Slurm finding is the better of the two and I should have
+caught it when I wrote the arbitration, because I had just written the
+paragraph about stale row state for input ports:
+`configure` defaulted `__slurm_options__` to *its own current value*, so a row
+that omitted it inherited the previous row's request. Arbitration then trusted
+that as the current row's ask. Fixed the way `ProcessNode` already did it, with
+a base the row resets to.
+
+Fixing it turned up something adjacent: `schedule.py` only applied the CLI's
+`--slurm_options` on the gather path. Ordinary pipelines dropped it entirely,
+because that branch relies on `param_slurm_options` being injected per row and
+never touches `config.slurm_options`. Both paths now set the base, so the flag
+works where it previously did nothing.
+
+Second finding: `os.fspath` may return `bytes`, which walked straight through
+the normalization I wrote last round and violated the invariant in its own
+docstring. Refused rather than decoded -- kwdagger has no business guessing an
+encoding for something that ends up in a hash and on a command line. And the
+reviewer was right that `default=str` in the arbitration serializer was a way
+of not checking; removed, so arbitration and the writer refuse the same things.
+Both are now lessons.
+
+On scope, I took the stronger option: normalization moved to a leaf,
+`_config_values.py`, and now covers row overrides, `Pipeline.config`, and
+declared `in_paths` / `out_paths` / `algo_params` / `perf_params` defaults. A
+declared default reaches identity and `job_config.json` by exactly the route an
+override does, so leaving it outside the boundary was the same defect one
+surface over.
+
+The maintainer confirmed the string-key rule is intentional -- keys are
+variable identifiers -- so it is now documented as a domain rule rather than as
+tidying, including that YAML's `0:` and `true:` are rejected. That is the part
+most likely to bite a real user, and it deserves to be found in the changelog
+rather than in a traceback.
+
+Full suite 339 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.

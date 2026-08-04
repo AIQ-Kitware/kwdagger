@@ -71,6 +71,20 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   decided the persisted record, so reversing a matrix changed what was written.
   Delivery still does not reach `process_id`; the conflicting requests are the
   same computation and still hash alike.
+* A matrix row that omitted top-level `__slurm_options__` inherited the
+  previous row's value, because `Pipeline.configure` defaulted to its own
+  current value rather than to a baseline. "Explicit options" and "no options"
+  were therefore indistinguishable in row order, which the new arbitration
+  depends on telling apart. `Pipeline` now keeps `_base_slurm_options` as the
+  persistent pipeline-wide default and resets to it on every `configure`, the
+  way `ProcessNode` already did. As part of this, the `schedule` CLI's
+  `--slurm_options` now reach ordinary pipelines: they were applied only on the
+  gather path and silently dropped on the row-at-a-time one.
+* The requested-record serializer used a `default=str` fallback that the writer
+  of `job_config.json` does not have, so a value only one of them could
+  serialize passed arbitration and failed at write time -- the reader
+  disagreement the record comparison exists to remove. Both now refuse the
+  same things.
 * Requests sharing one `process_id` were arbitrated only on state stored on the
   node, so an ordinary pipeline never compared top-level `__slurm_options__`
   (which `Pipeline.configure` keeps on the pipeline and never copies onto a
@@ -87,11 +101,23 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   node configuration.
 * **Configuration now has one internal representation, established when it is
   coerced:** every path-like object is a string and every mapping key is a
-  string. A Python caller may still pass `pathlib.Path` values -- including as
-  mapping keys -- and `os.fspath` converts them at the boundary, converting
-  spelling only, so a relative path stays relative. A mapping key that is
-  neither a string nor a path is now rejected with a `TypeError`, and two keys
-  normalizing to the same string are reported as a collision.
+  string. The boundary is the new `kwdagger.pipeline._config_values`, and it
+  covers row overrides, the pipeline's own requested row, and declared
+  `in_paths` / `out_paths` / `algo_params` / `perf_params` defaults -- a
+  default reaches identity and `job_config.json` by the same route an override
+  does.
+
+  A Python caller may still pass `pathlib.Path` values -- including as mapping
+  keys -- and `os.fspath` converts them, converting spelling only, so a
+  relative path stays relative. A `PathLike` whose `__fspath__` returns `bytes`
+  is rejected rather than decoded with a guessed encoding.
+
+  **Configuration mappings must now have string keys, including mappings loaded
+  from YAML.** This is an intentional domain rule: mapping keys are variable
+  identifiers. YAML decodes `0:`, `true:`, and `null:` into non-string Python
+  keys, so a spec such as `class_weights: {0: 1.0, 1: 2.5}` is rejected with a
+  `TypeError` where it previously became the JSON keys `"0"` and `"1"`. Two
+  keys normalizing to the same string are reported as a collision.
 
   Previously the conversion was left to whichever serializer saw the value, and
   they disagree: a `PathLike` key raised `TypeError` when the requested record

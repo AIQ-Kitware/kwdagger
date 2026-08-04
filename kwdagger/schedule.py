@@ -253,8 +253,15 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     # path. Gather pipelines compile every row first so collection membership
     # is known before any concrete command is submitted.
     configured_stats = []
+    # A pipeline-wide default, so it must be the *base* rather than the
+    # effective value: a row that omits ``__slurm_options__`` then resets to
+    # this instead of inheriting the previous row's request. Applies to both
+    # scheduling paths -- the ordinary one used to drop it entirely.
+    dag._base_slurm_options = pipeline_coerce_slurm_options(
+        config.slurm_options
+    )
+    dag.__slurm_options__ = dict(dag._base_slurm_options)
     if dag.has_gather_connections:
-        dag.__slurm_options__ = dict(config.slurm_options)
         compiled = dag.compile_configurations(
             all_param_grid,
             root_dpath=root_dpath,

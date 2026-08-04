@@ -18,7 +18,7 @@ common workflows, and testing/documentation practices.
 
 ## Repository layout
 - `kwdagger/`
-  - `pipeline/` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`. Import everything from `kwdagger.pipeline`; the submodules are private and layered one-way (`_shell`/`_slurm` → `_runtime` → `_connections` → `_process` → `_compile` → `_logical`). `tests/test_import_compat.py` enforces both the import surface and that direction.
+  - `pipeline/` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`. Import everything from `kwdagger.pipeline`; the submodules are private and layered one-way (`_config_values`/`_shell`/`_slurm` → `_agreement` → `_runtime` → `_connections` → `_process` → `_compile` → `_logical`). `tests/test_import_compat.py` enforces both the import surface and that direction.
   - `schedule.py` – `ScheduleEvaluationConfig` and supporting helpers that expand YAML/JSON parameter matrices, prepare job directories, and dispatch to cmd_queue backends.
   - `aggregate.py` – `AggregateEvluationConfig` CLI that loads completed runs, computes parameter hash IDs, aggregates metrics, and writes reports.
   - `aggregate_loader.py` / `aggregate_plots.py` – helpers for loading pipeline outputs and producing tabular or plotted summaries.
@@ -206,20 +206,35 @@ would leave two different configurations with one identity, and separate
 schedules cannot be arbitrated against each other after the fact.
 
 **Configuration has one internal representation, established at the boundary.**
-After `configure` coerces a value, *every path-like object is a string and
-every mapping key is a string*. YAML and the CLI supply strings already; a
-Python caller may pass an `os.PathLike` as a convenience and `os.fspath`
+`kwdagger/pipeline/_config_values.py` is that boundary, and the invariant it
+establishes is: *after configuration coercion, every path-like object is a
+string and every mapping key is a string*. It covers row overrides, the
+pipeline's own requested row, and declared `in_paths` / `out_paths` /
+`algo_params` / `perf_params` defaults — a default reaches identity and
+`job_config.json` by the same route an override does.
+
+A Python caller may pass an `os.PathLike` as a convenience and `os.fspath`
 converts it — spelling only, so a relative path stays relative until the
-path-resolution stage deliberately interprets it. The caller's original type is
-not retained or reproduced, and a mapping key that is neither a string nor a
-path is refused. Two keys normalizing alike are a reported collision, as are
+path-resolution stage deliberately interprets it, and the caller's original
+type is not retained. A `PathLike` whose `__fspath__` returns `bytes` is
+refused: kwdagger records configuration as text and will not guess an encoding
+for what ends up in the hash and on a command line.
+
+**Configuration mappings must have string keys — including mappings loaded from
+YAML.** This is a domain rule, not just the removal of a Python-only shape:
+YAML decodes `0:`, `true:`, and `null:` into non-string keys, so
+`class_weights: {0: 1.0, 1: 2.5}` is now rejected. Mapping keys are variable
+identifiers here. Two keys normalizing alike are a reported collision, as are
 two paths canonicalizing alike.
 
 Identity, commands, provenance, arbitration, and the JSON on disk may all
-assume that invariant. Do not teach any of them to understand `os.PathLike`
+assume the invariant. Do not teach any of them to understand `os.PathLike`
 separately, and do not leave the conversion to `json.dumps`: it renames an
 `int` key silently, refuses a `Path` one, and cannot sort a mixture, so the
-readers end up disagreeing about what the keys are.
+readers end up disagreeing about what the keys are. For the same reason the
+arbitration serializer carries no `default=` fallback — it must refuse exactly
+what the writer refuses, or a leak passes arbitration and fails at write
+time.
 
 A corollary, stated because it has been violated: **equal `process_id` implies
 equal command-defining state, apart from state that is deliberately unhashed.**
@@ -231,7 +246,10 @@ identity must therefore agree on — compilation reports each as a user-facing
 `ValueError`:
 
 - **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
-  and output-path overrides. These change how a process runs, not what it
+  and output-path overrides. A row that omits any of it is requesting the
+  declared default, never the previous row's value: `Pipeline.configure` resets
+  `__slurm_options__` from `_base_slurm_options` each call, because otherwise
+  "explicit options" and "no options" are indistinguishable in row order. These change how a process runs, not what it
   computes. Note that not all of it is *on* the node: an ordinary pipeline
   keeps top-level `__slurm_options__` on the `Pipeline`, and `log`,
   `enable_links`, `write_invocations`, and `write_configs` are arguments to

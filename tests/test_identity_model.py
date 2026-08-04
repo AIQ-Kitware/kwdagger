@@ -1292,3 +1292,107 @@ def test_normalizing_a_path_does_not_resolve_it(tmp_path):
         cache=False,
     )
     assert consumer.config['data_fpath'] == {'rel/x.json': 'rel/y'}
+
+
+@pytest.mark.parametrize('order', [[0, 1], [1, 0]])
+def test_omitting_pipeline_slurm_options_does_not_inherit_them(order, tmp_path):
+    """
+    A row that says nothing about Slurm options is asking for the default, not
+    for whatever the previous row asked for. Reusing the previous value made
+    the distinction between "explicit options" and "no options" depend on row
+    order -- the same stale-row-state class already fixed for input and
+    parameter ports, and now load-bearing because arbitration reads this off
+    the pipeline.
+    """
+    rows = [
+        {'predict.model': 'm', '__slurm_options__': {'gres': 'gpu:1'}},
+        {'predict.model': 'm'},
+    ]
+    ordered = [rows[idx] for idx in order]
+    with pytest.raises(ValueError, match='__slurm_options__'):
+        _submit_rows(_perf_pipeline(), ordered, tmp_path, backend='slurm')
+
+
+def test_a_pipeline_wide_default_still_applies_to_every_row(tmp_path):
+    """
+    The complement, and why the reset is to a base rather than to nothing: a
+    persistent default is how the CLI's ``--slurm_options`` reach every row.
+    """
+    dag = _perf_pipeline()
+    dag._base_slurm_options = {'gres': 'gpu:2'}
+    rows = [{'predict.model': 'm'}] * 2
+    queue, statuses = _submit_rows(dag, rows, tmp_path, backend='slurm')
+    assert statuses[1]['predict'] == 'duplicate_submission'
+    assert 'gpu:2' in queue.finalize_text()
+
+
+class _BytesPath:
+    """A ``PathLike`` whose ``__fspath__`` returns bytes, which is legal."""
+
+    def __fspath__(self):
+        return b'/tmp/x.json'
+
+
+@pytest.mark.parametrize('shape', ['value', 'key', 'nested'])
+def test_a_bytes_path_is_refused_at_the_boundary(shape, tmp_path):
+    """
+    ``os.fspath`` may return ``bytes``. Accepting that would leave a
+    Python-only shape past the boundary that claims to have removed them: it
+    is not a JSON object name, it is not JSON-serializable as a value, and
+    kwdagger has no business guessing an encoding for what ends up in the hash
+    and on the command line.
+    """
+    values = {
+        'value': _BytesPath(),
+        'key': {_BytesPath(): 1},
+        'nested': {'files': [_BytesPath()]},
+    }
+    dag, _consumer_node = _mapping_key_dag()
+    with pytest.raises(TypeError, match='bytes path'):
+        dag.configure(
+            {'consumer.data_fpath': values[shape]},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+
+
+def test_a_declared_default_crosses_the_boundary_too(tmp_path):
+    """
+    A declared default reaches identity and job_config.json by the same route
+    a row override does, so it is normalized at the same place.
+    """
+    node = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath': ub.Path('rel/default.json')},
+        out_paths={'result_fpath': 'result.json'},
+        algo_params={'weights': {ub.Path('rel/w.json'): 1}},
+    )
+    dag = Pipeline({'consumer': node})
+    dag.configure({}, root_dpath=tmp_path, cache=False)
+    assert node.in_paths['data_fpath'] == 'rel/default.json'
+    assert node.algo_params['weights'] == {'rel/w.json': 1}
+    # ... so it reaches identity as a string, not as a Path. A default is
+    # deliberately absent from the requested record -- it was not requested --
+    # but it is very much part of what this node computes.
+    assert node.final_algo_config['weights'] == {'rel/w.json': 1}
+    assert node.depends['__inputs__']['data_fpath'] == 'rel/default.json'
+    json.dumps(node._depends_config())
+
+
+def test_the_requested_record_and_the_written_file_agree(tmp_path):
+    """
+    Arbitration used to serialize with ``default=str`` while the writer had no
+    fallback, so a leaked value could pass arbitration and fail only when
+    ``job_config.json`` was written. Both now refuse the same things.
+    """
+    dag, consumer = _mapping_key_dag()
+    dag.configure(
+        {'consumer.data_fpath': {'a': [ub.Path(tmp_path / 'x')]}},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    record = consumer.requested_provenance_record()
+    written = json.dumps(consumer._depends_config())
+    for key, value in record.items():
+        assert json.loads(value) == json.loads(written)[key]

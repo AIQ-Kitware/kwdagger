@@ -70,6 +70,7 @@ def test_pipeline_module_rejects_unknown_attributes():
 #: the whole point of the package split -- without it the boundaries are
 #: decoration.
 LAYERS = [
+    '_config_values',
     '_shell',
     '_slurm',
     '_agreement',

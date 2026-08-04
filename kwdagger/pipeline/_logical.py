@@ -29,6 +29,7 @@ from kwdagger.pipeline._compile import (
     CompiledPipeline,
     _compile_pipeline_configurations,
 )
+from kwdagger.pipeline._config_values import normalize_config
 from kwdagger.pipeline._connections import (
     GatherConnection,
     _alias_preds,
@@ -89,6 +90,15 @@ class Pipeline:
             nodes = []
         self.nodes = nodes
         self.config: Any = None
+        #: Persistent pipeline-wide defaults: what every row gets unless it
+        #: asks for something else. Set by the CLI or a Python caller, never
+        #: by a matrix row.
+        self._base_slurm_options: dict[str, Any] = {}
+        #: The options the *current* row requested, base included. Reset from
+        #: the base on every ``configure`` -- a row that omits them is asking
+        #: for the default, not for whatever the previous row happened to ask
+        #: for, and arbitration compares this to decide whether two rows want
+        #: the same resources.
         self.__slurm_options__: dict[str, Any] = {}
 
         self._dirty = True
@@ -462,9 +472,13 @@ class Pipeline:
         assert isinstance(self.proc_graph, nx.DiGraph)
         if config is not None:
             config = dict(config)
-            self.__slurm_options__ = coerce_slurm_options(
-                config.pop('__slurm_options__', self.__slurm_options__)
+            self.__slurm_options__ = ub.udict(self._base_slurm_options) | (
+                coerce_slurm_options(config.pop('__slurm_options__', None))
             )
+            # The requested row crosses the boundary once, here, rather than
+            # each node re-deriving it: what a reader of ``Pipeline.config``
+            # sees is then the same shape the nodes were configured with.
+            config = normalize_config(config)
             self.config = config
             # print('CONFIGURE config = {}'.format(ub.urepr(config, nl=1)))
 

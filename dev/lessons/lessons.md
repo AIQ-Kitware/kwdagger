@@ -110,3 +110,28 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
     `test_a_path_and_its_string_are_one_key`; `_normalize_config_value`.
   - **Applies when:** adding a value shape to configuration, or relying on a
     serializer to coerce something the rest of the system also reads.
+
+- **Lesson:** "Default to the current value" is how per-row state goes stale.
+  `Pipeline.configure` wrote
+  ``self.__slurm_options__ = coerce(config.pop('__slurm_options__', self.__slurm_options__))``,
+  so a row that omitted the key inherited the previous row's request and
+  "explicit options" became indistinguishable from "no options" in row order.
+  The fix is the shape `ProcessNode` already had: keep a separate baseline and
+  reset to it every configure. A per-row setter whose default is its own
+  current value is always this bug; the default has to be the baseline.
+  - **Evidence / MWE:** `tests/test_identity_model.py`
+    `test_omitting_pipeline_slurm_options_does_not_inherit_them`; commit
+    "Reset per-row state to a baseline, and refuse bytes paths".
+  - **Applies when:** adding anything to `Pipeline.configure` or
+    `ProcessNode.configure` that a matrix row may set.
+
+- **Lesson:** Two serializers for one artifact must refuse the same things.
+  Arbitration serialized the requested record with `json.dumps(..., default=str)`
+  while the writer of `job_config.json` used plain `json.dumps`, so a value only
+  the writer would reject passed the comparison and failed later, at write time
+  -- the exact reader disagreement the record comparison exists to remove. A
+  `default=` fallback in a checker is a way of not checking.
+  - **Evidence / MWE:** `tests/test_identity_model.py`
+    `test_the_requested_record_and_the_written_file_agree`.
+  - **Applies when:** comparing a serialized form of something that is also
+    written somewhere else.

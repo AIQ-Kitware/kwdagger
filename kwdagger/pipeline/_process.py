@@ -23,6 +23,10 @@ from typing import Any, Generic, Protocol, TypeVar, cast, overload
 
 import ubelt as ub
 
+from kwdagger.pipeline._config_values import (
+    normalize_config,
+    normalize_config_value,
+)
 from kwdagger.pipeline._connections import (
     _UNSET,
     InputNode,
@@ -534,6 +538,24 @@ class ProcessNode(Node):
             if self.primary_out_key is None:
                 self.primary_out_key = derived_primary_out_key
 
+        # Declared defaults reach final_algo_config, final_in_paths, and so
+        # identity and job_config.json, by exactly the same route a row
+        # override does. They cross the boundary here, or a Path default is a
+        # Python-only shape that arrives on the far side of it.
+        for _declared_name in (
+            'in_paths',
+            'out_paths',
+            'algo_params',
+            'perf_params',
+        ):
+            _declared = getattr(self, _declared_name)
+            if isinstance(_declared, dict):
+                setattr(
+                    self,
+                    _declared_name,
+                    normalize_config(cast(dict[str, Any], _declared)),
+                )
+
         if self.primary_out_key is None:
             if len(self.out_paths) == 1:
                 self.primary_out_key = ub.peek(self.out_paths)
@@ -825,7 +847,7 @@ class ProcessNode(Node):
         if config is None:
             config = {}
         # print(f'config = {ub.urepr(config, nl=1)}')
-        config = _fixup_config_serializability(config)
+        config = normalize_config(config)
         self.enabled = config.pop('__enabled__', enabled)
         # Special case for process specific slurm options
         _raw_slurm_opts = config.pop('__slurm_options__', None)
@@ -1062,13 +1084,13 @@ class ProcessNode(Node):
                 continue
             value = input_node._shared_value()
             if value is not _UNSET:
-                shared[input_name] = _normalize_config_value(value)
+                shared[input_name] = normalize_config_value(value)
         for param_name, param_port in self.param_ports.items():
             if not param_port.pred:
                 continue
             value = param_port._shared_value()
             if value is not _UNSET:
-                shared[param_name] = _normalize_config_value(value)
+                shared[param_name] = normalize_config_value(value)
         return shared
 
     def _gather_provenance(self) -> dict[str, Any]:
@@ -1404,8 +1426,12 @@ class ProcessNode(Node):
         they simply cannot share one result directory while demanding different
         records of what was asked for.
         """
+        # No ``default=`` fallback: the writer at submission time has none
+        # either, and a serializer that quietly stringifies what the other
+        # refuses is exactly the reader disagreement this record exists to
+        # remove.
         return {
-            key: json.dumps(value, sort_keys=True, default=str)
+            key: json.dumps(value, sort_keys=True)
             for key, value in self._depends_config().items()
         }
 
@@ -1597,7 +1623,7 @@ class ProcessNode(Node):
             # where it is most load-bearing.
             depends['__inputs__'] = {
                 key: _root_relative(
-                    _normalize_config_value(value), self.root_dpath
+                    normalize_config_value(value), self.root_dpath
                 )
                 for key, value in sorted(input_config.items())
             }
@@ -1979,93 +2005,7 @@ def _source_value_record(source_port: Any) -> dict[str, Any]:
     value = source_port._resolved_value()
     if value is _UNSET:
         return {'unresolved': True}
-    return {'value': _normalize_config_value(value)}
-
-
-def _normalize_config_key(key: Any) -> str:
-    """
-    The one form a mapping key takes once configuration has been coerced.
-
-    Strings are what YAML and the CLI supply; a Python caller may pass a
-    :class:`os.PathLike` as a convenience and it is converted here. Nothing
-    else is accepted -- a JSON object name is a string, so any other key type
-    is a Python-only shape that would be renamed by ``json.dumps`` on the way
-    to disk and read back as something the configuration never contained.
-
-    Raises:
-        TypeError: the key is neither a string nor a path.
-
-    Example:
-        >>> import pathlib
-        >>> [_normalize_config_key(k) for k in ['a', pathlib.Path('b/c')]]
-        ['a', 'b/c']
-    """
-    if isinstance(key, str):
-        return key
-    if isinstance(key, os.PathLike):
-        return os.fspath(key)
-    raise TypeError(
-        f'Configuration mapping key {key!r} of type {type(key).__name__} must '
-        'be a string or a path. Configuration is recorded as JSON, whose '
-        'object names are strings, so any other key type cannot survive a '
-        'round trip through job_config.json.'
-    )
-
-
-def _normalize_config_value(value: Any) -> Any:
-    """
-    Coerce a configured value to kwdagger's one internal representation.
-
-    The invariant this establishes, and that everything downstream may assume:
-    **after configuration coercion every path-like object is a string and every
-    mapping key is a string.** Identity, commands, provenance, arbitration, and
-    the JSON on disk then all read the same shape, instead of each separately
-    understanding :class:`os.PathLike`.
-
-    The caller's original type is not retained or reproduced. Spelling is:
-    ``os.fspath`` does not resolve or absolutize, so a relative path stays
-    relative until the path-resolution stage deliberately interprets it.
-
-    Raises:
-        TypeError: a mapping key is neither a string nor a path.
-        ValueError: two keys of one mapping normalize to the same key.
-    """
-    if isinstance(value, os.PathLike):
-        return os.fspath(value)
-    if isinstance(value, Mapping):
-        # Normalization is many-to-one -- ``Path('/a')`` and ``'/a'`` are one
-        # key -- so rebuilding the mapping can drop an entry. That would
-        # persist an ambiguous record and give two different configurations one
-        # identity, so it is refused rather than resolved.
-        normalized: dict[str, Any] = {}
-        sources: dict[str, Any] = {}
-        for key, item in value.items():
-            name = _normalize_config_key(key)
-            if name in normalized:
-                raise ValueError(
-                    f'Configuration key collision after normalization: '
-                    f'{sources[name]!r} and {key!r} are distinct in Python but '
-                    f'both normalize to {name!r}. Keeping both would persist '
-                    'an ambiguous record and give two different configurations '
-                    'one identity. Use a single spelling of the key.'
-                )
-            normalized[name] = _normalize_config_value(item)
-            sources[name] = key
-        return normalized
-    if isinstance(value, (list, tuple)):
-        # Sequences become lists: JSON has one array type, and a tuple that
-        # survived to the payload would hash differently from the list it is
-        # read back as.
-        return [_normalize_config_value(item) for item in value]
-    return value
-
-
-def _fixup_config_serializability(config: Any) -> dict[str, Any]:
-    # Do minor chanes to make the config json serializable.
-    fixed_config = {}
-    for k, v in config.items():
-        fixed_config[k] = _normalize_config_value(v)
-    return fixed_config
+    return {'value': normalize_config_value(value)}
 
 
 def _root_relative(value: Any, root_dpath: Any) -> Any:
@@ -2141,7 +2081,7 @@ def _root_relative(value: Any, root_dpath: Any) -> Any:
             return [rewrite(sub) for sub in item]
         if not isinstance(item, str):
             # Already a string if it was ever a path: see
-            # ``_normalize_config_value``.
+            # ``kwdagger.pipeline._config_values``.
             return item
         if not (os.path.isabs(item) or os.sep in item):
             # Not path-shaped; leave ordinary parameter values alone.
