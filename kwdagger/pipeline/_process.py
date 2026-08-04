@@ -22,17 +22,16 @@ from typing import Any, cast
 import ubelt as ub
 
 from kwdagger.pipeline._connections import (
-    IONode,
+    _UNSET,
     InputNode,
+    IONode,
     Node,
     OutputNode,
     ParamNode,
-    _UNSET,
     _alias_preds,
     _effective_origins,
-    _supplying_ports,
-    _origin_kind,
     _produced_origins,
+    _supplying_ports,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import coerce_slurm_options
@@ -894,9 +893,7 @@ class ProcessNode(Node):
         provenance = {}
         for input_name, input_node in self.inputs.items():
             bindings = []
-            effective = {
-                id(port) for port in _effective_origins(input_node)
-            }
+            effective = {id(port) for port in _effective_origins(input_node)}
             for source_port in input_node.pred:
                 assert isinstance(source_port, IONode)
                 if isinstance(source_port, OutputNode):
@@ -1075,7 +1072,9 @@ class ProcessNode(Node):
         # last-visited fold overwrite its siblings, so group by template name
         # first and only then decide how each key must be represented.
         by_name: dict[str, list[ProcessNode]] = defaultdict(list)
-        for depend_node in list(self.effective_ancestor_process_nodes()) + [self]:
+        for depend_node in list(self.effective_ancestor_process_nodes()) + [
+            self
+        ]:
             by_name[depend_node.name].append(depend_node)
 
         depends_config: dict[str, Any] = {}
@@ -1876,7 +1875,7 @@ def _fixup_config_serializability(config: Any) -> dict[str, Any]:
 
 
 def _format_node_template(
-    template: str, condensed: dict, node_name: str
+    template: str, condensed: dict[str, Any], node_name: str | None
 ) -> str:
     """
     Format a path template, explaining the one substitution that was removed.
@@ -1898,10 +1897,10 @@ def _format_node_template(
         raise KeyError(
             f'Path template {template!r} for node {node_name!r} refers to '
             f'{{{missing}}}, which is not available. A node may only use its '
-            f'own ids ({sorted(condensed)}). Substituting another node\'s id '
+            f"own ids ({sorted(condensed)}). Substituting another node's id "
             'was removed: it let a node this one does not read choose where '
             'these results are written, so two processes with the same '
             'identity could finalize different paths. Key the directory on '
-            'this node\'s own parameters instead -- an upstream change '
+            "this node's own parameters instead -- an upstream change "
             'already reaches it through the input value it supplies.'
         ) from ex

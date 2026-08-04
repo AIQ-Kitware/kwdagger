@@ -46,8 +46,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from kwdagger.pipeline._compile import CompiledPipeline
-from kwdagger.pipeline._connections import (
+# These blocks carry both the public API and the private names the rest of the
+# repository -- tests, audits under dev/, and doctests -- already import from
+# here. The private ones are not in ``__all__``, but moving them between
+# submodules must not break a caller that has been importing them from
+# ``kwdagger.pipeline`` all along, so every block is marked F401-exempt rather
+# than each name: isort merges these blocks, which moves a per-name marker off
+# the line flake8 reports. See tests/test_import_compat.py.
+from kwdagger.pipeline._compile import (  # NOQA: F401
+    CompiledPipeline,
+    _compile_pipeline_configurations,
+    _hashable_group_value,
+    _node_param_value,
+)
+from kwdagger.pipeline._connections import (  # NOQA: F401
+    _UNSET,
     Collection,
     Configurable,
     GatherConnection,
@@ -59,36 +72,25 @@ from kwdagger.pipeline._connections import (
     OutputNode,
     ParamNode,
     StoredGroupByKey,
+    _alias_preds,
+    _config_values_equal,
+    _dependency_preds,
+    _effective_origins,
+    _produced_origins,
 )
-from kwdagger.pipeline._logical import Pipeline, coerce_pipeline
-from kwdagger.pipeline._process import (
+from kwdagger.pipeline._logical import (  # NOQA: F401
+    Pipeline,
+    _resolve_pipeline,
+    coerce_pipeline,
+)
+from kwdagger.pipeline._process import (  # NOQA: F401
     ProcessNode,
+    _classvar_init,
     memoize_configured_method,
     memoize_configured_property,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import coerce_slurm_options
-
-# Private names that the rest of the repository -- tests, audits under dev/,
-# and doctests -- already import from here. They are not part of the public
-# API and are not in ``__all__``, but moving them between submodules must not
-# break a caller that has been importing them from ``kwdagger.pipeline`` all
-# along. See tests/test_import_compat.py.
-from kwdagger.pipeline._compile import (  # NOQA: F401
-    _compile_pipeline_configurations,
-    _hashable_group_value,
-    _node_param_value,
-)
-from kwdagger.pipeline._connections import (  # NOQA: F401
-    _UNSET,
-    _alias_preds,
-    _effective_origins,
-    _config_values_equal,
-    _dependency_preds,
-    _produced_origins,
-)
-from kwdagger.pipeline._logical import _resolve_pipeline  # NOQA: F401
-from kwdagger.pipeline._process import _classvar_init  # NOQA: F401
 
 __all__ = [
     'Collection',

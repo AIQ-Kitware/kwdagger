@@ -794,13 +794,20 @@ class ArtistManager:
         self.add_ellipse_marker(xy, rx=r, ry=r, angle=0, **attrs)
 
     def build_collections(self, ax: Any = None) -> list[Any]:
+        # Importing the submodule is what makes ``mpl.collections`` resolvable
+        # below; ``mpl`` itself is the module-level alias. Ruff reads the local
+        # ``matplotlib`` binding as shadowing that alias and reports F823, but
+        # the attribute access is on ``mpl`` and works -- verified by calling
+        # this method.
         import matplotlib.collections  # NOQA
         import numpy as np
 
         collections: list[Any] = []
         for hashid, segments in self.group_to_line_segments.items():
             attrs = self.group_to_attrs[hashid]
-            line_collection = mpl.collections.LineCollection(segments, **attrs)
+            line_collection = mpl.collections.LineCollection(  # noqa: F823
+                segments, **attrs
+            )
             collections.append(line_collection)
 
         for hashid, type_to_patches in self.group_to_patches.items():

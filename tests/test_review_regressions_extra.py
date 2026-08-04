@@ -46,7 +46,6 @@ from kwdagger.pipeline import (
     _hashable_group_value,
 )
 
-
 # ---------------------------------------------------------------------------
 # 1. Produced lineage must survive an input alias
 # ---------------------------------------------------------------------------
@@ -1032,9 +1031,9 @@ def test_an_unoverridden_alias_chain_still_reaches_the_producer(tmp_path):
     dag.configure({'producer.algo': 'x'}, root_dpath=tmp_path, cache=False)
     binding = consumer._depends_config()['__input__.data_fpath']
     assert binding['source_kind'] == 'input'
-    assert [
-        n.name for n in consumer.effective_predecessor_process_nodes()
-    ] == ['producer']
+    assert [n.name for n in consumer.effective_predecessor_process_nodes()] == [
+        'producer'
+    ]
 
 
 def test_an_unread_producer_does_not_reach_consumer_identity(tmp_path):
@@ -1299,9 +1298,11 @@ def _dedup_rows():
 
 
 def _compile_dedup(rows, label):
-    root = ub.Path.appdir(
-        f'kwdagger/tests/regressions/dedup/{label}'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir(f'kwdagger/tests/regressions/dedup/{label}')
+        .delete()
+        .ensuredir()
+    )
     compiled = _dedup_pipeline().compile_configurations(
         rows, root_dpath=root, cache=False
     )
@@ -1374,9 +1375,11 @@ def _link_pipeline(config, label):
     )
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
     dag = Pipeline({'producer': producer, 'consumer': consumer})
-    root = ub.Path.appdir(
-        f'kwdagger/tests/regressions/links/{label}'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir(f'kwdagger/tests/regressions/links/{label}')
+        .delete()
+        .ensuredir()
+    )
     dag.configure(config, root_dpath=root, cache=False)
     status = dag.submit_jobs(
         queue={'backend': 'serial'},
@@ -1435,9 +1438,7 @@ def test_effective_ancestry_drops_what_only_reached_here_through_an_override(
         )
         node_a.outputs['out_fpath'].connect(node_b.inputs['in_fpath'])
         node_b.outputs['out_fpath'].connect(node_c.inputs['in_fpath'])
-        dag = Pipeline(
-            {'node_a': node_a, 'node_b': node_b, 'node_c': node_c}
-        )
+        dag = Pipeline({'node_a': node_a, 'node_b': node_b, 'node_c': node_c})
         dag.configure(
             {'node_b.in_fpath': '/precomputed/b-input', 'node_a.algo': algo},
             root_dpath=tmp_path,
@@ -1446,9 +1447,9 @@ def test_effective_ancestry_drops_what_only_reached_here_through_an_override(
         ids[algo] = node_c.process_id
         last = node_c
 
-    assert sorted(
-        n.name for n in last.effective_ancestor_process_nodes()
-    ) == ['node_b']
+    assert sorted(n.name for n in last.effective_ancestor_process_nodes()) == [
+        'node_b'
+    ]
     assert sorted(n.name for n in last.ancestor_process_nodes()) == [
         'node_a',
         'node_b',
@@ -1582,9 +1583,9 @@ def test_an_alias_that_supplies_nothing_does_not_hide_one_that_does(tmp_path):
     assert str(consumer.final_in_paths['data_fpath']) == str(
         producer.outputs['data_fpath'].final_value
     )
-    assert [
-        n.name for n in consumer.effective_predecessor_process_nodes()
-    ] == ['producer']
+    assert [n.name for n in consumer.effective_predecessor_process_nodes()] == [
+        'producer'
+    ]
 
 
 def test_a_gather_outranks_an_alias_into_the_same_port():
@@ -1631,9 +1632,11 @@ def test_a_gather_outranks_an_alias_into_the_same_port():
             'merge': merge,
         }
     )
-    root = ub.Path.appdir(
-        'kwdagger/tests/regressions/gather-outranks-alias'
-    ).delete().ensuredir()
+    root = (
+        ub.Path.appdir('kwdagger/tests/regressions/gather-outranks-alias')
+        .delete()
+        .ensuredir()
+    )
     rows = [
         {'shard.dataset': 'a', 'shard.fold': fold, 'merge.dataset': 'a'}
         for fold in [0, 1]

@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import os
 import typing
-from dataclasses import dataclass
 
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
 # type checker no class to narrow on, so a `str | Mapping` union stays a union
 # inside the isinstance branch and every `key['src']` looks like an error. The
 # typing aliases have been deprecated since 3.9 in any case.
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 import ubelt as ub
@@ -330,7 +330,7 @@ def _produced_origins(input_node: Any) -> list:
             followed by any recovered through aliases, ordered by port key.
             Entries are :class:`OutputNode` ports, or an :class:`InputNode`
             when the origin is a gather manifest. Both answer ``.parent`` and
-            ``.name``; use :func:`_origin_kind` to tell them apart.
+            ``.name``.
     """
     direct = {id(pred): pred for pred in _dependency_preds(input_node)}
     origins = list(direct.values())
@@ -419,18 +419,6 @@ def _supplying_ports(port: Any, seen: set) -> list:
     if port._gather_members is not None:
         return [port]
     return _effective_origins_impl(port, seen)
-
-
-def _origin_kind(port: Any) -> str:
-    """
-    Say what kind of artifact an origin from :func:`_produced_origins` is.
-
-    Both kinds are produced by the job that owns the port, but they are not
-    the same thing and identity must not confuse them: an ``'output'`` is a
-    declared output path, a ``'gather_manifest'`` is the path manifest a
-    gathered input port writes as part of its own consumer's command.
-    """
-    return 'output' if isinstance(port, OutputNode) else 'gather_manifest'
 
 
 class Node(ub.NiceRepr):

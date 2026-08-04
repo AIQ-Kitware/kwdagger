@@ -153,9 +153,7 @@ def test_a_producer_change_that_moves_its_output_moves_the_consumer(tmp_path):
     assert seen['x'][1] != seen['y'][1]
     # The reason is the value, not a separately injected producer id.
     assert seen['x'][0] in seen['x'][2]
-    assert not any(
-        key.startswith('__input__') for key in _consumer().depends
-    )
+    assert not any(key.startswith('__input__') for key in _consumer().depends)
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +195,7 @@ def _by_delivery(tmp_path, mechanism, value):
                 out_paths={'lender_fpath': 'lender.json'},
             )
             nodes['lender'] = lender
-            producer.outputs['data_fpath'].connect(
-                lender.inputs['data_fpath']
-            )
+            producer.outputs['data_fpath'].connect(lender.inputs['data_fpath'])
             lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
     _configured(Pipeline(nodes), config, tmp_path)
     return consumer
@@ -302,9 +298,7 @@ def _dedup_rows():
         'merge.dataset': 'a',
         'consumer.data_fpath': '/precomputed/data',
     }
-    return [
-        dict(base, **{'producer.algo': algo}) for algo in ['x', 'y']
-    ]
+    return [dict(base, **{'producer.algo': algo}) for algo in ['x', 'y']]
 
 
 def _canonical_state(rows, label):
@@ -323,9 +317,7 @@ def _canonical_state(rows, label):
         'process_id': consumer.process_id,
         'command': consumer.command,
         'node_dpath': str(consumer.final_node_dpath),
-        'out_paths': {
-            k: str(v) for k, v in consumer.final_out_paths.items()
-        },
+        'out_paths': {k: str(v) for k, v in consumer.final_out_paths.items()},
         'edges': sorted(
             compiled.nodes[p].name
             for p in compiled.proc_graph.predecessors(consumer.process_id)

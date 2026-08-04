@@ -12,7 +12,6 @@ the pipeline rather than the other way around.
 
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
@@ -25,8 +24,10 @@ from typing import Any
 import networkx as nx
 import ubelt as ub
 
-from kwdagger.utils import util_dotdict
-from kwdagger.pipeline._compile import _compile_pipeline_configurations
+from kwdagger.pipeline._compile import (
+    CompiledPipeline,
+    _compile_pipeline_configurations,
+)
 from kwdagger.pipeline._connections import (
     GatherConnection,
     _alias_preds,
@@ -34,6 +35,7 @@ from kwdagger.pipeline._connections import (
 )
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._slurm import coerce_slurm_options
+from kwdagger.utils import util_dotdict
 
 
 class Pipeline:

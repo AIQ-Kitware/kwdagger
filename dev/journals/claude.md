@@ -509,3 +509,37 @@ matrix: produced vs manual equality, two producers exposing one path, different
 paths, producer-derived path changes, four delivery mechanisms, overridden
 connections, row reversal over the complete record, and a guard that fails if
 anything ever reaches the command without reaching identity.
+
+## 2026-08-04 05:40:00 -0400
+
+Cleaned up after the identity change: `ty`, `ruff check`, `ruff format`, and a
+wider `flake8` selection all pass now.
+
+Two of the three `ty`/`flake8` findings were debris from the package split
+rather than from the identity work. The script that generated each new module's
+import header computed what each segment *used*, which counted names that are
+only imported locally inside functions -- so `_compile` and `_logical` got
+module-level `util_dotdict` and `os` that nothing at module scope wanted, and
+which then shadowed the real local imports (F811). Worth noting as a hazard of
+mechanical splitting: the code ran fine and the tests passed, so only a linter
+was ever going to catch it. `CompiledPipeline` was the mirror image -- declared
+as a return type but never imported, invisible because
+`from __future__ import annotations` makes the annotation a string.
+
+`_origin_kind` was genuinely dead: its only caller was
+`_origin_identity_bindings`, which the identity correction removed. Deleted
+rather than left as a helper with no question to answer.
+
+One finding I did not "fix". Ruff reports F823 in `util_kwplot.build_collections`
+-- a local `import matplotlib.collections` next to attribute access on the
+module-level `mpl` alias. That idiom is correct: importing the submodule is what
+makes `mpl.collections` resolvable. I called the method to confirm it works
+before deciding, then suppressed the rule with the reasoning written down.
+Changing working code to satisfy a linter would have been the worse outcome, and
+the next person deserves to know which it was.
+
+Also resolved a loose end I had been misreporting for several entries: the
+`util_kwplot.py Palette:0` doctest failure is not a code defect, it is
+`ModuleNotFoundError: No module named 'kwimage'` -- an optional dependency
+missing from this environment. I had been carrying it as "pre-existing failure"
+without ever reading the reason.

@@ -23,18 +23,17 @@ from collections import defaultdict
 # inside the isinstance branch and every `key['src']` looks like an error. The
 # typing aliases have been deprecated since 3.9 in any case.
 from collections.abc import Mapping, Sequence
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import networkx as nx
 import ubelt as ub
 
-from kwdagger.utils import util_dotdict
 from kwdagger.pipeline._connections import (
+    _UNSET,
     GatherConnection,
     GatherSpec,
     InputNode,
     OutputNode,
-    _UNSET,
 )
 from kwdagger.pipeline._process import ProcessNode
 
@@ -661,7 +660,6 @@ def _check_execution_state_agreement(
             'outputs, so this is a defect in the identity payload rather '
             'than a problem with the pipeline. Please report it.'
         )
-
 
 
 def _compile_pipeline_configurations(

@@ -57,7 +57,16 @@ common workflows, and testing/documentation practices.
 - To run only the pytest suite manually: `pytest kwdagger tests` (add custom
   flags as needed; see `pyproject.toml` for default addopts and warning filters).
 - Doctests: `./run_doctests.sh` executes `xdoctest kwdagger --style=google all`.
-- Linting: `./run_linter.sh` runs a strict flake8 pass for fatal errors.
+- Linting: `./run_linter.sh` runs a strict flake8 pass for fatal errors. The
+  full set the branch is kept clean against, all available through `uv`:
+  ```bash
+  uv tool run ruff check kwdagger tests
+  uv tool run ruff format --check kwdagger tests
+  uv tool run ty check ./kwdagger
+  uv tool run flake8 --select=E9,F63,F7,F82,F401,F811,F841 kwdagger tests
+  ```
+  `flake8` catches unused and shadowed names that `run_linter.sh`'s narrow
+  selection does not.
 - Tests and doctests rely on the demo pipeline data where appropriate; keep demo
   CLI behavior stable when making changes.
 
