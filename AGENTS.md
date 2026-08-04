@@ -205,15 +205,21 @@ canonicalize alike are rejected rather than merged: silently dropping an entry
 would leave two different configurations with one identity, and separate
 schedules cannot be arbitrated against each other after the fact.
 
-**Mapping keys have one policy, applied where the value is stored.** JSON
-object names are strings, so `configure` normalizes every mapping key to the
-name it will carry in `job_config.json` -- `os.fspath` for a path, the JSON
-literal for a number, boolean, or null -- and refuses a key with no JSON name.
-Two keys naming one JSON key are a reported collision, as are two paths
-canonicalizing alike. Do not leave this conversion to `json.dumps`: it renames
-an `int` key silently, refuses a `Path` one, and cannot sort a mixture, so the
-identity payload, the requested record, and the file on disk end up disagreeing
-about what the keys are.
+**Configuration has one internal representation, established at the boundary.**
+After `configure` coerces a value, *every path-like object is a string and
+every mapping key is a string*. YAML and the CLI supply strings already; a
+Python caller may pass an `os.PathLike` as a convenience and `os.fspath`
+converts it — spelling only, so a relative path stays relative until the
+path-resolution stage deliberately interprets it. The caller's original type is
+not retained or reproduced, and a mapping key that is neither a string nor a
+path is refused. Two keys normalizing alike are a reported collision, as are
+two paths canonicalizing alike.
+
+Identity, commands, provenance, arbitration, and the JSON on disk may all
+assume that invariant. Do not teach any of them to understand `os.PathLike`
+separately, and do not leave the conversion to `json.dumps`: it renames an
+`int` key silently, refuses a `Path` one, and cannot sort a mixture, so the
+readers end up disagreeing about what the keys are.
 
 A corollary, stated because it has been violated: **equal `process_id` implies
 equal command-defining state, apart from state that is deliberately unhashed.**

@@ -1014,13 +1014,13 @@ class ProcessNode(Node):
                 continue
             value = input_node._shared_value()
             if value is not _UNSET:
-                shared[input_name] = _jsonable_config_value(value)
+                shared[input_name] = _normalize_config_value(value)
         for param_name, param_port in self.param_ports.items():
             if not param_port.pred:
                 continue
             value = param_port._shared_value()
             if value is not _UNSET:
-                shared[param_name] = _jsonable_config_value(value)
+                shared[param_name] = _normalize_config_value(value)
         return shared
 
     def _gather_provenance(self) -> dict[str, Any]:
@@ -1548,7 +1548,7 @@ class ProcessNode(Node):
             # where it is most load-bearing.
             depends['__inputs__'] = {
                 key: _root_relative(
-                    _jsonable_config_value(value), self.root_dpath
+                    _normalize_config_value(value), self.root_dpath
                 )
                 for key, value in sorted(input_config.items())
             }
@@ -1930,73 +1930,84 @@ def _source_value_record(source_port: Any) -> dict[str, Any]:
     value = source_port._resolved_value()
     if value is _UNSET:
         return {'unresolved': True}
-    return {'value': _jsonable_config_value(value)}
+    return {'value': _normalize_config_value(value)}
 
 
-def _json_object_key(key: Any) -> str:
+def _normalize_config_key(key: Any) -> str:
     """
-    The name a mapping key will carry once it reaches ``job_config.json``.
+    The one form a mapping key takes once configuration has been coerced.
 
-    JSON object names are strings, so every recorded key becomes one
-    eventually. Doing that here rather than leaving it to ``json.dumps``
-    is what keeps the stored configuration, the identity payload, the
-    requested record, and the file on disk agreeing about what the keys *are*.
-    Left to the serializers they disagree: ``json.dumps`` renames an ``int``
-    key silently, refuses a ``Path`` one, and cannot sort a mixture.
+    Strings are what YAML and the CLI supply; a Python caller may pass a
+    :class:`os.PathLike` as a convenience and it is converted here. Nothing
+    else is accepted -- a JSON object name is a string, so any other key type
+    is a Python-only shape that would be renamed by ``json.dumps`` on the way
+    to disk and read back as something the configuration never contained.
 
     Raises:
-        TypeError: the key has no JSON object name.
+        TypeError: the key is neither a string nor a path.
 
     Example:
-        >>> [_json_object_key(k) for k in ['a', 1, True, None, 1.5]]
-        ['a', '1', 'true', 'null', '1.5']
+        >>> import pathlib
+        >>> [_normalize_config_key(k) for k in ['a', pathlib.Path('b/c')]]
+        ['a', 'b/c']
     """
     if isinstance(key, str):
         return key
     if isinstance(key, os.PathLike):
         return os.fspath(key)
-    if key is None or isinstance(key, (bool, int, float)):
-        # Exactly what ``json.dumps`` would have named it.
-        return json.dumps(key)
     raise TypeError(
-        f'Mapping key {key!r} of type {type(key).__name__} cannot be recorded '
-        'in job_config.json. Configuration is written as JSON, so a mapping '
-        'key must be a string, a path, a number, a boolean, or None.'
+        f'Configuration mapping key {key!r} of type {type(key).__name__} must '
+        'be a string or a path. Configuration is recorded as JSON, whose '
+        'object names are strings, so any other key type cannot survive a '
+        'round trip through job_config.json.'
     )
 
 
-def _jsonable_config_value(value: Any) -> Any:
+def _normalize_config_value(value: Any) -> Any:
     """
-    Convert common configuration values into JSON-compatible forms.
+    Coerce a configured value to kwdagger's one internal representation.
 
-    Keys as well as values, because a key that only becomes a string at
-    serialization time is a key the identity payload and the persisted record
-    disagree about.
+    The invariant this establishes, and that everything downstream may assume:
+    **after configuration coercion every path-like object is a string and every
+    mapping key is a string.** Identity, commands, provenance, arbitration, and
+    the JSON on disk then all read the same shape, instead of each separately
+    understanding :class:`os.PathLike`.
+
+    The caller's original type is not retained or reproduced. Spelling is:
+    ``os.fspath`` does not resolve or absolutize, so a relative path stays
+    relative until the path-resolution stage deliberately interprets it.
+
+    Raises:
+        TypeError: a mapping key is neither a string nor a path.
+        ValueError: two keys of one mapping normalize to the same key.
     """
     if isinstance(value, os.PathLike):
         return os.fspath(value)
-    if isinstance(value, dict):
-        # Naming is many-to-one -- ``1`` and ``'1'`` are one JSON key -- so
-        # rebuilding the mapping can drop an entry. That would persist an
-        # ambiguous record and hash two different configurations alike, so it
-        # is refused rather than resolved.
-        converted: dict[str, Any] = {}
+    if isinstance(value, Mapping):
+        # Normalization is many-to-one -- ``Path('/a')`` and ``'/a'`` are one
+        # key -- so rebuilding the mapping can drop an entry. That would
+        # persist an ambiguous record and give two different configurations one
+        # identity, so it is refused rather than resolved.
+        normalized: dict[str, Any] = {}
         sources: dict[str, Any] = {}
         for key, item in value.items():
-            name = _json_object_key(key)
-            if name in converted:
+            name = _normalize_config_key(key)
+            if name in normalized:
                 raise ValueError(
-                    f'Mapping keys {sources[name]!r} and {key!r} are distinct '
-                    f'in Python but name one JSON key {name!r}. Configuration '
-                    'is recorded as JSON, so keeping both would persist an '
-                    'ambiguous record and give two different configurations '
+                    f'Configuration key collision after normalization: '
+                    f'{sources[name]!r} and {key!r} are distinct in Python but '
+                    f'both normalize to {name!r}. Keeping both would persist '
+                    'an ambiguous record and give two different configurations '
                     'one identity. Use a single spelling of the key.'
                 )
-            converted[name] = _jsonable_config_value(item)
+            normalized[name] = _normalize_config_value(item)
             sources[name] = key
-        return converted
+        return normalized
     if isinstance(value, (list, tuple)):
-        return [_jsonable_config_value(item) for item in value]
+        # Sequences become lists: JSON has one array type, and a tuple that
+        # survived to the payload would hash differently from the list it is
+        # read back as.
+        return [_normalize_config_value(item) for item in value]
     return value
 
 
@@ -2004,7 +2015,7 @@ def _fixup_config_serializability(config: Any) -> dict[str, Any]:
     # Do minor chanes to make the config json serializable.
     fixed_config = {}
     for k, v in config.items():
-        fixed_config[k] = _jsonable_config_value(v)
+        fixed_config[k] = _normalize_config_value(v)
     return fixed_config
 
 
@@ -2052,13 +2063,10 @@ def _root_relative(value: Any, root_dpath: Any) -> Any:
     root_parts = _path_parts(root)
 
     def rewrite_key(key: Any) -> Any:
-        # Only scalars can be keys, so a key never takes the collection branch
-        # below -- which would hand back an unhashable list for a tuple key.
-        if isinstance(key, os.PathLike):
-            return rewrite(os.fspath(key))
-        if isinstance(key, str):
-            return rewrite(key)
-        return key
+        # Configuration coercion has already made every key a string, so this
+        # only guards a direct call on raw data: the collection branch below
+        # would hand back an unhashable list for a tuple key.
+        return rewrite(key) if isinstance(key, str) else key
 
     def rewrite(item: Any) -> Any:
         if isinstance(item, Mapping):
@@ -2082,9 +2090,9 @@ def _root_relative(value: Any, root_dpath: Any) -> Any:
             return rewritten
         if isinstance(item, (list, tuple)):
             return [rewrite(sub) for sub in item]
-        if isinstance(item, os.PathLike):
-            item = os.fspath(item)
         if not isinstance(item, str):
+            # Already a string if it was ever a path: see
+            # ``_normalize_config_value``.
             return item
         if not (os.path.isabs(item) or os.sep in item):
             # Not path-shaped; leave ordinary parameter values alone.

@@ -85,15 +85,20 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   which requests are made rather than what a request asks for. The full-matrix
   path was unaffected, because the compiler copies a row-global value into each
   node configuration.
-* Mapping keys now follow one policy, applied by `configure` where the value is
-  stored: a key is normalized to the name it will carry in `job_config.json`
-  (`os.fspath` for a path, the JSON literal for a number, boolean, or null),
-  keys with no JSON name are refused, and two keys naming one JSON key are
-  reported as a collision. Previously the conversion was left to the
-  serializers, which disagree: a `PathLike` key raised `TypeError` when the
-  requested record or `job_config.json` was written, an `int` key was renamed
-  silently so the identity payload and the persisted record disagreed, and a
-  mixture of key types could not be sorted for comparison.
+* **Configuration now has one internal representation, established when it is
+  coerced:** every path-like object is a string and every mapping key is a
+  string. A Python caller may still pass `pathlib.Path` values -- including as
+  mapping keys -- and `os.fspath` converts them at the boundary, converting
+  spelling only, so a relative path stays relative. A mapping key that is
+  neither a string nor a path is now rejected with a `TypeError`, and two keys
+  normalizing to the same string are reported as a collision.
+
+  Previously the conversion was left to whichever serializer saw the value, and
+  they disagree: a `PathLike` key raised `TypeError` when the requested record
+  or `job_config.json` was written, an `int` key was renamed silently by
+  `json.dumps` so the identity payload and the persisted record disagreed about
+  what the configuration was, and a mixture of key types could not be sorted
+  for comparison at all.
 * Canonicalizing a mapping's keys relative to the cache root is many-to-one, so
   two distinct keys could land on one canonical key and the rebuilt dictionary
   silently dropped an entry -- leaving a mapping whose hashed payload matched a

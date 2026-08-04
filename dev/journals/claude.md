@@ -842,12 +842,25 @@ versus `'1'` from a silent overwrite into a reported collision. Deferring the
 conversion to the serializer was the actual mistake -- three readers, three
 different answers.
 
-Less sure about: normalizing `int` keys to `"1"` changes identity for anyone
-using them. That is right (it is what was always persisted) but it is a silent
-cache invalidation on top of the several this release already has. And refusing
-tuple keys is new; they used to hash and then crash at submission, so nobody
-can have been relying on them, but it is a `TypeError` at configure time where
-there was none.
+My first pass normalized numeric, boolean, and null keys to the names
+`json.dumps` would give them; the reviewer came back asking for stricter, and
+they are right. The invariant is worth more than the convenience: *after
+configuration coercion every path-like object is a string and every mapping key
+is a string*. That is a sentence a future reader can hold, and "keys are
+whatever JSON can name" is not. So non-string, non-path keys are now a
+`TypeError` at configure time, and `_root_relative` stopped understanding
+`os.PathLike` at all -- the boundary guarantees it never sees one.
+
+That does break `int`-keyed mappings, which used to hash and persist (as
+`"1"`, lossily). I think it is the right call and it is the reviewer's, but it
+is a behavior removal rather than a fix, and it belongs in the release notes as
+one. Refusing tuple keys costs nothing: they used to hash and then crash at
+submission.
+
+The other thing I want to flag: the whole class of defect here came from
+letting a Python-only type live past the boundary. Four readers each grew their
+own partial understanding of `PathLike`, and they disagreed. Recorded as a
+lesson.
 
 Also swept the comments the reviewer flagged as still describing the discarded
 lineage model -- `_lookup_on_node`, `_dependency_preds`, and two headers in

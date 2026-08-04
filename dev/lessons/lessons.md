@@ -95,16 +95,18 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
   - **Applies when:** adding a `submit_jobs` argument, or moving configuration
     between the pipeline and its nodes.
 
-- **Lesson:** Deferring a type conversion to the serializer makes the readers
-  disagree. JSON object names are strings, and `json.dumps` renames an `int`
-  key silently, refuses a `Path` key, and cannot sort a mixture -- so a mapping
-  key left unconverted hashes as one thing, compares as another, and persists
-  as a third (or crashes). Normalizing at the point the value is stored gives
-  the stored configuration, the identity payload, the requested record, and the
-  file on disk one answer, and turns `1` versus `'1'` into a reportable
-  collision rather than a silent overwrite.
+- **Lesson:** Coerce at the configuration boundary, not in each reader.
+  kwdagger accepts `os.PathLike` from Python callers and strings from YAML and
+  the CLI; letting the Python-only type survive meant `_root_relative`,
+  identity serialization, provenance, and the runtime JSON writer each had to
+  understand it separately, and they disagreed -- `json.dumps` renames an `int`
+  key silently, refuses a `Path` key, and cannot sort a mixture, so a key left
+  unconverted hashed as one thing, compared as another, and persisted as a
+  third or crashed. One normalization where the value is stored gives every
+  reader the same shape, and makes the invariant statable: after coercion every
+  path-like object is a string and every mapping key is a string.
   - **Evidence / MWE:** `tests/test_identity_model.py`
-    `test_a_pathlike_mapping_key_survives_submission` and
-    `test_keys_that_name_one_json_key_are_refused`; `_json_object_key`.
+    `test_a_pathlike_mapping_key_survives_submission`,
+    `test_a_path_and_its_string_are_one_key`; `_normalize_config_value`.
   - **Applies when:** adding a value shape to configuration, or relying on a
     serializer to coerce something the rest of the system also reads.

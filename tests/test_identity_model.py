@@ -1249,41 +1249,46 @@ def test_a_pathlike_mapping_key_survives_submission(tmp_path):
     assert 'job_config.json' in summary['queue'].finalize_text()
 
 
-def test_keys_that_name_one_json_key_are_refused(tmp_path):
-    """``1`` and ``'1'`` are distinct in the payload and one name on disk."""
+def test_a_path_and_its_string_are_one_key(tmp_path):
+    """
+    Normalization is many-to-one, so the two spellings collide. Rebuilding the
+    mapping would drop an entry and give two configurations one identity.
+    """
     dag, _consumer_node = _mapping_key_dag()
-    with pytest.raises(ValueError, match='one JSON key'):
+    with pytest.raises(ValueError, match='collision after normalization'):
         dag.configure(
-            {'consumer.data_fpath': {1: 'a', '1': 'b'}},
+            {'consumer.data_fpath': {ub.Path('/a'): 1, '/a': 2}},
             root_dpath=tmp_path,
             cache=False,
         )
 
 
-def test_a_key_with_no_json_name_is_refused(tmp_path):
+@pytest.mark.parametrize('key', [1, None, ('a', 'b'), 2.5])
+def test_a_key_that_is_not_a_string_or_path_is_refused(key, tmp_path):
     """
-    A tuple key used to hash cleanly and then fail at submission -- and, before
-    that, come back from canonicalization as an unhashable list.
+    The configuration-domain invariant: after coercion every mapping key is a
+    string. Anything else is a Python-only shape that ``json.dumps`` would
+    rename on the way to disk -- or refuse -- so the configuration read back
+    would not be the one that was written.
     """
     dag, _consumer_node = _mapping_key_dag()
-    with pytest.raises(TypeError, match='cannot be recorded'):
+    with pytest.raises(TypeError, match='must be a string or a path'):
         dag.configure(
-            {'consumer.data_fpath': {('a', 'b'): 1}},
+            {'consumer.data_fpath': {key: 1}},
             root_dpath=tmp_path,
             cache=False,
         )
 
 
-def test_mixed_key_types_are_recorded_and_compared(tmp_path):
+def test_normalizing_a_path_does_not_resolve_it(tmp_path):
     """
-    Legal but unsortable as raw Python. Normalizing first is what lets the
-    requested record be serialized deterministically at all.
+    ``os.fspath`` converts spelling, not meaning. A relative path stays
+    relative until the path-resolution stage deliberately interprets it.
     """
     dag, consumer = _mapping_key_dag()
     dag.configure(
-        {'consumer.data_fpath': {1: 'a', 'b': 2, 2.5: 'c', None: 'd'}},
+        {'consumer.data_fpath': {ub.Path('rel/x.json'): ub.Path('rel/y')}},
         root_dpath=tmp_path,
         cache=False,
     )
-    record = consumer.requested_provenance_record()['consumer.data_fpath']
-    assert json.loads(record) == {'1': 'a', 'b': 2, '2.5': 'c', 'null': 'd'}
+    assert consumer.config['data_fpath'] == {'rel/x.json': 'rel/y'}
