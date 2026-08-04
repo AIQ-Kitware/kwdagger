@@ -19,15 +19,7 @@ from typing import Any
 
 import kwconf as kw
 import ubelt as ub
-
-try:
-    # cmd_queue >= 0.3.2 ships a kwconf-native boilerplate base.
-    from cmd_queue.cli_boilerplate import CmdQueueConfigMixin
-except ImportError:
-    # cmd_queue <= 0.3.1 only ships the scriptconfig-based CMDQueueConfig, which
-    # cannot host kwconf fields. Fall back to a local kwconf reimplementation
-    # that targets the stable cmd_queue.Queue API. See _cmd_queue_compat.
-    from kwdagger._cmd_queue_compat import CmdQueueConfigMixin
+from cmd_queue.cli_boilerplate import CmdQueueConfigMixin
 
 from kwdagger.pipeline import (
     coerce_slurm_options as pipeline_coerce_slurm_options,
@@ -43,12 +35,9 @@ class ScheduleEvaluationConfig(CmdQueueConfigMixin):
     (i.e. one at a time). This is a [link=https://gitlab.kitware.com/computer-vision/cmd_queue]cmd_queue[/link] CLI.
     """
 
-    # NOTE: ``queue_name`` and ``monitor`` are inherited from the kwconf
-    # ``CmdQueueConfigMixin`` base. The scriptconfig-era overrides for those
-    # (an annotation-only ``queue_name`` to break a mypy cycle, and a
-    # ``type=str`` ``monitor`` to stop smartcast from turning 'none' into
-    # ``None``) are no longer needed: kwconf does not smartcast, so
-    # ``--monitor=none`` stays the string 'none'.
+    # NOTE: ``queue_name`` and ``monitor`` are inherited from
+    # ``CmdQueueConfigMixin``. kwconf does not smartcast, so ``--monitor=none``
+    # stays the string 'none' without the type override the old base needed.
 
     params = kw.Value(
         None, parser=str, help='a yaml/json grid/matrix of prediction params'
@@ -144,10 +133,11 @@ class ScheduleEvaluationConfig(CmdQueueConfigMixin):
         elif devices is None:
             GPUS = None
         else:
-            # kwconf does not auto-split comma strings the way scriptconfig's
-            # smartcast did, so split a "0,1" string here (numeric ids are
-            # coerced to int to match the historical behavior). A pre-built
-            # list (e.g. from a programmatic call) passes through unchanged.
+            # kwconf does not auto-split comma strings the way the old
+            # smartcast layer did, so split a "0,1" string here (numeric ids
+            # are coerced to int to match the historical behavior). A
+            # pre-built list (e.g. from a programmatic call) passes through
+            # unchanged.
             if isinstance(devices, str):
                 devices = [
                     _coerce_device(p.strip())
@@ -369,7 +359,7 @@ def ensure_iterable(inputs: Any) -> list[Any]:
 def _coerce_device(item: str) -> Any:
     """Coerce a single device token to ``int`` when it looks numeric.
 
-    Mirrors the historical scriptconfig smartcast behavior for ``--devices``
+    Mirrors the historical smartcast behavior for ``--devices``
     (e.g. ``"0,1"`` -> ``[0, 1]``) while leaving non-numeric ids untouched.
     """
     try:

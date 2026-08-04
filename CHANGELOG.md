@@ -17,6 +17,8 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+* The minimum `cmd_queue` is now 0.3.2, for its kwconf-native
+  `CmdQueueConfigMixin`.
 * **`Pipeline` takes a sequence of nodes, not a mapping.** A node knows its own
   name, so the `{name: node}` form was a second place for that name to live and
   a second place for it to disagree: every graph, dotted config key, and result
@@ -68,6 +70,11 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+* `kwdagger._cmd_queue_compat`. It was a local kwconf reimplementation of
+  cmd_queue's CLI boilerplate, existing only so kwdagger could move to kwconf
+  while still supporting cmd_queue <= 0.3.1, whose `CMDQueueConfig` is
+  scriptconfig-based and cannot host kwconf fields. The minimum is now
+  cmd_queue 0.3.2, which ships `CmdQueueConfigMixin` natively.
 * `CompiledPipeline.node_dict`. It was an alias for `CompiledPipeline.nodes`,
   which is keyed by `process_id` rather than by name -- a compiled pipeline may
   hold several concrete instances of one template. Sharing an attribute name

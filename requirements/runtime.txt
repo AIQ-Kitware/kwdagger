@@ -31,7 +31,6 @@ pandas>=2.1.1  ; python_version < '3.13' and python_version >= '3.12'    # Pytho
 pandas>=1.5.3  ; python_version < '3.12' and python_version >= '3.11'    # Python 3.11
 pandas>=1.5.3  ; python_version < '3.11' and python_version >= '3.10'    # Python 3.10
 
-scriptconfig >= 0.8.4
 
 psutil>=6.1.0  ; python_version < '4.0' and python_version >= '3.9'    # Python 3.13+
 psutil>=5.9.1  ; python_version < '3.9' and python_version >= '3.7' 
@@ -44,8 +43,12 @@ pygtrie>=2.5.0
 fasteners>=0.17.3
 
 wrapt>=1.17.3
-cmd_queue >= 0.3.1
+cmd_queue >= 0.3.2
 kwconf >= 0.10.0
+
+# TODO(0.3.0): drop once aggregate, demodata, __main__, and ProcessNode
+# are kwconf-only.
+scriptconfig >= 0.8.4
 
 pint>=0.24.4  ; python_version < '4.0'  and python_version >= '3.13'    # Python 3.13+
 pint>=0.23    ; python_version < '3.13' 
