@@ -48,7 +48,7 @@ from typing import Any, cast
 
 import ubelt as ub
 
-from kwdagger.pipeline import GatherSpec, Pipeline, ProcessNode
+from kwdagger.pipeline import GatherSpec, PathSpec, Pipeline, ProcessNode
 
 __all__ = ['YamlProcessNode', 'dump_yaml_pipeline', 'load_yaml_pipeline']
 
@@ -396,7 +396,9 @@ def _connect_edge(node_dict: dict[str, Any], edge: Any) -> None:
     )
 
 
-def load_yaml_pipeline(spec: Any, root_dpath: Any = None) -> Pipeline:
+def load_yaml_pipeline(
+    spec: Any, root_dpath: PathSpec | None = None
+) -> Pipeline:
     """
     Build a :class:`~kwdagger.Pipeline` from a declarative spec.
 

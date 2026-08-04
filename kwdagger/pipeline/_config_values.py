@@ -46,7 +46,14 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypeAlias
+
+#: How a caller may *spell* a path before kwdagger interprets it: a string, as
+#: YAML and the CLI supply, or any ``os.PathLike``, as a Python caller may. It
+#: is deliberately not the type a path is *stored* as -- a configured value
+#: becomes a ``str`` here, and a root becomes a ``ub.Path`` -- so a signature
+#: saying ``PathSpec`` is saying "what I accept", not "what I keep".
+PathSpec: TypeAlias = 'str | os.PathLike[str]'
 
 
 def _fspath_str(value: os.PathLike[Any], what: str) -> str:

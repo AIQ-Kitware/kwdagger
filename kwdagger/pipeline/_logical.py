@@ -20,7 +20,7 @@ from collections import defaultdict
 # inside the isinstance branch and every `key['src']` looks like an error. The
 # typing aliases have been deprecated since 3.9 in any case.
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 import networkx as nx
 import ubelt as ub
@@ -29,7 +29,7 @@ from kwdagger.pipeline._compile import (
     CompiledPipeline,
     _compile_pipeline_configurations,
 )
-from kwdagger.pipeline._config_values import normalize_config
+from kwdagger.pipeline._config_values import PathSpec, normalize_config
 from kwdagger.pipeline._connections import (
     GatherConnection,
     _alias_preds,
@@ -79,7 +79,10 @@ class Pipeline:
     """
 
     def __init__(
-        self, nodes: Any = None, config: Any = None, root_dpath: Any = None
+        self,
+        nodes: Mapping[str, ProcessNode] | Sequence[ProcessNode] | None = None,
+        config: Mapping[str, Any] | None = None,
+        root_dpath: PathSpec | None = None,
     ) -> None:
         self.proc_graph: nx.DiGraph = nx.DiGraph()
         self.config_graph: nx.DiGraph = nx.DiGraph()
@@ -87,8 +90,19 @@ class Pipeline:
         self.io_graph: nx.DiGraph = nx.DiGraph()
         if nodes is None:
             nodes = []
-        self.nodes = nodes
+        # Accepted as ``Mapping`` / ``Sequence`` for variance -- a dict of
+        # ``ProcessNode`` *subclasses* is the normal way to build a pipeline,
+        # and ``dict`` is invariant -- but held as given rather than copied,
+        # because a caller expects the pipeline to hold their container. The
+        # two concrete forms are what ``node_dict`` and ``submit`` support.
+        self.nodes: dict[str, ProcessNode] | list[ProcessNode] = cast(
+            Any, nodes
+        )
         self.config: Any = None
+        #: Where results are rooted, once ``configure`` has been told. Declared
+        #: here so the attribute always exists: it is public state a caller
+        #: reads back, and it used to appear only after the first configure.
+        self.root_dpath: ub.Path | None = None
         #: Persistent pipeline-wide defaults: what every row gets unless it
         #: asks for something else. Set by the CLI or a Python caller, never
         #: by a matrix row.
@@ -147,7 +161,17 @@ class Pipeline:
                 raise Exception(name)
             self._unique_hanes.add(name)
         task = ProcessNode(executable=executable, **kwargs)
-        self.nodes.append(task)
+        if isinstance(self.nodes, dict):
+            # A pipeline may be built from either container, and appending to
+            # the mapping form raised AttributeError.
+            if task.name is None:
+                raise ValueError(
+                    'This pipeline holds its nodes by name, so a node added '
+                    'to it needs one: pass name= to submit().'
+                )
+            self.nodes[task.name] = task
+        else:
+            self.nodes.append(task)
         self._dirty = True
         return task
 
@@ -156,13 +180,22 @@ class Pipeline:
         if isinstance(self.nodes, dict):
             node_dict = self.nodes
         else:
+            unnamed = [node for node in self.nodes if node.name is None]
+            if unnamed:
+                raise ValueError(
+                    f'{len(unnamed)} node(s) in this pipeline have no name. A '
+                    'name identifies a node everywhere it appears -- its '
+                    'dotted configuration keys, its result directory, and the '
+                    'graphs -- so it cannot be omitted. Give every node a '
+                    'name, or pass a {name: node} mapping.'
+                )
             node_names = [node.name for node in self.nodes]
             if len(node_names) != len(set(node_names)):
                 print('node_names = {}'.format(ub.urepr(node_names, nl=1)))
                 raise AssertionError(
                     f'Non unique nodes detected: {len(node_names)}, {len(set(node_names))}'
                 )
-            node_dict = dict(zip(node_names, self.nodes))
+            node_dict = dict(zip(cast(list[str], node_names), self.nodes))
         return node_dict
 
     @property
@@ -441,7 +474,7 @@ class Pipeline:
     def configure(
         self,
         config: Mapping[str, Any] | None = None,
-        root_dpath: str | os.PathLike[str] | None = None,
+        root_dpath: PathSpec | None = None,
         cache: bool = True,
     ) -> None:
         """
@@ -497,7 +530,7 @@ class Pipeline:
     def compile_configurations(
         self,
         configs: Sequence[Mapping[str, Any]],
-        root_dpath: Any = None,
+        root_dpath: PathSpec | None = None,
         cache: bool = True,
     ) -> 'CompiledPipeline':
         """

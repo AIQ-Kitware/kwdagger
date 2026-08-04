@@ -32,7 +32,7 @@ from kwdagger.pipeline._agreement import (
     check_execution_agreement,
     execution_snapshot,
 )
-from kwdagger.pipeline._config_values import normalize_config
+from kwdagger.pipeline._config_values import PathSpec, normalize_config
 from kwdagger.pipeline._connections import (
     _UNSET,
     GatherConnection,
@@ -55,7 +55,7 @@ class CompiledPipeline:
         self,
         *,
         proc_graph: nx.DiGraph,
-        root_dpath: str | os.PathLike[str],
+        root_dpath: PathSpec,
         slurm_options: Mapping[str, Any] | None = None,
         compile_summary: Mapping[str, Any] | None = None,
     ) -> None:
@@ -577,7 +577,7 @@ def _compile_pipeline_configurations(
     template: Pipeline,
     *,
     configs: Sequence[Mapping[str, Any]],
-    root_dpath: str | os.PathLike[str] | None,
+    root_dpath: PathSpec | None,
     cache: bool,
 ) -> CompiledPipeline:
     """Compile a matrix-expanded template into a concrete static DAG."""

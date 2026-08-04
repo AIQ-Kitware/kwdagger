@@ -59,6 +59,11 @@ from kwdagger.pipeline._compile import (  # NOQA: F401
     _hashable_group_value,
     _node_param_value,
 )
+from kwdagger.pipeline._config_values import (  # NOQA: F401
+    PathSpec,
+    normalize_config,
+    normalize_config_value,
+)
 from kwdagger.pipeline._connections import (  # NOQA: F401
     _UNSET,
     Collection,
@@ -104,6 +109,7 @@ __all__ = [
     'Node',
     'OutputNode',
     'ParamNode',
+    'PathSpec',
     'Pipeline',
     'ProcessNode',
     'StoredGroupByKey',
