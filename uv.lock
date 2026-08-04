@@ -898,7 +898,6 @@ dependencies = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and python_full_version < '4'" },
-    { name = "scriptconfig" },
     { name = "ubelt" },
     { name = "wrapt" },
 ]
@@ -938,7 +937,7 @@ tests = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cmd-queue", specifier = ">=0.3.1" },
+    { name = "cmd-queue", specifier = ">=0.3.2" },
     { name = "coverage", marker = "python_full_version == '3.8.*' and extra == 'tests'", specifier = ">=6.1.1" },
     { name = "coverage", marker = "python_full_version == '3.9.*' and extra == 'tests'", specifier = ">=5.3.1" },
     { name = "coverage", marker = "python_full_version >= '3.10' and python_full_version < '3.12' and extra == 'tests'", specifier = ">=6.1.1" },
@@ -995,7 +994,6 @@ requires-dist = [
     { name = "scipy", marker = "python_full_version == '3.12.*'", specifier = ">=1.11.2" },
     { name = "scipy", marker = "python_full_version == '3.13.*'", specifier = ">=1.14.1" },
     { name = "scipy", marker = "python_full_version >= '3.14' and python_full_version < '4'", specifier = ">=1.16.2" },
-    { name = "scriptconfig", specifier = ">=0.8.4" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=5.0.1" },
     { name = "sphinx-autoapi", marker = "extra == 'docs'", specifier = ">=1.8.4" },
     { name = "sphinx-autobuild", marker = "extra == 'docs'", specifier = ">=2021.3.14" },
