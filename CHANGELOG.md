@@ -81,6 +81,21 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   real dependencies of the final consumer, while the process that lent the
   input is still not one. An alias with no produced origin is unchanged and
   stays configuration-only.
+* **Configured execution now follows the effective dependency set.** A
+  predecessor is not merely an ordering hint -- a disabled or missing one
+  suppresses its successor -- so gating a command on a producer it never reads
+  could silently skip valid work. `will_exist` gating, queue dependencies,
+  `.pred` / `.succ` links, and the compiled execution graph all ask
+  `effective_predecessor_process_nodes()`. `Pipeline.proc_graph` stays
+  structural: it answers which dependencies are *possible* before anything is
+  configured, and `Pipeline.effective_execution_graph()` is its configured
+  counterpart.
+* Full-matrix compilation could make an overridden consumer's execution depend
+  on matrix row order. Rows that compile to one consumer may be wired behind
+  different producers; the first row's structural predecessors survived
+  canonicalization, so reversing the matrix decided whether the consumer ran.
+  Both the compiled graph and the recorded provenance are now row-order
+  independent.
 * An input's *effective* source is now resolved with the same precedence as
   its value (gather, explicit, forwarded, produced, default) wherever identity
   and provenance ask where a value came from, rather than reporting every
@@ -110,7 +125,9 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 * `job_config.json` recorded both that a producer supplied an input and that
   the command read an explicit override of it. The wiring is still recorded --
   it is part of what was requested -- but a source that did not supply the
-  value is now marked `supplied: false`.
+  value is now marked `supplied: false`. Such a record names the wired *port*
+  rather than a concrete instance, because several matrix rows can wire
+  different producer instances into one deduplicated consumer.
 * `Pipeline.proc_graph` described a forwarded gather manifest as
   configuration-only. The compiled graph had the edge, so this was never a
   race, but the logical graph a user reads before compiling was wrong. A

@@ -1099,6 +1099,11 @@ def test_provenance_does_not_claim_an_unread_producer_supplied_the_value(
     # ... but it is marked as not having supplied the value.
     assert binding['supplied'] is False
     assert record['consumer.data_fpath'] == '/precomputed/data'
+    # No concrete instance is named: several rows can wire different producer
+    # instances into one deduplicated consumer, so an instance here would be
+    # decided by compile order.
+    assert 'source_process_id' not in binding
+    assert binding['source'] == 'producer.data_fpath'
 
 
 def test_a_read_producer_is_not_marked_unsupplied(tmp_path):
@@ -1119,3 +1124,211 @@ def test_a_read_producer_is_not_marked_unsupplied(tmp_path):
     dag.configure({}, root_dpath=tmp_path, cache=False)
     binding = consumer._depends_config()['__input__.data_fpath']
     assert 'supplied' not in binding
+
+
+# ---------------------------------------------------------------------------
+# 10. The runtime gate is effective, on both scheduling paths
+# ---------------------------------------------------------------------------
+#
+# The gate is not merely an ordering hint. A disabled or missing predecessor
+# suppresses its successor, so gating a command on a producer it never reads
+# can silently skip valid work. There are two execution paths and they used to
+# answer this question differently, which is worth testing separately: a
+# gather-free pipeline is scheduled a row at a time, while a pipeline
+# containing *any* gather is compiled across the whole matrix first. The same
+# consumer must not run in one pipeline shape and be skipped in the other.
+
+
+def test_single_row_gate_ignores_a_producer_the_command_does_not_read(
+    tmp_path,
+):
+    """
+    Gather-free, one row: the producer is disabled and the consumer overrides
+    the input it was wired to. The consumer reads a path the producer has
+    nothing to do with, so it must run.
+    """
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'data_fpath': 'data.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag.configure(
+        {
+            'consumer.data_fpath': '/precomputed/data',
+            'producer.__enabled__': False,
+        },
+        root_dpath=tmp_path,
+        cache=False,
+    )
+
+    # The template graph still records the wiring: it answers which
+    # dependencies are possible, before anything is configured.
+    assert dag.proc_graph.has_edge('producer', 'consumer')
+
+    # The execution graph answers what this command requires, and it requires
+    # nothing from the producer.
+    execution = dag.effective_execution_graph()
+    assert not execution.has_edge('producer', 'consumer')
+
+    status = dag.submit_jobs(
+        queue={'backend': 'serial'},
+        enable_links=False,
+        write_invocations=False,
+        write_configs=False,
+    )['node_status']
+    assert status['producer'] == 'disabled'
+    assert status['consumer'] == 'new_submission', (
+        'a disabled producer the consumer never reads must not suppress it'
+    )
+
+
+def test_single_row_gate_still_respects_a_producer_that_is_read(tmp_path):
+    """The complement: without the override the gate must still bite."""
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'data_fpath': 'data.json'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag.configure(
+        {'producer.__enabled__': False}, root_dpath=tmp_path, cache=False
+    )
+    assert dag.effective_execution_graph().has_edge('producer', 'consumer')
+    status = dag.submit_jobs(
+        queue={'backend': 'serial'},
+        enable_links=False,
+        write_invocations=False,
+        write_configs=False,
+    )['node_status']
+    assert status['consumer'] == 'skipped'
+
+
+def _dedup_pipeline():
+    """
+    A consumer whose input is overridden, plus an unrelated gather.
+
+    The gather earns its place: ``compile_configurations`` refuses a pipeline
+    without one, and ``build_schedule`` only takes the full-matrix path when a
+    gather exists. So the deduplication this exercises is reachable only in a
+    pipeline that gathers *somewhere* -- which is exactly why the two
+    scheduling paths could disagree unnoticed.
+    """
+    shard = ProcessNode(
+        name='shard',
+        executable='python shard.py',
+        out_paths={'part_fpath': 'part.txt'},
+        algo_params={'dataset': 'a', 'fold': 0},
+    )
+    merge = ProcessNode(
+        name='merge',
+        executable='python merge.py',
+        in_paths={'parts_fpath'},
+        out_paths={'merged_fpath': 'merged.txt'},
+        algo_params={'dataset': 'a'},
+    )
+    shard.outputs['part_fpath'].connect(
+        merge.inputs['parts_fpath'],
+        gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
+    )
+    producer = ProcessNode(
+        name='producer',
+        executable='python producer.py',
+        out_paths={'data_fpath': 'data.json'},
+        algo_params={'algo': 'x'},
+    )
+    consumer = ProcessNode(
+        name='consumer',
+        executable='python consumer.py',
+        in_paths={'data_fpath'},
+        out_paths={'result_fpath': 'result.json'},
+    )
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    return Pipeline(
+        {
+            'shard': shard,
+            'merge': merge,
+            'producer': producer,
+            'consumer': consumer,
+        }
+    )
+
+
+def _dedup_rows():
+    base = {
+        'shard.dataset': 'a',
+        'shard.fold': 0,
+        'merge.dataset': 'a',
+        'consumer.data_fpath': '/precomputed/data',
+    }
+    return [
+        dict(base, **{'producer.algo': 'x', 'producer.__enabled__': False}),
+        dict(base, **{'producer.algo': 'y', 'producer.__enabled__': True}),
+    ]
+
+
+def _compile_dedup(rows, label):
+    root = ub.Path.appdir(
+        f'kwdagger/tests/regressions/dedup/{label}'
+    ).delete().ensuredir()
+    compiled = _dedup_pipeline().compile_configurations(
+        rows, root_dpath=root, cache=False
+    )
+    consumer = [n for n in compiled.nodes.values() if n.name == 'consumer'][0]
+    status = compiled.submit_jobs(
+        queue={'backend': 'serial'},
+        enable_links=False,
+        write_invocations=False,
+        write_configs=False,
+    )['node_status']
+    return {
+        'consumers': len(
+            [n for n in compiled.nodes.values() if n.name == 'consumer']
+        ),
+        'producers': len(
+            [n for n in compiled.nodes.values() if n.name == 'producer']
+        ),
+        'process_id': consumer.process_id,
+        'preds': sorted(
+            compiled.nodes[p].name
+            for p in compiled.proc_graph.predecessors(consumer.process_id)
+        ),
+        'status': status[consumer.process_id],
+        'provenance': consumer._depends_config().get('__input__.data_fpath'),
+    }
+
+
+def test_matrix_row_order_does_not_change_a_deduplicated_consumer():
+    """
+    Two rows wire the same overridden consumer behind different producers, so
+    they compile to one consumer. Keeping whichever row arrived first would
+    attach it to an arbitrary producer -- and since a disabled predecessor
+    suppresses its successor, reversing the matrix would decide whether the
+    consumer ran at all.
+    """
+    forward = _compile_dedup(_dedup_rows(), 'forward')
+    reverse = _compile_dedup(list(reversed(_dedup_rows())), 'reverse')
+
+    assert forward['consumers'] == 1
+    assert forward['producers'] == 2
+    assert forward == reverse, 'compilation must not depend on matrix order'
+
+    # And the outcome is the right one: the consumer reads a path neither
+    # producer makes, so neither gates it.
+    assert forward['preds'] == []
+    assert forward['status'] == 'new_submission'
+    assert forward['provenance']['supplied'] is False

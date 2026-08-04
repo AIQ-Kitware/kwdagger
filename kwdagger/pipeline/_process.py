@@ -894,15 +894,29 @@ class ProcessNode(Node):
             for source_port in input_node.pred:
                 assert isinstance(source_port, IONode)
                 if isinstance(source_port, OutputNode):
-                    # A produced value: identity lives in the producing
-                    # instance, which the ``__input__`` binding captures.
-                    binding = {
-                        'source_process_id': source_port.parent.process_id,
-                        'source_port': source_port.name,
-                        'source_kind': 'output',
-                    }
-                    if id(source_port) not in effective:
-                        binding['supplied'] = False
+                    if id(source_port) in effective:
+                        # A produced value that was read: identity lives in
+                        # the producing instance.
+                        binding = {
+                            'source_process_id': (
+                                source_port.parent.process_id
+                            ),
+                            'source_port': source_port.name,
+                            'source_kind': 'output',
+                        }
+                    else:
+                        # Wired but not read. Naming a concrete instance here
+                        # would be both meaningless and unstable: several
+                        # matrix rows can wire different producer instances
+                        # into one deduplicated consumer, and whichever
+                        # compiled first would end up in the record. The
+                        # wiring itself is a template fact, so record that.
+                        binding = {
+                            'source': source_port.key,
+                            'source_port': source_port.name,
+                            'source_kind': 'output',
+                            'supplied': False,
+                        }
                     bindings.append(binding)
                 else:
                     # An alias carries an already-known value, so it is not

@@ -799,11 +799,16 @@ def _compile_pipeline_configurations(
                 )
             row_nodes[row_idx][template_name] = canonical
 
+    # The concrete execution graph, so effective predecessors: what each
+    # command actually requires, not everything that was wired to it. Two
+    # rows that compile to one node may have been wired to different
+    # producers -- if the node reads neither, keeping whichever row came
+    # first would make execution depend on matrix order.
     proc_graph = nx.DiGraph()
     for process_id, node in concrete_by_process_id.items():
         proc_graph.add_node(process_id, node=node)
     for process_id, node in concrete_by_process_id.items():
-        for pred in node.predecessor_process_nodes():
+        for pred in node.effective_predecessor_process_nodes():
             proc_graph.add_edge(pred.process_id, process_id)
 
     if not nx.is_directed_acyclic_graph(proc_graph):

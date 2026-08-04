@@ -369,3 +369,64 @@ never override a connected input, so effective and structural coincide for
 them. That is also why none of these four rounds of identity bugs would have
 shown up in the work this branch exists to support -- worth remembering that a
 green fingerprint means "did not change what I care about", not "is correct".
+
+## 2026-08-04 02:10:00 -0400
+
+Fifth round, and the first one I had a genuine back-and-forth with the reviewer
+about rather than just implementing.
+
+The finding: two matrix rows that compile to one consumer can be wired behind
+different producers, and canonicalization kept the first row's structural
+predecessors. Reversing the matrix changed which producer the surviving
+consumer was attached to -- and since a disabled predecessor suppresses its
+successor, that decided whether the consumer ran at all. Same command, same
+process_id, opposite outcome. Reproduced both orders: `skipped` versus
+`new_submission`.
+
+Two things I found while reproducing that the reviewer could not have known
+without running it, and that turned out to matter. Their repro as written
+cannot execute -- `compile_configurations` rejects gather-free pipelines and
+`build_schedule` only takes the full-matrix path when a gather exists -- so a
+gather has to be present somewhere. And the single-row path does not share the
+defect, because it has no canonical instance and re-gates per row. I raised
+both, along with having tested their "cleaner long-term" option: one line, and
+it makes both orders identical *and* correct.
+
+Where the dialog earned its keep was the question I asked at the end. I
+proposed compiled-path-effective plus single-row-path-conservative as an
+acceptable release boundary. The reviewer said no, and the reason was better
+than my reasoning: it would make the same configured consumer run in one
+pipeline shape and be skipped in another, depending on whether an unrelated
+gather elsewhere pushed `build_schedule` onto the full-matrix path. That is a
+semantic split, not conservatism. I had been treating "conservative" as
+self-evidently safe, and it is not, because the gate is not an ordering hint --
+it is a hard existence check that can suppress valid work. Once that is true,
+"conservative" and "wrong" are the same thing.
+
+So the split is now: structural for the template graph, configuration
+diagnostics, and requested wiring provenance; effective for everything a
+configured command actually does -- gating, queue dependencies, `.pred` /
+`.succ` links, and the compiled graph. They asked me to audit every runtime use
+rather than patch the `will_exist` expression, which was right: the links block
+was still calling the structural query directly, and would have written a
+`.pred` entry for a producer the result never read.
+
+One thing the reviewer's spec caught that my first attempt missed. After fixing
+the graph, statuses and process_id matched across row orders but provenance
+still did not: `supplied: false` named whichever producer instance the
+canonical consumer happened to be wired to. The fix is not to union the
+instances but to stop naming one. An unsupplied source is a statement about
+*wiring*, which is a template fact -- so it records the port, `producer.data_fpath`,
+and no `process_id`. Naming a concrete instance there was always meaningless,
+and only stopped being obviously so because nothing had read it.
+
+Also worth writing down: `condensed` still walks structural predecessors, so a
+custom `node_dpath` template that interpolates another node's id could still
+pull an unread producer into a path. I left it, because changing it moves
+result directories and nothing asks for it, but it is the one place the
+structural/effective boundary is still drawn by inertia rather than by
+argument.
+
+TA1 fingerprints identical for the fifth time. That streak is starting to feel
+like evidence of nothing: the cards never override a connected input, so every
+bug this review process has found sits outside what the fingerprint can see.

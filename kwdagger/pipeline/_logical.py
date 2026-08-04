@@ -645,6 +645,34 @@ class Pipeline:
         )
         self.print_io_graph(shrink_labels=shrink_labels, show_types=show_types)
 
+    def effective_execution_graph(self) -> nx.DiGraph:
+        """
+        What each configured command actually requires, by node name.
+
+        :attr:`proc_graph` is the template: it answers which dependencies are
+        *possible*, before anything is configured, and it has to stay
+        structural because at that point no value has been resolved. This is
+        the configured counterpart, and it is what execution runs on.
+
+        The two differ only where something outranks a producer -- an explicit
+        path, or a value forwarded from a peer port. There the wired producer
+        supplies nothing, and the difference matters because the runtime does
+        not treat a predecessor as a mere ordering hint: a disabled or missing
+        predecessor suppresses its successor. Gating a command on a producer
+        it never reads can silently skip valid work.
+
+        Returns:
+            nx.DiGraph: nodes keyed by name, carrying ``node``, as
+                :attr:`proc_graph` does.
+        """
+        graph = nx.DiGraph()
+        for name, node in self.node_dict.items():
+            graph.add_node(node.name, node=node)
+        for name, node in self.node_dict.items():
+            for pred in node.effective_predecessor_process_nodes():
+                graph.add_edge(pred.name, node.name)
+        return graph
+
     def submit_jobs(
         self,
         queue: Any = None,
@@ -673,7 +701,9 @@ class Pipeline:
                 'or kwdagger schedule.'
             )
         return _runtime.submit_jobs(
-            self.proc_graph,
+            # The execution graph, not the template one: submission has to
+            # ask what each configured command actually requires.
+            self.effective_execution_graph(),
             slurm_options=self.__slurm_options__,
             queue=queue,
             skip_existing=skip_existing,

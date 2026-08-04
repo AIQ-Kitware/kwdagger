@@ -267,9 +267,12 @@ def submit_jobs(
                 # TODO: ability to bind jobs to be run in the same queue
                 # together
 
-                # TODO: should we filter the nodes where they are only linked
-                # via inputs?
-                for pred in node.predecessor_process_nodes():
+                # ``pred_nodes`` comes from the execution graph, which is
+                # effective and whose nodes are the canonical instances. A
+                # structural query here would link a result to a producer it
+                # never read, and in the compiled case could hand back a
+                # deduplicated instance rather than the surviving one.
+                for pred in pred_nodes:
                     link_path1 = (
                         pred.final_node_dpath
                         / '.succ'
