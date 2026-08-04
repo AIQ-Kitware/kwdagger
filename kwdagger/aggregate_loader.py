@@ -43,7 +43,7 @@ def build_tables(
     DEVFLAG = 1
     if DEVFLAG:
         for node_name in eval_nodes:
-            node = dag.nodes[node_name]
+            node = dag.node_dict[node_name]
             if node_name not in lut:
                 if len(node.out_paths) == 1:
                     primary_out_key = list(node.out_paths)[0]
@@ -103,10 +103,10 @@ def build_tables(
             node_name = node_eval_info['name']
             out_key = node_eval_info['out_key']
 
-            if node_name not in dag.nodes:
+            if node_name not in dag.node_dict:
                 continue
 
-            node = dag.nodes[node_name]
+            node = dag.node_dict[node_name]
             out_node = node.outputs[out_key]
 
             fpaths = out_node_matching_fpaths(out_node)
@@ -228,7 +228,7 @@ def load_result_worker(
         >>> dag = pipeline.coerce_pipeline(info['pipeline'])
         >>> dag.configure(root_dpath=eval_dpath)
         >>> node_name = 'stage1_evaluate'
-        >>> node = dag.nodes[node_name]
+        >>> node = dag.node_dict[node_name]
         >>> out_key = node.primary_out_key
         >>> out_node = node.outputs[out_key]
         >>> fpaths = out_node_matching_fpaths(out_node)
@@ -420,11 +420,11 @@ def load_result_resolved(
     if dag is not None:
         if node is None:
             try:
-                node = dag.nodes[node_type]
+                node = dag.node_dict[node_type]
             except KeyError:
                 print(f'node_dpath = {ub.urepr(node_dpath, nl=1)}')
                 print(f'node_type = {ub.urepr(node_type, nl=1)}')
-                print(f'dag.nodes = {ub.urepr(dag.nodes, nl=1)}')
+                print(f'dag.node_dict{ub.urepr(dag.nodes, nl=1)}')
                 raise
 
     if node is not None and hasattr(node, 'load_result'):

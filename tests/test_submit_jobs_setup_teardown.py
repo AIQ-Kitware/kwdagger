@@ -38,8 +38,6 @@ import cmd_queue
 import pytest
 import ubelt as ub
 
-from kwdagger.pipeline import Pipeline
-
 # The resource-lifecycle feature requires a cmd_queue whose BashJob accepts
 # ``setup`` / ``teardown`` (cmd_queue >= 0.3.1). Feature-detect rather than
 # version-parse so this stays correct regardless of how it is packaged. Skip
@@ -47,6 +45,8 @@ from kwdagger.pipeline import Pipeline
 # of failing -- the kwdagger plumbing cannot be exercised without upstream
 # support.
 from cmd_queue.serial_queue import BashJob
+
+from kwdagger.pipeline import Pipeline
 
 _HAS_SETUP_TEARDOWN = (
     'teardown' in inspect.signature(BashJob.__init__).parameters
@@ -81,7 +81,7 @@ def test_setup_teardown_plumbed_to_job(tmp_path):
     script (gating preamble + cleanup trap)."""
     dag = _build_demo(ub.Path(tmp_path) / 'st-on')
     # Attach a setup/teardown to the first node; these are arbitrary shell.
-    node = dag.nodes[0]
+    node = next(iter(dag.node_dict.values()))
     node.setup = 'echo ACQUIRE'
     node.teardown = 'echo RELEASE'
 
@@ -123,7 +123,7 @@ def test_setup_teardown_render_on_tmux_backend(tmp_path):
     """The same plumbing must hold for the tmux backend, which reuses the
     serial job rendering inside per-worker queues."""
     dag = _build_demo(ub.Path(tmp_path) / 'st-tmux')
-    node = dag.nodes[0]
+    node = next(iter(dag.node_dict.values()))
     node.setup = 'echo ACQUIRE'
     node.teardown = 'echo RELEASE'
 

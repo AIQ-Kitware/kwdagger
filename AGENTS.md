@@ -5,9 +5,10 @@ in this repository. It summarizes the project layout, development environment,
 common workflows, and testing/documentation practices.
 
 ## Project overview
-- **Purpose:** `kwdagger` defines bash-centric DAG pipelines that can be expanded
-  over parameter grids, scheduled on multiple backends (serial, tmux, Slurm),
-  and aggregated for reporting.
+- **Purpose:** `kwdagger` turns parameterized definitions of existing command-line
+  programs into static graphs of shell commands and hashed result directories.
+  It can dispatch those commands through serial, tmux, or Slurm backends, while
+  preserving inspectable `invoke.sh` files and a navigable result graph.
 - **Primary CLIs:**
   - `python -m kwdagger.schedule` / `kwdagger schedule` – schedule a pipeline via `ScheduleEvaluationConfig`.
   - `python -m kwdagger.aggregate` / `kwdagger aggregate` – aggregate completed runs via `AggregateEvluationConfig` and generate text/plot reports.
@@ -17,7 +18,7 @@ common workflows, and testing/documentation practices.
 
 ## Repository layout
 - `kwdagger/`
-  - `pipeline.py` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`.
+  - `pipeline/` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`. Import everything from `kwdagger.pipeline`; the submodules are private and layered one-way (`_config_values`/`_shell`/`_slurm` → `_agreement` → `_runtime` → `_connections` → `_process` → `_compile` → `_logical`). `tests/test_import_compat.py` enforces both the import surface and that direction.
   - `schedule.py` – `ScheduleEvaluationConfig` and supporting helpers that expand YAML/JSON parameter matrices, prepare job directories, and dispatch to cmd_queue backends.
   - `aggregate.py` – `AggregateEvluationConfig` CLI that loads completed runs, computes parameter hash IDs, aggregates metrics, and writes reports.
   - `aggregate_loader.py` / `aggregate_plots.py` – helpers for loading pipeline outputs and producing tabular or plotted summaries.
@@ -56,7 +57,16 @@ common workflows, and testing/documentation practices.
 - To run only the pytest suite manually: `pytest kwdagger tests` (add custom
   flags as needed; see `pyproject.toml` for default addopts and warning filters).
 - Doctests: `./run_doctests.sh` executes `xdoctest kwdagger --style=google all`.
-- Linting: `./run_linter.sh` runs a strict flake8 pass for fatal errors.
+- Linting: `./run_linter.sh` runs a strict flake8 pass for fatal errors. The
+  full set the branch is kept clean against, all available through `uv`:
+  ```bash
+  uv tool run ruff check kwdagger tests
+  uv tool run ruff format --check kwdagger tests
+  uv tool run ty check ./kwdagger
+  uv tool run flake8 --select=E9,F63,F7,F82,F401,F811,F841 kwdagger tests
+  ```
+  `flake8` catches unused and shadowed names that `run_linter.sh`'s narrow
+  selection does not.
 - Tests and doctests rely on the demo pipeline data where appropriate; keep demo
   CLI behavior stable when making changes.
 
@@ -65,69 +75,230 @@ common workflows, and testing/documentation practices.
 - Build the HTML docs locally with `make -C docs html` (requires
   `requirements/docs.txt`). Generated output is placed under `docs/build/html`.
 
-## Core pipeline invariants and value proposition
+## Core execution model and priorities
 
-Treat these as architectural constraints, especially when changing scheduling,
-graph compilation, generated commands, or artifact layout.
+Treat these as the primary constraints when changing scheduling, graph
+compilation, generated commands, hashing, or artifact layout.
 
-- **Static DAG:** all process instances and dependency memberships are fixed at
-  compile time. Nodes may make data-dependent decisions internally, but they
-  must map those decisions into statically declared outputs. Do not add runtime
-  task discovery or scheduler-side DAG mutation without an explicit redesign.
-- **Bash is a first-class product:** kwdagger constructs the graph, but execution
-  must be separable from kwdagger. A generated cmd-queue Bash script or the
-  exported script bundle rooted at its node ``invoke.sh`` files must contain
-  the complete commands needed to execute the work. Static scripts and configs
-  may be materialized during compilation when a backend requires file-backed
-  commands, but they must be visible, portable artifacts rather than opaque
-  in-memory state.
-- **Ordinary CLI contracts:** nodes consume named ``--key=value`` arguments.
-  Existing programs should require only mild CLI adaptation. Avoid positional
-  conventions and avoid expanding large collections into command-line argument
-  lists.
-- **Preserve the node model:** new features should compose the existing
-  ``algo_params``, ``in_paths``, and ``out_paths`` concepts instead of creating
-  a parallel parameter or artifact language.
-- **Gather is compile-time edge semantics:** use
-  ``GatherSpec(group_by=[...], order_by=[...], require='all_success')``. The
-  compiler partitions known source instances with dataframe-like ``group_by``
-  semantics, orders each group deterministically, and passes one path-manifest
-  filename to an ordinary consumer node. Gather is not a special user program
-  and not a runtime-discovery node. Parameters omitted from ``group_by`` vary
-  within the group; do not add a second ``across``/``over`` membership control.
-- **Portable gather manifests:** collection membership is written with a quoted
-  heredoc inside the consumer's complete command and ``invoke.sh``. This avoids
-  ``ARG_MAX`` when Bash reads a script because member paths are script input
-  rather than argv. Backends that transport commands through an argument, most
-  notably Slurm's ``sbatch --wrap``, must submit a short file-backed command such
-  as ``bash invoke.sh`` instead of placing the heredoc in ``--wrap``. The
-  newline-delimited format rejects paths containing newlines.
-- **Heredoc delimiters stay at column zero:** cmd_queue normally indents
-  dependency-guarded job bodies for display. Any serial or tmux job containing
-  a generated heredoc must set ``allow_indent=False``; otherwise Bash will not
-  recognize the closing delimiter and the exported script becomes invalid.
-  Preserve readability by explicitly indenting ordinary commands inside a brace
-  group while leaving only heredoc bodies and terminators at column zero.
-  Heredoc-bearing commands must not begin with ``(``: cmd_queue may add its own
-  logging subshell, and the combination becomes Bash arithmetic syntax
-  ``((...))``. Prefer ``{ ...; }`` with explicit ``&&`` chaining.
-- **Visible cardinality:** logical Process and IO graphs must visibly distinguish
-  gather fan-in and collection-valued inputs. After matrix compilation, report
-  concrete direct, fan-out, fan-in, and many-to-many cardinalities before queue
-  submission. Generated execution text should make manifest creation obvious.
-- **Deterministic identity:** gather policy, ordered logical membership, source
-  process IDs, and source output keys participate in the consumer process hash.
-  Ordinary connected inputs also record the exact source process and source
-  port; an unordered ancestor set is not sufficient to identify a binding graph.
-  Cache identity must not depend on cache-root location, filesystem enumeration
-  order, or completion timing.
-- **Phase boundaries for discovery:** workflows with an unknown runtime candidate
-  set should materialize and freeze that set, then compile a new static
-  downstream pipeline. Do not weaken ordinary gather semantics to mean
-  "whatever outputs happen to exist."
-- **Aggregation is separate:** ``aggregate`` queries historical results; gather
-  connects known outputs inside one compiled pipeline. Keep these concepts and
-  implementations distinct.
+- **The command is the primary product:** a `ProcessNode` must be able to turn
+  its current parameters into the complete shell command and associated paths.
+  The default named-argument convention is convenient, but subclasses may
+  support positional arguments, subcommands, or other existing CLI conventions.
+  Kwdagger wraps ordinary programs; it should not lock users into a bespoke
+  execution ecosystem.
+- **Static planning:** all concrete commands and produced-artifact dependencies
+  are determined before execution. Nodes may make data-dependent decisions
+  internally, but scheduler-side runtime DAG mutation requires an explicit
+  phase boundary and a newly compiled downstream pipeline.
+- **Execution remains separable:** cmd_queue is the normal execution mechanism,
+  with tmux the most commonly used interactive backend, but generated commands
+  and per-node `invoke.sh` files must remain usable without kwdagger. Do not hide
+  essential execution state only in Python objects or scheduler internals.
+- **The hashed result graph is a defining feature:** preserve stable result
+  directories, a practical primary-output completion check, and correct `.pred`
+  / `.succ` links. Users rely on this graph for inspection, independent reruns,
+  and downstream invalidation after scheduling has finished.
+- **Produced artifacts define execution lineage:** an output-to-input edge means
+  the source must execute and materialize data before the target. It therefore
+  creates queue ordering, process lineage, and persistent predecessor/successor
+  links.
+- **Known-value sharing is not execution lineage:** input-to-input forwarding and
+  algorithm-parameter sharing reuse an already-known value. They may require
+  configuration resolution, but they should not by themselves create execution
+  dependencies, `.pred` links, or fan-out over unrelated source sweep axes.
+  Configuration resolution must be independent of node insertion order and of
+  stale values from a previously configured matrix row.
+- **Matrix correlation is first-class:** `matrix`, `include`, and `exclude` are
+  established mechanisms for describing an experiment campaign. `submatrices`
+  are useful but historically pragmatic. Put relationships that are always true
+  in the pipeline; put campaign-specific correlations in the matrix.
+- **The parameter taxonomy is historical:** `in_paths`, `out_paths`,
+  `algo_params`, and `perf_params` describe current mechanics, not a settled
+  ontology. In particular, `perf_params` means “excluded from operational result
+  identity,” even for values such as verbosity that are not performance knobs.
+  Preserve compatibility now; do not redesign the taxonomy incidentally.
+- **Operational identity is a reuse mechanism:** `process_id` decides result
+  directory and queue reuse under kwdagger's declared parameters and effective
+  input values -- not under lineage; see "Process identity, scheduling, and
+  provenance" below. It is not a content hash or a proof of determinism. `algo_id` is a
+  current implementation component without a strong standalone public contract;
+  do not optimize the architecture around it at the expense of observable
+  command, reuse, or lineage behavior.
+- **Preserve dotted requested lineage:** `job_config.json` records the requested
+  experiment description, while executables may separately report resolved
+  runtime parameters. Shared values should remain understandable with fully
+  qualified source/target names even when they do not create process ancestry.
+- **Gather is new compile-time many-to-one semantics:** gather selects a known
+  set of source outputs, writes a manifest, and passes one manifest path to an
+  ordinary consumer. It is not historical result discovery. The current
+  implementation compiles the complete matrix before submission; validate that
+  path against the established row-at-a-time workflow rather than treating it
+  as settled architecture.
+- **Prefer qualified grouping keys:** unqualified gather keys are shorthand and
+  can become ambiguous when a pipeline expands. Resolve them uniquely or fail,
+  and prefer storing/printing the canonical qualified form.
+- **Aggregation is an optional consumer:** metrics, vantage points, analytical
+  hashes, and SMART/geowatch-specific conventions matter, but they are secondary
+  to command generation and the result directory graph. Keep the filesystem
+  useful to custom scripts and other inspection tools.
+
+### Process identity, scheduling, and provenance
+
+These three answer different questions. Conflating them has caused several
+rounds of subtle bugs, in both directions, so the invariant is stated here
+rather than left to be re-derived.
+
+> **A process is identified by the computation it will perform:** its effective
+> algorithm configuration, its effective resolved input values, and anything
+> else that changes its command or its outputs. **It is not identified by how
+> those input values were obtained.**
+
+Concretely:
+
+- Equal effective input values produce equal `process_id`, regardless of the
+  delivery mechanism. A path a producer writes and the identical path typed
+  into a config are the same computation and share a result directory.
+- A producer affects a consumer's identity **only through the value it
+  supplies**. That is not weakened invalidation: a produced path contains the
+  producer's `process_id`, so reconfiguring the producer moves the path and the
+  consumer's identity follows. If a producer change leaves the output path
+  unchanged, kwdagger treats the consumer's input as unchanged -- exactly as it
+  does for a stable hand-written path.
+- **Do not add producer `process_id`, producer `algo_id`, port names,
+  `source_kind`, or "was this produced or manual" flags to a consumer's hash**,
+  under any field name, in order to preserve lineage. That information belongs
+  to provenance and to scheduling. Reintroducing it puts two identical
+  computations in two result directories and makes a producer sweep fan out
+  identical downstream jobs.
+- The one deliberate exception is `__dependency__.<node>`: an explicit ordering
+  edge carries no value, so there is no effective value through which it could
+  reach identity, and it is a declared property of this node's own execution
+  rather than the lineage of an input.
+
+The questions, and who answers them:
+
+| Question | Answered by |
+| --- | --- |
+| Which dependencies are *possible* in this pipeline definition? | `Pipeline.proc_graph` — structural, and built before configuration |
+| Which jobs must finish before this concrete command runs? | `effective_predecessor_process_nodes()` and `Pipeline.effective_execution_graph()` — gating, queue dependencies, `.pred`/`.succ` links, compiled graph |
+| What computation is this? | `ProcessNode.depends` → `process_id` |
+| How was this value requested, and what supplied it? | `_depends_config()` → `job_config.json` |
+
+Provenance keeps every distinction identity drops: manual value, default,
+alias, producer output, gather manifest, and `supplied: false` for wiring that
+was requested but outranked. That is where a reader looks to tell a produced
+input from a hand-supplied one.
+
+**Identity is value-based, not content-based.** kwdagger does not read the bytes
+at a path, and equal paths do not prove equal content. If byte-level artifact
+identity is required it must be supplied explicitly — a checksum, a
+content-addressed path, or another explicit artifact identifier used as a
+parameter. Do not infer it from producer relationships.
+
+Paths inside kwdagger's own root hash **relative to that root**, so relocating
+a cache changes no identity. Paths outside it hash as given, because they
+identify external data. A hand-supplied path pointing inside the root
+canonicalizes exactly as a produced one does, which is what keeps the two
+delivery mechanisms equal. Canonicalization is recursive and rewrites mapping
+keys as well as values. It is many-to-one, so two keys of one mapping that
+canonicalize alike are rejected rather than merged: silently dropping an entry
+would leave two different configurations with one identity, and separate
+schedules cannot be arbitrated against each other after the fact.
+
+**Configuration has one internal representation, established at the boundary.**
+`kwdagger/pipeline/_config_values.py` is that boundary, and the invariant it
+establishes is: *after configuration coercion, every path-like object is a
+string and every mapping key is a string*. It covers row overrides, the
+pipeline's own requested row, and declared `in_paths` / `out_paths` /
+`algo_params` / `perf_params` defaults — a default reaches identity and
+`job_config.json` by the same route an override does.
+
+A Python caller may pass an `os.PathLike` as a convenience and `os.fspath`
+converts it — spelling only, so a relative path stays relative until the
+path-resolution stage deliberately interprets it, and the caller's original
+type is not retained. A `PathLike` whose `__fspath__` returns `bytes` is
+refused: kwdagger records configuration as text and will not guess an encoding
+for what ends up in the hash and on a command line.
+
+**Configuration mappings must have string keys — including mappings loaded from
+YAML.** This is a domain rule, not just the removal of a Python-only shape:
+YAML decodes `0:`, `true:`, and `null:` into non-string keys, so
+`class_weights: {0: 1.0, 1: 2.5}` is now rejected. Mapping keys are variable
+identifiers here. Two keys normalizing alike are a reported collision, as are
+two paths canonicalizing alike.
+
+Identity, commands, provenance, arbitration, and the JSON on disk may all
+assume the invariant. Do not teach any of them to understand `os.PathLike`
+separately, and do not leave the conversion to `json.dumps`: it renames an
+`int` key silently, refuses a `Path` one, and cannot sort a mixture, so the
+readers end up disagreeing about what the keys are. For the same reason the
+arbitration serializer carries no `default=` fallback — it must refuse exactly
+what the writer refuses, or a leak passes arbitration and fails at write
+time.
+
+A corollary, stated because it has been violated: **equal `process_id` implies
+equal command-defining state, apart from state that is deliberately unhashed.**
+Path templates may therefore use only the node's own ids; substituting an
+ancestor's id was removed for exactly this reason.
+
+Two things identity deliberately cannot arbitrate, which matrix rows sharing an
+identity must therefore agree on — compilation reports each as a user-facing
+`ValueError`:
+
+- **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
+  and output-path overrides. Slurm options have four layers -- pipeline base,
+  matrix-row global, node declared default, that row's per-node override --
+  combined key-wise by `kwdagger.pipeline._slurm.layer_slurm_options`. Both
+  scheduling paths must call it: they used to layer differently, so adding an
+  unrelated gather changed what a node asked for. A row that omits any of this
+  state is requesting the declared default, never the previous row's value: `Pipeline.configure` resets
+  `__slurm_options__` from `_base_slurm_options` each call, because otherwise
+  "explicit options" and "no options" are indistinguishable in row order. These change how a process runs, not what it
+  computes. Note that not all of it is *on* the node: an ordinary pipeline
+  keeps top-level `__slurm_options__` on the `Pipeline`, and `log`,
+  `enable_links`, `write_invocations`, and `write_configs` are arguments to
+  `submit_jobs`. A duplicate request returns before any of that is applied, so
+  the snapshot takes them from the submitter rather than from node state.
+  `skip_existing` is deliberately excluded: it selects which requests are made
+  rather than what a request asks for, and reversing two calls that differ in
+  it leaves the same queue.
+- **The requested experiment:** everything provenance keeps and identity drops
+  -- which producer supplied each input, which alias or parameter port
+  forwarded a value and which was outranked, gather membership. Two rows can be
+  one computation and still need different jobs to run first, or ask for the
+  same computation in two different ways. Only one `job_config.json` can be
+  written for the directory they share.
+
+  Arbitration therefore compares the **record itself**, `_depends_config()`, not
+  a summary derived from it. Every attempt to compare a derived summary -- a
+  prerequisite union, a per-port delivery signature -- has lost a distinction
+  the record was keeping on purpose. Those summaries are still checked first,
+  but only because they name the two common conflicts precisely; the record
+  comparison is what makes the check complete. Do not replace it with a cheaper
+  representation of the same information.
+
+Anything else reaching the command or the node directory without reaching
+identity is a payload defect, and compilation raises an internal-consistency
+error for it.
+
+### Current gather shell constraints
+
+The following are implementation constraints of the current gather mechanism,
+not the general conceptual definition of kwdagger:
+
+- Gather membership and policy participate in consumer identity, while absolute
+  cache-root paths must not.
+- Collection membership is written as a newline-delimited manifest using a
+  quoted heredoc in the consumer's `invoke.sh`; paths containing newlines are
+  rejected.
+- Heredoc delimiters must remain at column zero. Serial/tmux jobs containing a
+  generated heredoc use `allow_indent=False`, and the shell wrapper must avoid a
+  leading `(` that could combine with cmd_queue logging syntax.
+- Slurm should submit a short file-backed command such as `bash invoke.sh`
+  instead of placing a large heredoc in `sbatch --wrap`.
+- Logical and compiled graph diagnostics should make gather fan-in and manifest
+  creation visible without pretending that a gather marker is an executable
+  node.
 
 ## Extending or refactoring
 - **Pipelines:** new pipelines should compose `ProcessNode` instances with

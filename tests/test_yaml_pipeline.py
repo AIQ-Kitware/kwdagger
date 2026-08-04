@@ -37,7 +37,7 @@ def test_yaml_pipeline_matches_python_pipeline():
     def py_pipeline():
         nodes = {'step1': Step1(), 'step2': Step2()}
         nodes['step1'].outputs['dst'].connect(nodes['step2'].inputs['src'])
-        dag = Pipeline(nodes)
+        dag = Pipeline(list(nodes.values()))
         dag.build_nx_graphs()
         return dag
 
@@ -415,18 +415,18 @@ def _write_eval_script(dpath):
         #!/usr/bin/env python3
         import json
         import kwutil
-        import scriptconfig as scfg
+        import kwconf as kw
         import ubelt as ub
 
 
-        class EvalCLI(scfg.DataConfig):
+        class EvalCLI(kw.Config):
             src = None
             dst = 'metrics.json'
             thresh = 0.5
             workers = 0
 
             @classmethod
-            def main(cls, argv=1, **kwargs):
+            def main(cls, argv=True, **kwargs):
                 config = cls.cli(argv=argv, data=kwargs, strict=True)
                 proc = kwutil.ProcessContext(
                     name='eval_node', type='process',
@@ -554,7 +554,7 @@ def _write_python_pipeline_module(dpath, script_fpath):
 
 
         def build():
-            return Pipeline({{'rt_eval': RtEval()}})
+            return Pipeline([RtEval()])
         """
     )
     compile(text, mode='exec', filename='<test-compile>')
@@ -754,7 +754,7 @@ def test_plain_process_node_round_trip_uses_yaml_process_node():
         out_paths={'dst': 'out.txt'},
         algo_params={'alpha': 1},
     )
-    dag = Pipeline({'plain': node})
+    dag = Pipeline([node])
     reloaded = load_yaml_pipeline(dag.to_yaml_spec())
 
     assert type(reloaded.node_dict['plain']) is YamlProcessNode
@@ -775,7 +775,7 @@ def test_dump_rejects_unimportable_node_class():
         executable = 'echo hi'
         out_paths = {'dst': 'o.txt'}
 
-    dag = Pipeline({'local': LocalNode()})
+    dag = Pipeline([LocalNode()])
     with pytest.raises(ValueError, match='not importable'):
         dag.to_yaml_spec()
 

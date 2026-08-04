@@ -6,31 +6,31 @@ import kwarray
 import kwcoco
 import kwimage
 import numpy as np
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 
 
-class PredictHeatmapConfig(scfg.DataConfig):
+class PredictHeatmapConfig(kw.Config):
     """
     CLI options for writing saliency maps.
     """
 
-    coco_fpath = scfg.Value(None, help='Input ground-truth kwcoco dataset')
-    dst_coco_fpath = scfg.Value(
+    coco_fpath = kw.Value(None, help='Input ground-truth kwcoco dataset')
+    dst_coco_fpath = kw.Value(
         'heatmap.kwcoco.json', help='Output kwcoco file'
     )
-    asset_dpath = scfg.Value(
+    asset_dpath = kw.Value(
         'assets/heatmaps',
         help='Where to store written heatmaps, best practice is to spcify this next to the dst coco file.',
     )
-    heatmap_channel = scfg.Value(
+    heatmap_channel = kw.Value(
         'salient', help='Name of the output heatmap channel'
     )
-    sigma = scfg.Value(7.0, help='Gaussian blur applied to binary mask')
-    thresh = scfg.Value(0.0, help='Threshold for minimum heatmap value')
+    sigma = kw.Value(7.0, help='Gaussian blur applied to binary mask')
+    thresh = kw.Value(0.0, help='Threshold for minimum heatmap value')
 
     @classmethod
-    def main(cls, argv=1, **kwargs):
+    def main(cls, argv=True, **kwargs):
         """
         Example:
             >>> import sys, ubelt

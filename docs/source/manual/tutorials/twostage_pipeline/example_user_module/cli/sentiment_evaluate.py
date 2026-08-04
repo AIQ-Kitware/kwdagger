@@ -3,7 +3,7 @@ import json
 
 import kwutil
 import rich
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 from rich.markup import escape
 
@@ -22,17 +22,17 @@ def _safe_div(num, den):
     return num / den if den else 0.0
 
 
-class SentimentEvaluateCLI(scfg.DataConfig):
+class SentimentEvaluateCLI(kw.Config):
     """Evaluate predictions produced by :mod:`keyword_sentiment_predict`."""
 
-    pred_fpath = scfg.Value(None, help='path to predictions JSON')
-    true_fpath = scfg.Value(None, help='path to labeled jsonl file')
-    out_fpath = scfg.Value(None, help='path to evaluation file')
-    workers = scfg.Value(0, help='number of parallel workers (unused)')
+    pred_fpath = kw.Value(None, help='path to predictions JSON')
+    true_fpath = kw.Value(None, help='path to labeled jsonl file')
+    out_fpath = kw.Value(None, help='path to evaluation file')
+    workers = kw.Value(0, help='number of parallel workers (unused)')
 
     @classmethod
-    def main(cls, cmdline=1, **kwargs):
-        config = cls.cli(cmdline=cmdline, data=kwargs, strict=True)
+    def main(cls, argv=True, **kwargs):
+        config = cls.cli(argv=argv, data=kwargs, strict=True)
         rich.print('config = ' + escape(ub.urepr(config, nl=1)))
 
         data = {

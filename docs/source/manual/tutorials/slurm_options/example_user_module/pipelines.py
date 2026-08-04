@@ -35,6 +35,6 @@ def build_pipeline():
     nodes['cpu_prepare'].outputs['prepared_fpath'].connect(
         nodes['torch_infer'].inputs['input_fpath']
     )
-    dag = kwdagger.Pipeline(nodes)
+    dag = kwdagger.Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag

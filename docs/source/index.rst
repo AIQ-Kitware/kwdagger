@@ -25,6 +25,7 @@ Welcome to kwdagger's documentation!
    :maxdepth: 2
    :caption: Technical Reference
 
+   manual/technical/parameter_identity
    manual/technical/yaml_pipeline_spec
    manual/technical/hashing_scheme
 

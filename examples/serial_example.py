@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import sys
 
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 
 # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ import ubelt as ub
 # ---------------------------------------------------------------------------
 
 
-class SleepJobCLI(scfg.DataConfig):
+class SleepJobCLI(kw.Config):
     """
     A self-contained job that sleeps for ``delay`` seconds then either
     writes a small JSON output or exits non-zero.  Dispatched by kwdagger
@@ -64,17 +64,17 @@ class SleepJobCLI(scfg.DataConfig):
 
     __command__ = 'sleep_job'
 
-    label = scfg.Value('', type=str, help='human-readable label for log output')
-    delay = scfg.Value(1, type=float, help='seconds to sleep')
-    fail = scfg.Value(False, isflag=True, help='if True, exit non-zero')
-    out_fpath = scfg.Value(None, type=str, help='path to write the output JSON')
+    label = kw.Value('', type=str, help='human-readable label for log output')
+    delay = kw.Value(1, type=float, help='seconds to sleep')
+    fail = kw.Value(False, isflag=True, help='if True, exit non-zero')
+    out_fpath = kw.Value(None, type=str, help='path to write the output JSON')
     # Optional inputs forwarded by kwdagger; ignored by this CLI.
-    in_fpath = scfg.Value(None, type=str)
-    in_fpath_a = scfg.Value(None, type=str)
-    in_fpath_b = scfg.Value(None, type=str)
+    in_fpath = kw.Value(None, type=str)
+    in_fpath_a = kw.Value(None, type=str)
+    in_fpath_b = kw.Value(None, type=str)
 
     @classmethod
-    def main(cls, argv=1, **kwargs):
+    def main(cls, argv=True, **kwargs):
         import json
         import time
 
@@ -101,7 +101,7 @@ class SleepJobCLI(scfg.DataConfig):
         print(f'[{label}] done  out={out_fpath}')
 
 
-class SerialExampleModalCLI(scfg.ModalCLI):
+class SerialExampleModalCLI(kw.ModalCLI):
     """Modal CLI that wraps the job sub-commands defined in this file."""
 
     sleep_job = SleepJobCLI
@@ -263,7 +263,7 @@ def make_pipeline() -> Pipeline:
         nodes['final'].inputs['in_fpath_b']
     )
 
-    dag = Pipeline(nodes)
+    dag = Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag
 
@@ -273,7 +273,7 @@ def make_pipeline() -> Pipeline:
 # ---------------------------------------------------------------------------
 
 
-class SerialExampleConfig(scfg.DataConfig):
+class SerialExampleConfig(kw.Config):
     """
     Run the kwdagger serial-backend example.
 
@@ -282,21 +282,21 @@ class SerialExampleConfig(scfg.DataConfig):
     tmux involved.
     """
 
-    failures = scfg.Value(
+    failures = kw.Value(
         1,
         type=int,
         help='number of proc-* nodes to force into failure (0-4)',
     )
-    root_dpath = scfg.Value(
+    root_dpath = kw.Value(
         None,
         help='output root directory (defaults to a per-user app-cache location)',
     )
-    run = scfg.Value(
+    run = kw.Value(
         True,
         isflag=True,
         help='if False, only print commands without executing them',
     )
-    logs = scfg.Value(True, isflag=True, help='enable per-job log capture')
+    logs = kw.Value(True, isflag=True, help='enable per-job log capture')
 
     @staticmethod
     def main(argv=True, **kwargs):

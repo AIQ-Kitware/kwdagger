@@ -30,11 +30,11 @@ import cmd_queue
 import pytest
 import ubelt as ub
 
-from kwdagger.pipeline import Pipeline
-from kwdagger.yaml_pipeline import load_yaml_pipeline
-
 # Feature-detect setup/teardown support in the installed cmd_queue.
 from cmd_queue.serial_queue import BashJob
+
+from kwdagger.pipeline import Pipeline
+from kwdagger.yaml_pipeline import load_yaml_pipeline
 
 _HAS_SETUP_TEARDOWN = (
     'teardown' in inspect.signature(BashJob.__init__).parameters

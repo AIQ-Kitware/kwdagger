@@ -3,7 +3,7 @@ import json
 
 import kwutil
 import rich
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 from rich.markup import escape
 
@@ -22,33 +22,33 @@ def _safe_div(num, den):
     return num / den if den else 0.0
 
 
-class SentimentEvaluateCLI(scfg.DataConfig):
+class SentimentEvaluateCLI(kw.Config):
     """Evaluate predictions produced by :mod:`keyword_sentiment_predict`."""
 
-    pred_fpath = scfg.Value(
+    pred_fpath = kw.Value(
         None,
         help='path to predictions JSON',
         tags=['in_path'],
     )
-    true_fpath = scfg.Value(
+    true_fpath = kw.Value(
         None,
         help='path to labeled jsonl file',
         tags=['in_path'],
     )
-    out_fpath = scfg.Value(
+    out_fpath = kw.Value(
         'sentiment_metrics.json',
         help='path to evaluation file',
         tags=['out_path', 'primary'],
     )
-    workers = scfg.Value(
+    workers = kw.Value(
         0,
         help='number of parallel workers (unused)',
         tags=['perf_param'],
     )
 
     @classmethod
-    def main(cls, cmdline=1, **kwargs):
-        config = cls.cli(cmdline=cmdline, data=kwargs, strict=True)
+    def main(cls, argv=True, **kwargs):
+        config = cls.cli(argv=argv, data=kwargs, strict=True)
         rich.print('config = ' + escape(ub.urepr(config, nl=1)))
 
         data = {
@@ -139,8 +139,8 @@ if __name__ == '__main__':
     __cli__.main()
     r"""
     CommandLine:
-        python ~/code/kwdagger/docs/source/manual/tutorials/scriptconfig_pipeline/example_user_module/cli/sentiment_evaluate.py \
-            --true_fpath ~/code/kwdagger/docs/source/manual/tutorials/scriptconfig_pipeline/data/toy_reviews_movies.jsonl \
+        python ~/code/kwdagger/docs/source/manual/tutorials/kwconf_pipeline/example_user_module/cli/sentiment_evaluate.py \
+            --true_fpath ~/code/kwdagger/docs/source/manual/tutorials/kwconf_pipeline/data/toy_reviews_movies.jsonl \
             --pred_fpath ./keyword_predictions.json \
             --out_fpath out.json
 

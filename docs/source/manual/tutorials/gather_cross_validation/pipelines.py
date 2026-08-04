@@ -40,9 +40,5 @@ def build_pipeline():
         evaluate.inputs['ensemble_fpath']
     )
     return kwdagger.Pipeline(
-        {
-            'train': train,
-            'build_ensemble': build_ensemble,
-            'evaluate': evaluate,
-        }
+        [train, build_ensemble, evaluate]
     )

@@ -1,7 +1,7 @@
 """
 Ollama benchmark pipeline for kwdagger.
 
-This mirrors the tutorial structure: a ProcessNode that runs a scriptconfig CLI,
+This mirrors the tutorial structure: a ProcessNode that runs a kwconf CLI,
 and exposes summary metrics via load_result() for aggregation.
 """
 
@@ -27,7 +27,7 @@ class OllamaBenchmark(kwdagger.ProcessNode):
     name = 'ollama_benchmark'
     executable = f'python {EXAMPLE_DPATH}/ollama_benchmark.py'
 
-    # The inputs / outputs here must match the scriptconfig field names
+    # The inputs / outputs here must match the kwconf field names
     # in OllamaBenchmarkCLI.
     in_paths = {
         'prompt_fpath',
@@ -124,6 +124,6 @@ def ollama_benchmark_pipeline():
     nodes = {
         'ollama_benchmark': OllamaBenchmark(),
     }
-    dag = kwdagger.Pipeline(nodes)
+    dag = kwdagger.Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag

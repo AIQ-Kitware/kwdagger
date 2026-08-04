@@ -71,10 +71,10 @@ import math
 from typing import Any, Mapping, Sequence, cast
 
 import ubelt as ub
-from scriptconfig import DataConfig, Value
+from kwconf import Config, Value
 
 
-class AggregateLoader(DataConfig):
+class AggregateLoader(Config):
     """
     Base config that will be mixed in to the :class:`AggregateEvluationConfig`.
     This config just defines parts related to constructing the
@@ -2133,6 +2133,9 @@ class Aggregator(
             'resources',
             'machine',
             'context',
+            # Reserved kwdagger bookkeeping from job_config.json.  Keep this
+            # inspectable, but separate from requested experiment parameters.
+            'job_config',
         ]
         subtables.update(
             {
@@ -2207,7 +2210,7 @@ class Aggregator(
         agg._metric_info = {}
 
         if agg.dag is not None:
-            node = agg.dag.nodes[agg.node_type]
+            node = agg.dag.node_dict[agg.node_type]
         else:
             node = None
 
@@ -2432,7 +2435,7 @@ class Aggregator(
         try:
             assert self.node_type is not None
             if self.dag is not None:
-                node = self.dag.nodes[self.node_type]
+                node = self.dag.node_dict[self.node_type]
                 vantage_points = node.default_vantage_points
         except Exception:
             vantage_points = []

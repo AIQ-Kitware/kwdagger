@@ -1,8 +1,8 @@
 """
-Two-stage demo pipeline using scriptconfig schemas for node definitions.
+Two-stage demo pipeline using kwconf schemas for node definitions.
 
 The first stage performs a tiny keyword-based "model" and the second stage
-evaluates it. Each node derives its IO/param groups from a scriptconfig schema.
+evaluates it. Each node derives its IO/param groups from a kwconf schema.
 """
 
 import ubelt as ub
@@ -20,7 +20,7 @@ try:
 except NameError:
     # for developer convenience
     EXAMPLE_DPATH = ub.Path(
-        '~/code/kwdagger/docs/source/manual/tutorials/scriptconfig_pipeline/example_user_module'
+        '~/code/kwdagger/docs/source/manual/tutorials/kwconf_pipeline/example_user_module'
     ).expanduser()
 
 
@@ -145,6 +145,6 @@ def my_sentiment_pipeline():
         nodes['sentiment_evaluate'].inputs['true_fpath']
     )
 
-    dag = kwdagger.Pipeline(nodes)
+    dag = kwdagger.Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag

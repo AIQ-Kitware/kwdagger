@@ -1,171 +1,265 @@
 Hashes and IDs in KWDagger
 ==========================
 
-KWDagger uses multiple identifiers that are all “hash-like”, but they serve
-different purposes:
+KWDagger uses several short hash-like identifiers, but they serve different
+purposes.  The most important distinction is between operational result reuse
+and optional analytical grouping.
 
-* **Pipeline node IDs** (directory-facing): deterministic identifiers used to name node
-  result folders in the pipeline output tree.
+* **Pipeline node IDs** name hashed result directories and help the scheduler
+  decide whether requested work can be reused.
+* **Aggregation IDs** group or compare rows in a report.  They are one way to
+  query results and are not the definition of execution identity.
 
-* **Aggregation IDs** (table-facing): identifiers used to group / compare rows in an
-  aggregated report.
+These identifiers intentionally hash different inputs.  See
+:doc:`parameter_identity` for the broader execution model and the limits of
+what the hashes mean.
 
-These IDs intentionally do not all hash the same inputs, but they now share a
-consistent hash *encoding scheme* (base36, truncated to a fixed length).
+.. important::
 
+    Pipeline IDs are operational proxies.  They hash declared parameters and
+    effective input values -- not lineage; see `Identity is computation, not
+    lineage`_.  They do not hash file contents and do not prove that a
+    program is deterministic.  Re-running the same ``invoke.sh`` reproduces the
+    requested command, not necessarily bit-identical output.
 
 Summary of ID types
 -------------------
 
-+-------------------+------------------------------+---------------------------------------------+
-| ID / key          | Where it is computed         | What it represents                          |
-+===================+==============================+=============================================+
-| ``algo_id``       | ``pipeline.py``              | Identity of this node's algorithm-defining  |
-|                   | ``ProcessNode.algo_id``      | configuration, independent of DAG ancestry. |
-+-------------------+------------------------------+---------------------------------------------+
-| ``process_id``    | ``pipeline.py``              | Identity of this node *within a pipeline*,  |
-|                   | ``ProcessNode.process_id``   | including ancestor node identities.         |
-+-------------------+------------------------------+---------------------------------------------+
-| ``param_hashid``  | ``aggregate.py``             | Identity of a row's effective parameter set |
-|                   | ``Aggregator.build_effective_params`` | (normalized / grouped for reporting).     |
-+-------------------+------------------------------+---------------------------------------------+
-| macro region key  | ``aggregate.py``             | Key for a macro-aggregated group of ROIs    |
-| ``macro_XX_...``  | ``hash_regions``             | based on the ROI id set.                    |
-+-------------------+------------------------------+---------------------------------------------+
+``algo_id``
+    Computed by ``ProcessNode.algo_id``.  A current implementation component
+    derived from a node's identity-bearing parameters.  It has no strong
+    standalone public contract.
 
+``process_id``
+    Computed by ``ProcessNode.process_id``.  The operational identity used for
+    result directories and reuse, under this node's declared values and its
+    effective input values.
+
+``param_hashid``
+    Computed by ``Aggregator.build_effective_params``.  The identity of a
+    normalized parameter set used for optional reporting and grouping.
+
+``macro_XX_...``
+    Computed by ``hash_regions``.  A SMART/geowatch-oriented key for a macro
+    group of ROI identifiers.
 
 Common hashing scheme (base36 truncation)
 ----------------------------------------
 
 KWDagger uses :func:`ubelt.hash_data` with base36 encoding and truncation.
 
-* Pipeline IDs are produced through :func:`kwdagger.utils.reverse_hashid.condense_config`
-  (see below), which now uses::
+* Pipeline IDs are produced through
+  :func:`kwdagger.utils.reverse_hashid.condense_config`::
 
       ub.hash_data(other_opts, base=36)[0:12]
 
-  Reference: ``reverse_hashid.py`` :func:`condense_config`.
-
-* Aggregation parameter IDs are produced by :func:`kwdagger.aggregate.hash_param`, which
-  now uses::
+* Aggregation parameter IDs are produced by
+  :func:`kwdagger.aggregate.hash_param`::
 
       ub.hash_data(row, base=36)[0:12]
 
-  Reference: ``aggregate.py`` :func:`hash_param`.
-
-* Macro region keys are produced by :func:`kwdagger.aggregate.hash_regions`, which now uses::
+* Macro region keys are produced by
+  :func:`kwdagger.aggregate.hash_regions`::
 
       ub.hash_data(sorted(rois), base=36)[0:6]
 
-  Reference: ``aggregate.py`` :func:`hash_regions`.
-
-These choices are primarily to improve human ergonomics (short IDs) while keeping
-collision probability low (see "Collision considerations").
-
+The short strings improve filesystem and table ergonomics while accepting a
+small nonzero collision probability.  See `Collision considerations`_.
 
 Pipeline node IDs
 -----------------
 
-This section explains the IDs that back pipeline node directory naming.
+This section documents the current mechanics behind result-directory naming.
+The intermediate names are implementation details; evaluate changes by their
+observable effect on generated commands, reuse boundaries, result directories,
+and ``.pred`` / ``.succ`` lineage.
 
 Algorithm configuration: ``final_algo_config``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The algorithm-defining configuration is computed by
-:meth:`kwdagger.pipeline.ProcessNode.final_algo_config`.
+:meth:`kwdagger.pipeline.ProcessNode.final_algo_config` contains the current
+node values treated as identity-bearing executable parameters.
 
-Key behavior:
+Current behavior:
 
-* Output path keys and performance-tuning keys are excluded from the algorithm identity.
-  (These are tracked by :attr:`ProcessNode.out_paths` and :attr:`ProcessNode.perf_params`.)
+* output paths and ``perf_params`` are excluded;
+* ``in_paths`` are excluded and handled separately;
+* declared ``algo_params`` defaults are applied; and
+* shared algorithm-parameter values are intended to be resolved before hashing.
 
-* Input paths that are *not connected* to upstream nodes (i.e. "root inputs") can be
-  included in the algorithm identity.
+The ``algo_params`` name and its boundary with input data are historical and may
+be generalized later.
 
-Reference: ``pipeline.py`` :meth:`ProcessNode.final_algo_config`.
+External input configuration: ``final_input_config``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+:meth:`kwdagger.pipeline.ProcessNode.final_input_config` contains the effective
+resolved value of every input, whichever way it arrived: directly supplied,
+forwarded from a peer port, or produced upstream.
+
+The one exception is a gathered input, whose manifest lives inside this node's
+own result directory and is therefore derived from ``process_id``.  Hashing that
+path would be circular, so ``depends['__gather__.<port>']`` carries the
+collection's ordered contents instead.
+
+These values influence operational reuse without creating process ancestry:
+sharing a value with another node's input port is not a claim that the other
+node ran.
+
+Non-identity command values: ``final_perf_config``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:meth:`kwdagger.pipeline.ProcessNode.final_perf_config` contains values passed
+to the command but excluded from result identity.  Despite the historical
+``perf_params`` name, the mechanism means “assumed not to define a different
+logical result.”
 
 Algorithm ID: ``algo_id``
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-:meth:`kwdagger.pipeline.ProcessNode.algo_id` creates a deterministic ID for a node based
-on its algorithm-defining configuration.
+:meth:`kwdagger.pipeline.ProcessNode.algo_id` hashes a payload containing the
+node name and ``final_algo_config`` through
+:func:`kwdagger.utils.reverse_hashid.condense_config`.
 
-It calls :func:`kwdagger.utils.reverse_hashid.condense_config` on ``final_algo_config``.
-
-Reference: ``pipeline.py`` :meth:`ProcessNode.algo_id`.
-Reference: ``reverse_hashid.py`` :func:`condense_config`.
-
+``algo_id`` is useful to the current construction of process identity, but it
+is not yet a stable promise that independently defines “the algorithm.”  Do not
+rely on the hash suffix as a cross-pipeline scientific identifier.
 
 Dependency summary: ``depends``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-:meth:`kwdagger.pipeline.ProcessNode.depends` builds a mapping used to incorporate
-ancestry into the pipeline identity.
+:meth:`kwdagger.pipeline.ProcessNode.depends` builds the payload hashed by
+``process_id``.  It contains:
 
-It constructs a dictionary of:
+* this node's own ``algo_id``;
+* every input's **effective resolved value**, canonicalized, whether that value
+  came from a producer, an alias, or configuration;
+* for a gathered input, the gather policy and the ordered member *paths* the
+  manifest will contain; and
+* ``__dependency__.<node>`` for an explicit ordering edge, which carries no
+  value and so has no other way to reach identity.
 
-* each ancestor process-node name -> that ancestor's ``algo_id``
-* plus this node's name -> this node's ``algo_id``
+It deliberately does **not** contain producer process IDs, producer algorithm
+IDs, port names, or any record of how a value was delivered.  A known-value
+sharing relationship contributes the effective value and its requested
+provenance without pretending the source process executed or materialized it.
 
-Reference: ``pipeline.py`` :meth:`ProcessNode.depends`.
+Identity is computation, not lineage
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+A process is identified by *the computation it will perform*: its effective
+algorithm configuration, its effective resolved input values, and anything else
+that changes its command or outputs.  It is not identified by how those input
+values were obtained.
 
-Pipeline ID: ``process_id``
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+So these two consumers are the same process::
 
-:meth:`kwdagger.pipeline.ProcessNode.process_id` computes a deterministic ID for a node
-*within the context of its pipeline ancestry*.
+    producer output path: /results/model.pt      # wired: producer -> consumer
+    manual input path:    /results/model.pt      # typed into the config
 
-It hashes the mapping returned by :meth:`ProcessNode.depends` using
+    consumer process_id:  identical
+    provenance:           different
+    scheduling:           different
+
+The wired consumer waits for the producer and records ``source_kind: output``;
+the manual one waits for nothing and records no producer wiring at all.  Both
+run the same command over the same input, so both reuse the same result
+directory.
+
+This does not weaken invalidation.  A producer still reaches its consumer
+through the value it supplies: a produced path contains the producer's
+``process_id``, so reconfiguring the producer moves the path and the consumer's
+identity moves with it.  If a producer change leaves the output path unchanged,
+kwdagger treats the consumer's input as unchanged -- exactly as it does for a
+stable hand-written path.
+
+.. warning::
+
+   kwdagger treats configured paths and values as data identity.  It does not
+   prove that two files at the same path contain the same bytes.  Users who
+   require content identity must provide checksums, content-addressed paths, or
+   another explicit artifact identifier as a parameter.  Path equality does not
+   guarantee byte equality, and this tradeoff is intentional.
+
+Because identity determines the computation, a converse holds too: **equal
+``process_id`` implies equal command-defining state, apart from state that is
+deliberately unhashed.**
+
+The deliberate exceptions are ``perf_params``, ``__enabled__``, Slurm options,
+and output-path overrides.  All of them change how a process runs without
+changing what it computes, which is why they are excluded from identity -- and
+precisely because identity cannot tell such rows apart, matrix rows that
+collapse onto one process must *agree* on them.  Compilation reports a
+disagreement as a user-facing ``ValueError``.
+
+The requested experiment is the other case identity cannot arbitrate.  Two rows
+may be the same computation and still require different jobs to run first --
+one taking an input from a producer, another supplying the same path directly
+-- or ask for that computation in two different ways: through one input alias
+rather than another, through a different parameter port, over a different
+gather membership.  Identity drops all of it, provenance keeps all of it, and
+only one ``job_config.json`` can be written for the result directory the rows
+share.  Compilation compares that record and reports a disagreement as a
+conflict, rather than letting whichever row compiled first decide what is
+persisted.
+
+Anything *else* that reaches the command or the node directory without
+reaching identity is a defect in the payload, and compilation raises an
+internal-consistency error for it.
+
+Paths inside kwdagger's own root are hashed relative to that root, so moving a
+cache does not change any identity.  Paths outside it are hashed as given: they
+identify external data.  A hand-supplied path that happens to point inside the
+root canonicalizes exactly as a produced one does, which is what keeps the two
+delivery mechanisms equal.  Canonicalization is recursive and rewrites mapping
+keys as well as values.  It is many-to-one, so two keys of one mapping that
+canonicalize to the same key are rejected with a ``ValueError`` rather than
+merged: dropping an entry would leave two different configurations sharing one
+identity.
+
+Process ID: ``process_id``
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:meth:`kwdagger.pipeline.ProcessNode.process_id` hashes ``depends`` using
 :func:`kwdagger.utils.reverse_hashid.condense_config`.
 
-Reference: ``pipeline.py`` :meth:`ProcessNode.process_id`.
-Reference: ``reverse_hashid.py`` :func:`condense_config`.
-
+This is the directory-facing reuse identity.  Equal process IDs mean kwdagger
+considers two requests to describe the same reusable work under its declared
+model.  They do not establish content equality, external-file immutability, or
+program determinism.
 
 How pipeline directories are named
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The pipeline output tree is constructed by formatting templates with the node's
-condensed ID fields:
+The output tree is constructed by formatting templates with condensed ID
+fields:
 
-* :meth:`kwdagger.pipeline.ProcessNode.template_node_dpath` defines the template that
-  includes the ``{<node>_id}`` field.
+* :meth:`kwdagger.pipeline.ProcessNode.template_node_dpath` defines the
+  directory template;
+* :meth:`kwdagger.pipeline.ProcessNode.condensed` provides ``<node>_id`` from
+  ``process_id`` and ``<node>_algo_id`` from ``algo_id``, **for this node
+  only**; and
+* :meth:`kwdagger.pipeline.ProcessNode.final_node_dpath` formats the final path.
 
-* :meth:`kwdagger.pipeline.ProcessNode.condensed` constructs the dictionary of template
-  substitutions, including:
+Substituting an *ancestor's* id was removed.  It let a node this one does not
+read decide where its results are written, so two processes with the same
+identity could finalize different paths.  A template that names another node's
+id now raises an error explaining the migration: key the directory on this
+node's own parameters, since an upstream change already reaches it through the
+input value it supplies.
 
-  * ``<node>_id`` -> ``process_id``
-  * ``<node>_algo_id`` -> ``algo_id``
-  * plus substitutions for ancestor nodes
+The resulting directory, its ``invoke.sh``, and its ``.pred`` / ``.succ`` links
+are more important user-facing contracts than any standalone interpretation of
+``algo_id``.
 
-* :meth:`kwdagger.pipeline.ProcessNode.final_node_dpath` formats the template using
-  the condensed substitutions.
+``condense_config`` formatting and behavior
+-------------------------------------------
 
-References:
-``pipeline.py`` :meth:`ProcessNode.template_node_dpath`,
-``pipeline.py`` :meth:`ProcessNode.condensed`,
-``pipeline.py`` :meth:`ProcessNode.final_node_dpath`.
+:func:`kwdagger.utils.reverse_hashid.condense_config` hashes the input mapping
+and prefixes the truncated suffix with the supplied type::
 
-
-condense_config formatting and behavior
----------------------------------------
-
-:func:`kwdagger.utils.reverse_hashid.condense_config` is responsible for producing the
-string representation used in pipeline IDs.
-
-At a high level, it:
-
-1. hashes the input config dict using base36 truncation::
-
-      ub.hash_data(params, base=36)[0:12]
-
-2. returns an ID string by prefixing the hash with the provided ``type`` (e.g.
-   ``f"{type}_{suffix}"``).
-
-Reference: ``reverse_hashid.py`` :func:`condense_config`.
-
+    suffix = ub.hash_data(params, base=36)[0:12]
+    result = f'{type}_{suffix}'
 
 Aggregation IDs (table-facing)
 ------------------------------
@@ -237,14 +331,14 @@ Even though the hash encoding scheme is now consistent (base36), mismatches betw
 different *inputs*:
 
 * Pipeline folder suffixes are derived from :meth:`ProcessNode.process_id`, which hashes
-  the ancestry mapping returned by :meth:`ProcessNode.depends`.
+  the effective-computation payload returned by :meth:`ProcessNode.depends`.
 
 * ``param_hashid`` is derived from :meth:`Aggregator.build_effective_params`, which hashes
   a normalized subset of requested parameters (and may ignore some columns).
 
 References:
-``pipeline.py`` :meth:`ProcessNode.process_id`,
-``pipeline.py`` :meth:`ProcessNode.depends`,
+``pipeline/_process.py`` :meth:`ProcessNode.process_id`,
+``pipeline/_process.py`` :meth:`ProcessNode.depends`,
 ``aggregate.py`` :meth:`Aggregator.build_effective_params`,
 ``aggregate.py`` :func:`hash_param`.
 

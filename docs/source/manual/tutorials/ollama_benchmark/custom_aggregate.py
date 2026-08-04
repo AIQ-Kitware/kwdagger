@@ -40,16 +40,16 @@ import kwplot
 import numpy as np
 import pandas as pd
 import rich
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 
 
-class OllamaCustomAggregateConfig(scfg.DataConfig):
+class OllamaCustomAggregateConfig(kw.Config):
     """
     CLI configuration for the ollama benchmark aggregator.
     """
 
-    pattern = scfg.Value(
+    pattern = kw.Value(
         '**/ollama_benchmark.json',
         help='Glob pattern (relative to root_dpath) to match benchmark JSON files.',
     )

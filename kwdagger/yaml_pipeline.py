@@ -48,7 +48,7 @@ from typing import Any, cast
 
 import ubelt as ub
 
-from kwdagger.pipeline import GatherSpec, Pipeline, ProcessNode
+from kwdagger.pipeline import GatherSpec, PathSpec, Pipeline, ProcessNode
 
 __all__ = ['YamlProcessNode', 'dump_yaml_pipeline', 'load_yaml_pipeline']
 
@@ -337,7 +337,8 @@ def _resolve_endpoint(
     Resolve ``node_name.port`` to its IONode, preferring outputs over inputs.
 
     Checking outputs first lets ``a.out -> b.in`` connect an output to an input,
-    while ``a.in -> b.in`` forwards a shared input (both legal in the Python API).
+    while ``a.in -> b.in`` forwards a shared input and ``a.param -> b.param``
+    forwards an algorithm parameter (all legal in the Python API).
     """
     if node_name not in node_dict:
         raise ValueError(
@@ -349,9 +350,12 @@ def _resolve_endpoint(
         return node.outputs[port]
     if port in node.inputs:
         return node.inputs[port]
+    if port in node.param_ports:
+        return node.param_ports[port]
     raise ValueError(
         f'edge references unknown port {port!r} on node {node_name!r}; '
-        f'outputs={sorted(node.outputs)}, inputs={sorted(node.inputs)}'
+        f'outputs={sorted(node.outputs)}, inputs={sorted(node.inputs)}, '
+        f'params={sorted(node.param_ports)}'
     )
 
 
@@ -392,7 +396,9 @@ def _connect_edge(node_dict: dict[str, Any], edge: Any) -> None:
     )
 
 
-def load_yaml_pipeline(spec: Any, root_dpath: Any = None) -> Pipeline:
+def load_yaml_pipeline(
+    spec: Any, root_dpath: PathSpec | None = None
+) -> Pipeline:
     """
     Build a :class:`~kwdagger.Pipeline` from a declarative spec.
 
@@ -458,9 +464,9 @@ def load_yaml_pipeline(spec: Any, root_dpath: Any = None) -> Pipeline:
     for edge in data.get('edges', []) or []:
         _connect_edge(node_dict, edge)
 
-    # Pass the node mapping (not a list) so ``dag.nodes`` is keyed by name, the
-    # form ``aggregate`` relies on when looking up per-node result loaders.
-    dag = Pipeline(node_dict, root_dpath=root_dpath)
+    # A pipeline holds an ordered sequence; a node knows its own name, so
+    # ``Pipeline.node_dict`` is what anyone wanting a name lookup asks for.
+    dag = Pipeline(list(node_dict.values()), root_dpath=root_dpath)
     dag.build_nx_graphs()
     return dag
 
@@ -608,6 +614,14 @@ def dump_yaml_pipeline(dag: Any) -> dict[str, Any]:
                         'dst': inode.key,
                         'gather': connection.spec.to_dict(),
                     }
+                )
+        # Wired algorithm parameters are edges too. Omitting them would let a
+        # round-trip silently drop a value the consumer depends on.
+        for param_name, port in node.param_ports.items():
+            for pred in port.pred:
+                edges.append(
+                    f'{pred.parent.name}.{pred.name} -> '
+                    f'{node.name}.{param_name}'
                 )
 
     out: dict[str, Any] = {'nodes': nodes_spec}
