@@ -181,9 +181,10 @@ wheels = [
 
 [[package]]
 name = "cmd-queue"
-version = "0.3.1"
+version = "0.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "kwconf" },
     { name = "kwutil" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and python_full_version < '4'" },
@@ -198,9 +199,9 @@ dependencies = [
     { name = "scriptconfig" },
     { name = "ubelt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/77/59/6347df7c19a968341f5c49df343892c0c0402508f45707b1af3be3c58a5c/cmd_queue-0.3.1.tar.gz", hash = "sha256:5a4929e1cb61d9bf7eed22bbb1574a8ede7ac40aeb85ad8bb62ea652c04e0ef5", size = 113595, upload-time = "2026-06-25T17:24:25.643Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/6e/0c451b55f1be5865775c12c55ed27ecd23a35e841f2bca7280b455bf4058/cmd_queue-0.3.2.tar.gz", hash = "sha256:beb35868b1cdfb4fa94584f9184c44dd6a36900620cbebc3d4da9806f0d9a34c", size = 119190, upload-time = "2026-08-04T20:36:06.366Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/8b/c9229909b5e6eb3dc57df1dcf6d2685473b086bf25387136596b437ebd15/cmd_queue-0.3.1-py3-none-any.whl", hash = "sha256:1fcc5ef2dd39c35c2d5373b6fd34469474e0f8d5e3569a96aef3b36c6488f01f", size = 99196, upload-time = "2026-06-25T17:24:23.727Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/81/64ea629f252dc140d2fa3571ae4ee0bd88aadeeb475a3be4b11efc3bd0e0/cmd_queue-0.3.2-py3-none-any.whl", hash = "sha256:1312e5b8017893af7bb381f8c396c265298fe134713d9e26609165e378132f0e", size = 103169, upload-time = "2026-08-04T20:36:04.656Z" },
 ]
 
 [[package]]
