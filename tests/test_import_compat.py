@@ -72,6 +72,7 @@ def test_pipeline_module_rejects_unknown_attributes():
 LAYERS = [
     '_shell',
     '_slurm',
+    '_agreement',
     '_runtime',
     '_connections',
     '_process',

@@ -586,3 +586,163 @@ def test_perf_params_may_differ_between_rows_only_by_agreeing(tmp_path):
     )
     node = [n for n in compiled.nodes.values() if n.name == 'predict'][0]
     assert '--workers=8' in node.command
+
+
+# ---------------------------------------------------------------------------
+# Arbitration must reach both scheduling paths
+# ---------------------------------------------------------------------------
+#
+# A pipeline with any gather compiles the whole matrix up front; an ordinary
+# one configures and submits a row at a time. The safeguards used to live only
+# in the compiler, so a gather-free matrix was still first-row-wins. These
+# tests deliberately use *no* gather.
+
+
+def _submit_rows(dag, rows, root, **kwargs):
+    """Configure and submit each row against one queue, as the scheduler does."""
+    queue = None
+    statuses = []
+    for row in rows:
+        dag.configure(config=row, root_dpath=root, cache=False)
+        summary = dag.submit_jobs(
+            queue=queue or {'backend': 'serial'},
+            enable_links=False,
+            write_invocations=False,
+            write_configs=False,
+            **kwargs,
+        )
+        queue = summary['queue']
+        statuses.append(summary['node_status'])
+    return queue, statuses
+
+
+def _perf_pipeline():
+    return Pipeline(
+        {
+            'predict': ProcessNode(
+                name='predict',
+                executable='python predict.py',
+                out_paths={'out_fpath': 'out.json'},
+                algo_params={'model': 'm'},
+                perf_params={'workers': 4},
+            )
+        }
+    )
+
+
+@pytest.mark.parametrize('order', [[4, 16], [16, 4]])
+def test_gather_free_perf_conflict_is_reported_in_either_order(order, tmp_path):
+    """
+    Both rows are one process with two commands. Whichever was submitted first
+    used to supply the queued command and the other was silently recorded as a
+    duplicate.
+    """
+    rows = [{'predict.workers': w, 'predict.model': 'm'} for w in order]
+    with pytest.raises(ValueError, match='perf_params'):
+        _submit_rows(_perf_pipeline(), rows, tmp_path)
+
+
+def test_gather_free_agreeing_rows_still_deduplicate(tmp_path):
+    """The complement: identical requests must still collapse to one job."""
+    rows = [{'predict.workers': 8, 'predict.model': 'm'}] * 2
+    queue, statuses = _submit_rows(_perf_pipeline(), rows, tmp_path)
+    assert statuses[0]['predict'] == 'new_submission'
+    assert statuses[1]['predict'] == 'duplicate_submission'
+    assert '--workers=8' in queue.finalize_text()
+
+
+def _delivery_pipeline():
+    producer = _producer(node_dpath='.')
+    consumer = _consumer()
+    producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
+    return Pipeline({'producer': producer, 'consumer': consumer})
+
+
+def test_gather_free_mixed_delivery_is_reported_in_either_order(tmp_path):
+    """
+    One row takes the input from the producer, the other supplies the same
+    path directly. Same identity, different prerequisites -- so the queue
+    graph used to depend on which row came first.
+    """
+    dag = _delivery_pipeline()
+    dag.configure(config={}, root_dpath=tmp_path, cache=False)
+    consumer = dag.node_dict['consumer']
+    produced = str(consumer.final_in_paths['data_fpath'])
+
+    produced_row: dict = {}
+    manual_row = {'consumer.data_fpath': produced}
+    for rows in ([produced_row, manual_row], [manual_row, produced_row]):
+        with pytest.raises(ValueError, match='execution prerequisites'):
+            _submit_rows(_delivery_pipeline(), rows, tmp_path)
+
+
+def test_gather_free_output_override_conflict_is_reported(tmp_path):
+    """Output paths are excluded from identity but move the command."""
+    rows = [
+        {'predict.model': 'm', 'predict.out_fpath': name}
+        for name in ['first.json', 'second.json']
+    ]
+    with pytest.raises(ValueError, match='out_paths'):
+        _submit_rows(_perf_pipeline(), rows, tmp_path)
+
+
+def test_gather_free_enabled_conflict_is_reported(tmp_path):
+    rows = [
+        {'predict.model': 'm', 'predict.__enabled__': flag}
+        for flag in [True, False]
+    ]
+    with pytest.raises(ValueError, match='__enabled__'):
+        _submit_rows(_perf_pipeline(), rows, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Root canonicalization covers structured values
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    'shape',
+    ['scalar', 'list', 'mapping', 'nested'],
+)
+def test_structured_input_values_hash_relative_to_the_cache_root(shape):
+    """
+    A scalar-only rewrite would leave the cache root in the hash for exactly
+    the structured configs that are hardest to notice.
+    """
+    ids = {}
+    for location in ['struct-a', 'struct-b']:
+        root = (
+            ub.Path.appdir(f'kwdagger/tests/identity/{location}')
+            .delete()
+            .ensuredir()
+        )
+        producer = _producer()
+        consumer = _consumer()
+        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag.configure({}, root_dpath=root, cache=False)
+        produced = str(producer.outputs['data_fpath'].final_value)
+        value = {
+            'scalar': produced,
+            'list': [produced, produced],
+            'mapping': {'files': produced},
+            'nested': {'groups': [{'files': [produced]}, 'plain']},
+        }[shape]
+        dag.configure(
+            {'consumer.data_fpath': value}, root_dpath=root, cache=False
+        )
+        ids[location] = consumer.process_id
+        hashed = consumer.depends['__inputs__']['data_fpath']
+    assert ids['struct-a'] == ids['struct-b']
+    assert str(root) not in str(hashed)
+
+
+def test_a_path_merely_sharing_the_roots_prefix_is_left_alone(tmp_path):
+    """Containment is by path component, not by string prefix."""
+    root = tmp_path / 'cache'
+    root.mkdir()
+    outsider = str(tmp_path / 'cache-backup' / 'data.json')
+    consumer = _consumer()
+    Pipeline({'consumer': consumer}).configure(
+        {'consumer.data_fpath': outsider}, root_dpath=root, cache=False
+    )
+    assert consumer.depends['__inputs__']['data_fpath'] == outsider

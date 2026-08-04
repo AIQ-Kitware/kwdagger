@@ -25,6 +25,10 @@ from typing import Any, cast
 import networkx as nx
 import ubelt as ub
 
+from kwdagger.pipeline._agreement import (
+    check_execution_agreement,
+    execution_snapshot,
+)
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import coerce_slurm_options
 
@@ -129,8 +133,39 @@ def submit_jobs(
     node_status = summary['node_status']
 
     assert isinstance(proc_graph, nx.DiGraph)
+    # Identity says two requests with one process_id are one job, so anything
+    # identity cannot arbitrate has to agree between them or whichever arrived
+    # first silently decides what runs. The gather compiler checks this over
+    # the whole matrix; this is where an ordinary pipeline gets the same
+    # arbitration, because it configures and submits a row at a time. The
+    # registry hangs off the queue since that is what survives between rows,
+    # whoever is driving the loop.
+    requests = getattr(queue, '__kwdagger_requests__', None)
+    if requests is None:
+        requests = {}
+        queue.__kwdagger_requests__ = requests
+
     for node_name in node_order:
         node = proc_graph.nodes[node_name]['node']
+        # Snapshot before anything below can disable the node or rewrite its
+        # state, so what is compared is what the user asked for.
+        _procid = node.process_id
+        _snapshot = execution_snapshot(node)
+        _previous = requests.get(_procid)
+        if _previous is None:
+            requests[_procid] = {
+                'snapshot': _snapshot,
+                'label': f'request {len(requests)}',
+            }
+        else:
+            check_execution_agreement(
+                _previous['snapshot'],
+                _snapshot,
+                template_name=node.name,
+                process_id=_procid,
+                canonical_label=_previous['label'],
+                duplicate_label=f'request {len(requests)}',
+            )
         # print('-----')
         # print(f'node_name={node_name}')
         # print(f'node.enabled={node.enabled}')

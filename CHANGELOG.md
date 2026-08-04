@@ -129,11 +129,10 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 * An input's *effective* source is now resolved with the same precedence as
   its value (gather, explicit, forwarded, produced, default) wherever identity
   and provenance ask where a value came from, rather than reporting every
-  structurally reachable producer. Scheduling stays structural and
-  conservative: a process wired to supply an input is still ordered ahead of
-  its consumer even when the consumer does not read what it makes, because
-  ordering a job that turns out not to matter costs nothing while missing one
-  is a race. `ProcessNode.effective_predecessor_process_nodes` and
+  structurally reachable producer. The *template* graph stays structural,
+  because it is built before anything is configured and so cannot know what an
+  override will resolve to; configured scheduling is effective, as the entry
+  above describes. `ProcessNode.effective_predecessor_process_nodes` and
   `effective_ancestor_process_nodes` expose the stricter answer.
 * An explicit value configured onto a connected input did not reach the
   consumer's identity. Explicit values outrank producers -- documented,

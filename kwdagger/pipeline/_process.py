@@ -16,6 +16,7 @@ import functools
 import os
 import warnings
 from collections import defaultdict
+from collections.abc import Mapping
 from functools import cached_property
 from typing import Any, cast
 
@@ -1319,8 +1320,11 @@ class ProcessNode(Node):
         Structural: every process wired to supply an input, whether or not
         this node ends up reading what it makes. That is deliberately
         conservative -- ordering a job that turns out not to matter costs
-        nothing, while missing one is a race. Identity asks a stricter
-        question; see :meth:`effective_predecessor_process_nodes`.
+        nothing, while missing one is a race. Used for the *template* graph,
+        which is built before configuration and so cannot know what an
+        override resolves to. Configured scheduling asks
+        :meth:`effective_predecessor_process_nodes`. Identity asks neither:
+        it hashes effective values, not predecessors.
         """
         return self._predecessors(_produced_origins)
 
@@ -1381,10 +1385,11 @@ class ProcessNode(Node):
     @memoize_configured_method
     def ancestor_process_nodes(self) -> Any:
         """
-        Every process that must run before this one, transitively.
+        Every process that could have to run before this one, transitively.
 
-        Structural, like :meth:`predecessor_process_nodes` -- this is the
-        scheduling answer.
+        Structural, like :meth:`predecessor_process_nodes`, and used for the
+        same thing: the template graph. Configured scheduling uses
+        :meth:`effective_ancestor_process_nodes`.
 
         Example:
             >>> from kwdagger.pipeline import Pipeline
@@ -1882,24 +1887,56 @@ def _fixup_config_serializability(config: Any) -> dict[str, Any]:
 
 def _root_relative(value: Any, root_dpath: Any) -> Any:
     """
-    Express a path inside kwdagger's own cache root relative to it.
+    Rewrite paths inside kwdagger's own cache root to be relative to it.
 
     Identity hashes effective input values, and a produced path contains the
-    root the pipeline happens to be running under. Hashing that would make
-    every downstream id change when the cache moves, which is neither a
-    different computation nor allowed by the gather contract in ``AGENTS.md``.
+    root the pipeline happens to be running under. Hashing that verbatim would
+    make every downstream id change when the cache moves -- which is not a
+    different computation, and which the gather contract in ``AGENTS.md``
+    forbids.
 
-    Only paths genuinely under the root are rewritten, so an external input
-    keeps its absolute form -- and a hand-supplied path that happens to point
-    inside the root canonicalizes exactly as the produced one does, which is
-    what keeps produced and manual delivery equal.
+    Recursive, because an input value may be a list or mapping of paths and a
+    scalar-only rewrite would leave the root in the hash for exactly the
+    structured configs that are hardest to notice.
+
+    Containment is decided by path components, not by string prefix, so
+    ``/cache/a-backup`` is not treated as living inside ``/cache/a``. Only
+    strings that look like paths are considered: a bare parameter value such
+    as ``'linear'`` is never rewritten, even when the working directory
+    happens to sit inside the root. Paths outside the root keep their given
+    form, because they identify external data.
+
+    Example:
+        >>> _root_relative({'files': ['/r/x.json', 'plain']}, '/r')
+        {'files': ['{root}/x.json', 'plain']}
+        >>> _root_relative('/r-backup/x.json', '/r')
+        '/r-backup/x.json'
     """
-    if not isinstance(value, str):
-        return value
-    root = str(root_dpath)
-    if root and value.startswith(root + os.sep):
-        return '{root}' + value[len(root) :]
-    return value
+    root = os.path.abspath(str(root_dpath))
+    root_parts = _path_parts(root)
+
+    def rewrite(item: Any) -> Any:
+        if isinstance(item, Mapping):
+            return {key: rewrite(sub) for key, sub in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [rewrite(sub) for sub in item]
+        if not isinstance(item, str):
+            return item
+        if not (os.path.isabs(item) or os.sep in item):
+            # Not path-shaped; leave ordinary parameter values alone.
+            return item
+        parts = _path_parts(os.path.abspath(item))
+        if parts[: len(root_parts)] != root_parts:
+            return item
+        tail = parts[len(root_parts) :]
+        return '{root}' + ''.join('/' + part for part in tail)
+
+    return rewrite(value)
+
+
+def _path_parts(path: str) -> list[str]:
+    """Split a normalized absolute path into comparable components."""
+    return [part for part in os.path.normpath(path).split(os.sep) if part]
 
 
 def _format_node_template(

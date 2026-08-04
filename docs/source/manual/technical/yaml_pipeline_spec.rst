@@ -445,9 +445,10 @@ The mapping edge form accepts a ``gather`` specification::
     names match, otherwise its ancestor of that name -- looking in that node's
     algorithm parameters, then its input ports, then its output ports. Input and
     output paths are eligible deliberately: a connected path is excluded from a
-    node's algorithm config so hashing does not double-count identity already
-    captured by ancestor hashing, but that path is precisely the upstream
-    identity a gather wants to group on.
+    node's *algorithm* config -- paths are not algorithm parameters -- but it
+    is precisely the upstream identity a gather wants to group on.  (The path
+    still reaches ``process_id`` as an effective input value; see
+    :doc:`hashing_scheme`.)
 
     Because the key is resolved on the sources *and* on the target, it must name
     a node reachable from both -- in practice a common ancestor. Naming the

@@ -28,6 +28,10 @@ from typing import TYPE_CHECKING, Any
 import networkx as nx
 import ubelt as ub
 
+from kwdagger.pipeline._agreement import (
+    check_execution_agreement,
+    execution_snapshot,
+)
 from kwdagger.pipeline._connections import (
     _UNSET,
     GatherConnection,
@@ -568,139 +572,6 @@ def _sort_gather_members(
         )
 
 
-def _normalize_enabled(value: Any) -> Any:
-    """
-    Reduce an ``__enabled__`` value to how ``submit_jobs`` actually reads it.
-
-    ``submit_jobs`` only ever tests truthiness and equality against ``'redo'``,
-    so ``1`` and ``True`` are the same execution state and must not be reported
-    as a conflict.
-    """
-    if value == 'redo':
-        return 'redo'
-    return bool(value)
-
-
-#: Execution state that ``configure`` strips out of the hashed config, and so
-#: cannot distinguish two otherwise-identical process instances. Each entry is
-#: the config key users write, the node attribute it lands in, and a
-#: normalizer that reduces a value to the form the scheduler actually reads.
-#: Declared state that changes how a process runs but is deliberately kept out
-#: of ``process_id``. Rows that share an identity must agree on all of it --
-#: identity cannot tell them apart, so the surviving row would otherwise decide
-#: silently. This is a user-facing conflict, not an internal defect.
-_UNHASHED_EXECUTION_STATE = [
-    ('__enabled__', 'enabled', _normalize_enabled),
-    ('__slurm_options__', 'slurm_options', dict),
-    # perf_params reach the command but not identity, by design.
-    ('perf_params', 'final_perf_config', dict),
-    # Output paths are excluded from identity too, and an override moves both
-    # the command and where results land.
-    (
-        'out_paths',
-        'final_out_paths',
-        lambda paths: {k: str(v) for k, v in dict(paths).items()},
-    ),
-]
-
-
-#: State that ``process_id`` is supposed to determine. Two concrete nodes
-#: sharing an identity must agree on every one of these, or the surviving row
-#: decides what actually runs.
-_FINALIZED_EXECUTION_STATE = [
-    ('node directories', lambda node: str(node.final_node_dpath)),
-    ('commands', lambda node: node.final_command()),
-    ('setup commands', lambda node: getattr(node, 'setup', None)),
-    ('teardown commands', lambda node: getattr(node, 'teardown', None)),
-]
-
-
-def _check_execution_state_agreement(
-    *,
-    canonical: 'ProcessNode',
-    duplicate: 'ProcessNode',
-    template_name: str,
-    process_id: str,
-    canonical_row_idx: int,
-    duplicate_row_idx: int,
-) -> None:
-    """
-    Reject matrix rows that share a process identity but disagree on state.
-
-    Silently keeping the first row's values would make compilation depend on
-    row order. For ``__enabled__`` a disabled gather source stays in the
-    consumer's manifest membership while its output is never produced; for
-    ``__slurm_options__`` the surviving row silently picks the partition, GPU
-    count, memory, time limit, or account that every duplicate runs under.
-    """
-    for config_key, attr_name, normalize in _UNHASHED_EXECUTION_STATE:
-        lhs = getattr(canonical, attr_name)
-        rhs = getattr(duplicate, attr_name)
-        if normalize(lhs) == normalize(rhs):
-            continue
-        raise ValueError(
-            f'Conflicting {config_key} values for process {template_name!r}. '
-            f'Rows {canonical_row_idx} and {duplicate_row_idx} compile to the '
-            f'same process identity {process_id!r} but request '
-            f'{lhs!r} and {rhs!r} respectively. '
-            f'Process identity does not include {config_key}, so these rows '
-            'cannot be distinguished. Give them differing parameters, or make '
-            f'their {config_key} values agree.'
-        )
-    # Equal process_id must imply equal command-defining state. Identity is
-    # built from effective configuration, so anything that reaches the command
-    # or the output paths without reaching identity is a modelling bug, not a
-    # user error -- but it would show up as row-order-dependent execution, so
-    # catch it here rather than let the first row silently win.
-    # Identity no longer records *how* a value was delivered, which is what
-    # makes a produced path and the same manual path one computation. The
-    # prerequisites still differ: one row waits for the producer and the other
-    # does not. Nothing in the payload can distinguish them, so keeping the
-    # first row's edges would put row order back in charge of whether the
-    # consumer runs.
-    canonical_preds = sorted(
-        node.process_id
-        for node in canonical.effective_predecessor_process_nodes()
-    )
-    duplicate_preds = sorted(
-        node.process_id
-        for node in duplicate.effective_predecessor_process_nodes()
-    )
-    if canonical_preds != duplicate_preds:
-        raise ValueError(
-            f'Conflicting execution prerequisites for process '
-            f'{template_name!r}. Rows {canonical_row_idx} and '
-            f'{duplicate_row_idx} compile to the same process identity '
-            f'{process_id!r} -- the same command over the same inputs -- but '
-            f'require different jobs to run first:\n'
-            f'  row {canonical_row_idx}: {canonical_preds or "nothing"}\n'
-            f'  row {duplicate_row_idx}: {duplicate_preds or "nothing"}\n'
-            'This usually means one row takes an input from a producer while '
-            'another supplies the same path directly. Identity describes the '
-            'computation, not how the value arrives, so these rows cannot be '
-            'told apart. Use the same delivery in both, or give them '
-            'differing parameters.'
-        )
-
-    for label, getter in _FINALIZED_EXECUTION_STATE:
-        try:
-            lhs = getter(canonical)
-            rhs = getter(duplicate)
-        except Exception:  # pragma: no cover - diagnostics must not mask work
-            continue
-        if lhs == rhs:
-            continue
-        raise AssertionError(
-            f'Internal consistency error: rows {canonical_row_idx} and '
-            f'{duplicate_row_idx} compile {template_name!r} to the same '
-            f'process identity {process_id!r} but to different {label}:\n'
-            f'  {lhs!r}\n  {rhs!r}\n'
-            'Process identity is meant to determine the command and its '
-            'outputs, so this is a defect in the identity payload rather '
-            'than a problem with the pipeline. Please report it.'
-        )
-
-
 def _compile_pipeline_configurations(
     template: Pipeline,
     *,
@@ -724,6 +595,7 @@ def _compile_pipeline_configurations(
     instances_by_template: dict[str, dict[str, ProcessNode]] = defaultdict(dict)
     concrete_by_process_id: dict[str, ProcessNode] = {}
     canonical_row_idx: dict[str, int] = {}
+    canonical_snapshots: dict[str, dict[str, Any]] = {}
 
     for template_name in template_order:
         template_node = template.node_dict[template_name]
@@ -858,19 +730,20 @@ def _compile_pipeline_configurations(
                 concrete_by_process_id[process_id] = canonical
                 instances_by_template[template_name][process_id] = canonical
                 canonical_row_idx[process_id] = row_idx
+                canonical_snapshots[process_id] = execution_snapshot(node)
             else:
                 # Execution state is popped off the config by ``configure``, so
                 # it does not participate in process identity. Rows that agree
                 # on identity but disagree on execution state would otherwise
                 # be resolved by whichever row happened to come first, making
                 # compilation row-order dependent.
-                _check_execution_state_agreement(
-                    canonical=canonical,
-                    duplicate=node,
+                check_execution_agreement(
+                    canonical_snapshots[process_id],
+                    execution_snapshot(node),
                     template_name=template_name,
                     process_id=process_id,
-                    canonical_row_idx=canonical_row_idx[process_id],
-                    duplicate_row_idx=row_idx,
+                    canonical_label=f'row {canonical_row_idx[process_id]}',
+                    duplicate_label=f'row {row_idx}',
                 )
             row_nodes[row_idx][template_name] = canonical
 

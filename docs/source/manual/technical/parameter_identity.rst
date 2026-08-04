@@ -192,9 +192,11 @@ The most important identity is the one used to decide whether requested work
 can reuse an existing result directory.
 
 ``process_id``
-    Names a concrete requested computation under kwdagger's declared
-    configuration and lineage model.  It is used in hashed directory names and
-    queue deduplication.
+    Names a concrete requested computation: this node's declared configuration
+    and the effective values of its inputs.  It deliberately excludes lineage
+    -- how a value was obtained does not change what is computed.  Used in
+    hashed directory names and queue deduplication.  See
+    :doc:`hashing_scheme` for the full invariant.
 
 ``algo_id``
     A current implementation component derived from a node's identity-bearing
@@ -272,16 +274,19 @@ The current code uses several intermediate properties:
     are resolved.  The current branch excludes ``in_paths`` from this mapping.
 
 ``final_input_config``
-    Input values not produced by a concrete upstream process, including directly
-    supplied and shared inputs.
+    The effective value of every input, whether supplied directly, forwarded
+    from a peer port, or produced upstream.  A gathered input is the exception:
+    its manifest path derives from ``process_id``, so the collection's contents
+    enter identity through ``depends`` instead.
 
 ``final_perf_config``
     Non-identity values that still enter the command.
 
 ``depends``
     The payload used to construct ``process_id``.  It summarizes the node's own
-    identity-bearing values, produced-artifact lineage, externally supplied
-    inputs, and gather membership.
+    identity-bearing values, the effective value of every input, and gather
+    membership.  It contains no producer identities: upstream reaches it
+    through the values those producers supply.
 
 These names document today's mechanics.  They should be evaluated by whether
 they produce the right commands, reuse boundaries, result directories, and
@@ -296,8 +301,8 @@ priorities:
 #. Produce a complete, inspectable static command plan before execution.
 #. Keep execution separable from kwdagger and preserve useful ``invoke.sh``
    files.
-#. Reuse exactly the work that the declared configuration and produced-artifact
-   lineage say is equivalent.
+#. Reuse exactly the work that the declared configuration and effective input
+   values say is equivalent.
 #. Preserve the navigable hashed directory graph and correct ``.pred`` / ``.succ``
    relationships.
 #. Keep dotted requested lineage understandable without inventing process

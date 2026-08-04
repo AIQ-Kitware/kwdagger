@@ -598,3 +598,59 @@ and the shell stayed there, so the previous commit for this work landed in
 submodule pointers with it. Reset and redone here. `cd` inside a long-running
 session is state, and I should treat an absolute path as the default rather
 than assuming where I am.
+
+## 2026-08-04 09:05:00 -0400
+
+The reviewer found that every safeguard I had built for identity conflicts
+lived in the gather compiler, and `build_schedule` only compiles the full
+matrix when a gather exists. Ordinary pipelines configure and submit a row at
+a time, dedup by "is this process_id already in the queue", and label the
+second request `duplicate_submission` without comparing anything. So a
+gather-free matrix sweeping `predict.workers` over 4 and 16 queued whichever
+row came first and silently dropped the other -- reproduced in both orders.
+
+That is the second time this week I fixed something in one of two code paths
+and reported it as fixed. The first was the runtime gate. Both times the
+second path was reachable and I had already been told the paths differ; in
+this case I wrote the sentence "a pipeline containing *any* gather is compiled
+across the whole matrix first" in a test comment three commits ago. Knowing the
+split exists is not the same as checking both sides of it, and "where else does
+this decision get made?" is now a question I should be asking before claiming
+a fix, not after a reviewer asks it.
+
+The fix moves arbitration into `_agreement.py`, a leaf both scheduling paths
+can import -- they sit at opposite ends of the layering, so neither could have
+owned it. It works on *snapshots* rather than nodes because the row-at-a-time
+scheduler reconfigures one `ProcessNode` object in place: read the state lazily
+and you compare a request against itself. The registry hangs off the queue,
+which is the object that survives between rows regardless of who drives the
+loop.
+
+One thing that only showed up because the reviewer listed `__enabled__`
+explicitly: my first placement of the check was at the dedup site, which a
+disabled node never reaches -- `submit_jobs` short-circuits it at the top of
+the loop. So enabled/disabled conflicts still passed silently until I moved the
+snapshot to the very top, before anything can disable a node or `skip_existing`
+can rewrite its state. Taking the snapshot early also means what gets compared
+is what the user asked for rather than what the scheduler decided.
+
+Root canonicalization was scalar-only, so a structured input -- a list or
+mapping of produced paths -- kept the absolute cache root in the hash. It is
+now recursive, and containment is decided by path components rather than string
+prefix, so `/cache/a-backup` is no longer treated as living inside `/cache/a`.
+It only rewrites strings that look like paths, so a bare parameter value is
+never captured even when the working directory happens to sit inside the root.
+
+The remaining P2 was documentation still teaching the discarded model in four
+more places -- `parameter_identity.rst`, `yaml_pipeline_spec.rst`, two
+docstrings, and a CHANGELOG entry that flatly contradicted the entry above it
+by saying scheduling stays structural. Those are exactly the sentences a future
+reviewer would cite while putting lineage back, which is the whole reason the
+maintainer asked for the invariant to be written down in the first place. I
+corrected the model in the code and in two documents and then stopped looking;
+"grep for every place that states the old rule" should have been part of the
+original change.
+
+TA1 fingerprints unchanged this round: the cards use absolute roots and scalar
+paths, so neither the recursive canonicalization nor the new arbitration
+touches them.
