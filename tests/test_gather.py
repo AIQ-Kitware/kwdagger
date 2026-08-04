@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 import ubelt as ub
@@ -586,8 +587,10 @@ def test_dependent_heredoc_jobs_are_not_indented():
     ensemble = ub.peek(
         node for node in compiled.nodes.values() if node.name == 'ensemble'
     )
-    consumer_job = queue.named_jobs[ensemble.process_id]
-    bookkeeper_job = queue.named_jobs['before_' + ensemble.process_id]
+    # ``Any`` because ``allow_indent`` is declared on cmd_queue's serial job
+    # subclass rather than on the base job type ``named_jobs`` advertises.
+    consumer_job: Any = queue.named_jobs[ensemble.process_id]
+    bookkeeper_job: Any = queue.named_jobs['before_' + ensemble.process_id]
     assert consumer_job.depends
     assert bookkeeper_job.depends
     assert consumer_job.allow_indent is False
@@ -632,10 +635,14 @@ def test_gather_slurm_uses_short_file_backed_command():
         # write_invocations=False, gathered Slurm consumers require this
         # standalone artifact to avoid placing the manifest in --wrap argv.
         job = queue.named_jobs[ensemble.process_id]
-        assert 'bash ' in job.command
-        assert str(invoke_fpath) in job.command
-        assert 'cat > ' not in job.command
-        assert len(job.command) < 1024
+        # cmd_queue allows a job without a command; a gathered consumer is not
+        # one, and saying so keeps the rest of this block about the command.
+        command = job.command
+        assert command is not None
+        assert 'bash ' in command
+        assert str(invoke_fpath) in command
+        assert 'cat > ' not in command
+        assert len(command) < 1024
 
     slurm_text = queue.finalize_text()
     for ensemble in ensembles:

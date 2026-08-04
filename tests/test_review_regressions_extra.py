@@ -36,6 +36,8 @@ that a refactor is allowed to move.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 import ubelt as ub
 
@@ -593,7 +595,8 @@ def test_alias_consumer_identity_tracks_the_producer_instance(tmp_path):
     different files share a ``process_id`` and a result directory, and
     whichever compiled first silently wins.
     """
-    seen = {}
+    # Each record mixes ids with the input payload they came from.
+    seen: dict[str, dict[str, Any]] = {}
     for src in ['/data/a', '/data/b']:
         dag, producer, consumer = _identity_chain_pipeline()
         dag.configure(
@@ -764,7 +767,8 @@ def test_overriding_a_connected_input_changes_identity(tmp_path):
     producer instead, two consumers reading different files hash alike and the
     compiler silently keeps whichever row it saw first.
     """
-    seen = {}
+    # Each record mixes ids with the configuration they were derived from.
+    seen: dict[str, dict[str, Any]] = {}
     for override in ['/override/a', '/override/b']:
         dag, consumer = _connected_input_pipeline()
         dag.configure(
