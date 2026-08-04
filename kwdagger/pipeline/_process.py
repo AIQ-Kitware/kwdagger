@@ -1933,14 +1933,68 @@ def _source_value_record(source_port: Any) -> dict[str, Any]:
     return {'value': _jsonable_config_value(value)}
 
 
+def _json_object_key(key: Any) -> str:
+    """
+    The name a mapping key will carry once it reaches ``job_config.json``.
+
+    JSON object names are strings, so every recorded key becomes one
+    eventually. Doing that here rather than leaving it to ``json.dumps``
+    is what keeps the stored configuration, the identity payload, the
+    requested record, and the file on disk agreeing about what the keys *are*.
+    Left to the serializers they disagree: ``json.dumps`` renames an ``int``
+    key silently, refuses a ``Path`` one, and cannot sort a mixture.
+
+    Raises:
+        TypeError: the key has no JSON object name.
+
+    Example:
+        >>> [_json_object_key(k) for k in ['a', 1, True, None, 1.5]]
+        ['a', '1', 'true', 'null', '1.5']
+    """
+    if isinstance(key, str):
+        return key
+    if isinstance(key, os.PathLike):
+        return os.fspath(key)
+    if key is None or isinstance(key, (bool, int, float)):
+        # Exactly what ``json.dumps`` would have named it.
+        return json.dumps(key)
+    raise TypeError(
+        f'Mapping key {key!r} of type {type(key).__name__} cannot be recorded '
+        'in job_config.json. Configuration is written as JSON, so a mapping '
+        'key must be a string, a path, a number, a boolean, or None.'
+    )
+
+
 def _jsonable_config_value(value: Any) -> Any:
-    """Convert common configuration values into JSON-compatible forms."""
+    """
+    Convert common configuration values into JSON-compatible forms.
+
+    Keys as well as values, because a key that only becomes a string at
+    serialization time is a key the identity payload and the persisted record
+    disagree about.
+    """
     if isinstance(value, os.PathLike):
         return os.fspath(value)
     if isinstance(value, dict):
-        return {
-            key: _jsonable_config_value(item) for key, item in value.items()
-        }
+        # Naming is many-to-one -- ``1`` and ``'1'`` are one JSON key -- so
+        # rebuilding the mapping can drop an entry. That would persist an
+        # ambiguous record and hash two different configurations alike, so it
+        # is refused rather than resolved.
+        converted: dict[str, Any] = {}
+        sources: dict[str, Any] = {}
+        for key, item in value.items():
+            name = _json_object_key(key)
+            if name in converted:
+                raise ValueError(
+                    f'Mapping keys {sources[name]!r} and {key!r} are distinct '
+                    f'in Python but name one JSON key {name!r}. Configuration '
+                    'is recorded as JSON, so keeping both would persist an '
+                    'ambiguous record and give two different configurations '
+                    'one identity. Use a single spelling of the key.'
+                )
+            converted[name] = _jsonable_config_value(item)
+            sources[name] = key
+        return converted
     if isinstance(value, (list, tuple)):
         return [_jsonable_config_value(item) for item in value]
     return value

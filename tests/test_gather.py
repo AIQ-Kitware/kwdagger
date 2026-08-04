@@ -1245,8 +1245,8 @@ def _fanout_pipeline(group_by, report_port='data_fpath'):
     """prepare fans out over ``dataset``; score and report both consume it.
 
     This is the shape a sweep normally has: exactly one node carries the
-    parameter that varies, and every consumer inherits that identity through
-    an edge instead of redeclaring it.
+    parameter that varies, and every consumer is grouped by it through an
+    edge instead of redeclaring it.
     """
     prepare = ProcessNode(
         name='prepare',
@@ -1310,7 +1310,7 @@ def _assert_partitioned_by_dataset(dag):
 def test_gather_groups_on_a_qualified_upstream_parameter(tmp_path):
     # The preferred form: name the node the value lives on, exactly as a
     # matrix key does. Only `prepare` declares `dataset`; the consumers
-    # inherit that identity through their edges.
+    # are grouped by it through their edges.
     _assert_partitioned_by_dataset(
         _compile(_fanout_pipeline(['prepare.dataset']), tmp_path / 'a')
     )

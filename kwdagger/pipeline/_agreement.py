@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from kwdagger.pipeline._slurm import coerce_slurm_options
+
 
 def _normalize_enabled(value: Any) -> Any:
     """
@@ -70,17 +72,37 @@ _FINALIZED_EXECUTION_STATE = [
 ]
 
 
-def execution_snapshot(node: Any) -> dict[str, Any]:
+def execution_snapshot(
+    node: Any, submission: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Capture everything a duplicate request must be compared against.
 
     Taken eagerly, because the row-at-a-time scheduler reuses one node object
     across matrix rows: read these lazily and you would compare a request
     against itself.
+
+    Args:
+        node (Any): the configured process node.
+
+        submission (dict | None): request state that is not on the node.
+            ``'slurm_options'`` are the pipeline-wide options, which an
+            ordinary pipeline keeps on the :class:`Pipeline` and never copies
+            onto a node; every other key is a bookkeeping choice made by the
+            caller of ``submit_jobs``. A duplicate request returns before any
+            of it is applied, so none of it is visible in node state.
+            ``None`` at compile time, where nothing has been submitted yet.
     """
+    submission = dict(submission or {})
     snapshot: dict[str, Any] = {
         'enabled': node.enabled,
-        'slurm_options': node.slurm_options,
+        # Effective, because neither half is the whole answer: the submitter
+        # applies pipeline-wide options first and the node's own on top.
+        'slurm_options': {
+            **coerce_slurm_options(submission.pop('slurm_options', None)),
+            **coerce_slurm_options(getattr(node, 'slurm_options', None)),
+        },
+        'submission': submission,
         'perf_config': node.final_perf_config,
         'out_paths': node.final_out_paths,
         'node_dpath': str(node.final_node_dpath),
@@ -183,6 +205,25 @@ def check_execution_agreement(
             f'{config_key}, so these requests cannot be distinguished. Give '
             f'them differing parameters, or make their {config_key} values '
             'agree.'
+        )
+
+    submission_keys = set(canonical['submission']) | set(
+        duplicate['submission']
+    )
+    for key in sorted(submission_keys):
+        lhs = canonical['submission'].get(key)
+        rhs = duplicate['submission'].get(key)
+        if lhs == rhs:
+            continue
+        raise ValueError(
+            f'Conflicting {key!r} for process {template_name!r}. '
+            f'{canonical_label.capitalize()} and {duplicate_label} resolve to '
+            f'the same process identity {process_id!r} but were submitted '
+            f'with {key}={lhs!r} and {key}={rhs!r} respectively. The first '
+            'request queues the job and the second is recognized as a '
+            'duplicate before this setting is applied, so the later one would '
+            'be silently dropped. Submit them with the same options, or give '
+            'them differing parameters.'
         )
 
     if canonical['prerequisites'] != duplicate['prerequisites']:

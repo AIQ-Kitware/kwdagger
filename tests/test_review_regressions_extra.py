@@ -18,9 +18,10 @@ open on purpose:
 * a single-instance consumer still writes one record, not a one-element list;
 * ``_hashable_group_value`` tags mappings and sets so they cannot collide with
   a sequence of the same contents;
-* a recovered producer reaches the consumer's *identity* and not only its
-  scheduling, so two consumers reading different files cannot share a result
-  directory;
+* a recovered producer reaches the consumer's *scheduling*, and the path it
+  produced reaches the consumer's identity as an ordinary effective value, so
+  two consumers reading different files cannot share a result directory --
+  without the producer itself appearing in the hash;
 * a gathered port that is aliased makes the job writing the manifest a real
   dependency of whoever borrows the path.
 
@@ -549,8 +550,8 @@ def test_unmapped_gather_provenance_keeps_plain_names():
 
 
 # ---------------------------------------------------------------------------
-# 5. A recovered producer must reach the consumer's identity, not just its
-#    scheduling
+# 5. A recovered producer must reach the consumer's scheduling, and the value
+#    it produced must reach the consumer's identity
 # ---------------------------------------------------------------------------
 
 
@@ -558,7 +559,8 @@ def _identity_chain_pipeline():
     """
     ``producer`` runs one algorithm over whichever data it is given, so its
     ``algo_id`` is blind to that choice. Only its ``process_id`` distinguishes
-    the runs -- which is exactly what a consumer behind an alias has to record.
+    the runs -- and that reaches the consumer through the produced path, which
+    contains it, rather than through anything lineage-shaped in the payload.
     """
     producer = ProcessNode(
         name='producer',

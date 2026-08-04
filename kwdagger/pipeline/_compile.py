@@ -348,7 +348,7 @@ def _node_param_value(node: 'ProcessNode', key: str) -> Any:
     A qualified key is resolved on the named node -- ``node`` itself if the
     names match, otherwise the ancestor with that name. This is what lets a
     fan-out be expressed the natural way: give the one node that varies the
-    parameter, and let every consumer inherit that identity through an edge.
+    parameter, and let every consumer be partitioned by it through an edge.
 
     Resolving only against a node's *own* algorithm parameters forces every
     consumer to redeclare the parameter purely to satisfy the gather, which
@@ -481,10 +481,10 @@ def _lookup_on_node(node: 'ProcessNode', param: str) -> Any:
     Look ``param`` up in a node's identity-bearing surface.
 
     That surface is ``final_algo_config`` (what algorithm it runs) plus
-    ``final_input_config`` (the inputs nothing upstream produced), then its
-    output ports. Those are exactly the things this node owns and that
-    reach its ``process_id``, so they are exactly the things it is
-    meaningful to partition it by.
+    ``final_input_config`` (every effective non-gather input, at the value it
+    will read, however that value was delivered), then its output ports. Those
+    are exactly the things this node owns and that reach its ``process_id``, so
+    they are exactly the things it is meaningful to partition it by.
     """
     config = node.final_algo_config
     if param in config:

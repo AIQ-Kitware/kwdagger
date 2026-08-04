@@ -154,12 +154,27 @@ def submit_jobs(
     requests: dict[str, Any] = registry['by_process_id']
     submission_label = f'request {registry["submissions"]}'
 
+    # State this call carries that no node does. An ordinary pipeline keeps
+    # ``__slurm_options__`` on the Pipeline rather than on its nodes, and the
+    # bookkeeping flags are arguments here; a duplicate request returns before
+    # any of them is applied, so a disagreement is silently first-call-wins.
+    # ``skip_existing`` is deliberately absent: it selects which requests are
+    # made rather than what a request asks for, and reversing two calls that
+    # differ in it leaves the same queue.
+    submission_state = {
+        'slurm_options': slurm_options,
+        'log': log,
+        'enable_links': enable_links,
+        'write_invocations': write_invocations,
+        'write_configs': write_configs,
+    }
+
     for node_name in node_order:
         node = proc_graph.nodes[node_name]['node']
         # Snapshot before anything below can disable the node or rewrite its
         # state, so what is compared is what the user asked for.
         _procid = node.process_id
-        _snapshot = execution_snapshot(node)
+        _snapshot = execution_snapshot(node, submission_state)
         _previous = requests.get(_procid)
         if _previous is None:
             requests[_procid] = {

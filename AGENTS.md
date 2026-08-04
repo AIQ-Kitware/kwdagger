@@ -205,6 +205,16 @@ canonicalize alike are rejected rather than merged: silently dropping an entry
 would leave two different configurations with one identity, and separate
 schedules cannot be arbitrated against each other after the fact.
 
+**Mapping keys have one policy, applied where the value is stored.** JSON
+object names are strings, so `configure` normalizes every mapping key to the
+name it will carry in `job_config.json` -- `os.fspath` for a path, the JSON
+literal for a number, boolean, or null -- and refuses a key with no JSON name.
+Two keys naming one JSON key are a reported collision, as are two paths
+canonicalizing alike. Do not leave this conversion to `json.dumps`: it renames
+an `int` key silently, refuses a `Path` one, and cannot sort a mixture, so the
+identity payload, the requested record, and the file on disk end up disagreeing
+about what the keys are.
+
 A corollary, stated because it has been violated: **equal `process_id` implies
 equal command-defining state, apart from state that is deliberately unhashed.**
 Path templates may therefore use only the node's own ids; substituting an
@@ -216,7 +226,14 @@ identity must therefore agree on — compilation reports each as a user-facing
 
 - **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
   and output-path overrides. These change how a process runs, not what it
-  computes.
+  computes. Note that not all of it is *on* the node: an ordinary pipeline
+  keeps top-level `__slurm_options__` on the `Pipeline`, and `log`,
+  `enable_links`, `write_invocations`, and `write_configs` are arguments to
+  `submit_jobs`. A duplicate request returns before any of that is applied, so
+  the snapshot takes them from the submitter rather than from node state.
+  `skip_existing` is deliberately excluded: it selects which requests are made
+  rather than what a request asks for, and reversing two calls that differ in
+  it leaves the same queue.
 - **The requested experiment:** everything provenance keeps and identity drops
   -- which producer supplied each input, which alias or parameter port
   forwarded a value and which was outranked, gather membership. Two rows can be

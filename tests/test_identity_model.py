@@ -600,18 +600,28 @@ def test_perf_params_may_differ_between_rows_only_by_agreeing(tmp_path):
 # tests deliberately use *no* gather.
 
 
-def _submit_rows(dag, rows, root, **kwargs):
-    """Configure and submit each row against one queue, as the scheduler does."""
+def _submit_rows(dag, rows, root, backend='serial', per_row=None, **kwargs):
+    """
+    Configure and submit each row against one queue, as the scheduler does.
+
+    ``per_row`` gives each submission its own ``submit_jobs`` keyword
+    arguments, which is how a caller's bookkeeping choices differ between
+    otherwise identical requests.
+    """
     queue = None
     statuses = []
-    for row in rows:
+    for idx, row in enumerate(rows):
         dag.configure(config=row, root_dpath=root, cache=False)
-        summary = dag.submit_jobs(
-            queue=queue or {'backend': 'serial'},
-            enable_links=False,
-            write_invocations=False,
-            write_configs=False,
+        submit_kwargs = {
+            'enable_links': False,
+            'write_invocations': False,
+            'write_configs': False,
             **kwargs,
+            **(per_row[idx] if per_row else {}),
+        }
+        summary = dag.submit_jobs(
+            queue=queue or {'backend': backend, 'name': 'identity-test'},
+            **submit_kwargs,
         )
         queue = summary['queue']
         statuses.append(summary['node_status'])
@@ -1120,3 +1130,160 @@ def test_a_pathlike_mapping_key_canonicalizes_like_a_string_one(tmp_path):
         assert list(hashed) == ['{root}/x.json']
         ids.append(consumer.process_id)
     assert ids[0] == ids[1]
+
+
+# ---------------------------------------------------------------------------
+# Request state that lives on the submission, not on the node
+# ---------------------------------------------------------------------------
+#
+# A duplicate request returns before its Slurm options and bookkeeping flags
+# are applied, so anything the node does not carry was first-call-wins. An
+# ordinary pipeline keeps top-level ``__slurm_options__`` on the Pipeline and
+# never copies it onto a node, which is precisely why a node-only snapshot
+# could not see it. The compiler happens to copy a row-global value into each
+# node config, so only the row-at-a-time path had the hole.
+
+
+@pytest.mark.parametrize('order', [['gpu:1', 'gpu:4'], ['gpu:4', 'gpu:1']])
+def test_gather_free_pipeline_slurm_options_conflict(order, tmp_path):
+    """Reversing the rows used to change the resources the one job gets."""
+    rows = [
+        {'predict.model': 'm', '__slurm_options__': {'gres': gres}}
+        for gres in order
+    ]
+    with pytest.raises(ValueError, match='__slurm_options__'):
+        _submit_rows(_perf_pipeline(), rows, tmp_path, backend='slurm')
+
+
+def test_agreeing_pipeline_slurm_options_still_deduplicate(tmp_path):
+    """The complement: one job, submitted once, with the requested resources."""
+    rows = [{'predict.model': 'm', '__slurm_options__': {'gres': 'gpu:2'}}] * 2
+    queue, statuses = _submit_rows(
+        _perf_pipeline(), rows, tmp_path, backend='slurm'
+    )
+    assert statuses[0]['predict'] == 'new_submission'
+    assert statuses[1]['predict'] == 'duplicate_submission'
+    assert 'gpu:2' in queue.finalize_text()
+
+
+def test_pipeline_wide_and_node_level_options_compare_effectively(tmp_path):
+    """
+    The two halves are merged before they are compared, so requesting the same
+    thing at either level is agreement rather than a conflict.
+    """
+    rows = [
+        {'predict.model': 'm', '__slurm_options__': {'gres': 'gpu:2'}},
+        {'predict.model': 'm', 'predict.__slurm_options__': {'gres': 'gpu:2'}},
+    ]
+    _queue, statuses = _submit_rows(
+        _perf_pipeline(), rows, tmp_path, backend='slurm'
+    )
+    assert statuses[1]['predict'] == 'duplicate_submission'
+
+
+@pytest.mark.parametrize(
+    'flag', ['write_configs', 'write_invocations', 'enable_links', 'log']
+)
+def test_submission_bookkeeping_flags_must_agree(flag, tmp_path):
+    """
+    The reviewer's case: submit with ``write_configs=False`` and then with
+    ``write_configs=True`` and no ``job_config.json`` is ever written, because
+    the second request exits as a duplicate before the bookkeeping runs.
+    """
+    rows = [{'predict.model': 'm'}] * 2
+    per_row = [{flag: False}, {flag: True}]
+    with pytest.raises(ValueError, match=flag):
+        _submit_rows(_perf_pipeline(), rows, tmp_path, per_row=per_row)
+
+
+def test_agreeing_submission_flags_still_deduplicate(tmp_path):
+    rows = [{'predict.model': 'm'}] * 2
+    _queue, statuses = _submit_rows(
+        _perf_pipeline(), rows, tmp_path, write_configs=True
+    )
+    assert statuses[0]['predict'] == 'new_submission'
+    assert statuses[1]['predict'] == 'duplicate_submission'
+
+
+# ---------------------------------------------------------------------------
+# One mapping-key policy, shared by identity and by what is persisted
+# ---------------------------------------------------------------------------
+#
+# JSON object names are strings. Leaving that conversion to ``json.dumps``
+# makes the identity payload and the file on disk disagree about what the keys
+# are: a ``Path`` key is refused outright, an ``int`` key is renamed silently,
+# and a mixture cannot be sorted. Keys are normalized where the value is
+# stored instead, so all four readers see the same mapping.
+
+
+def _mapping_key_dag():
+    consumer = _consumer()
+    return Pipeline({'consumer': consumer}), consumer
+
+
+def test_a_pathlike_mapping_key_survives_submission(tmp_path):
+    """
+    Identity alone was not enough to catch this: configuring and hashing
+    worked, and writing the requested record raised ``TypeError`` on the key.
+    """
+    dag, consumer = _mapping_key_dag()
+    dag.configure(
+        {'consumer.data_fpath': {ub.Path(tmp_path / 'x.json'): 1}},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    # Normalized once, where the value is stored, so every later reader agrees.
+    assert list(consumer.config['data_fpath']) == [str(tmp_path / 'x.json')]
+    assert list(consumer.depends['__inputs__']['data_fpath']) == [
+        '{root}/x.json'
+    ]
+    record = consumer.requested_provenance_record()['consumer.data_fpath']
+    assert json.loads(record) == {str(tmp_path / 'x.json'): 1}
+
+    summary = dag.submit_jobs(
+        queue={'backend': 'serial'},
+        enable_links=False,
+        write_invocations=False,
+        write_configs=True,
+    )
+    assert 'job_config.json' in summary['queue'].finalize_text()
+
+
+def test_keys_that_name_one_json_key_are_refused(tmp_path):
+    """``1`` and ``'1'`` are distinct in the payload and one name on disk."""
+    dag, _consumer_node = _mapping_key_dag()
+    with pytest.raises(ValueError, match='one JSON key'):
+        dag.configure(
+            {'consumer.data_fpath': {1: 'a', '1': 'b'}},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+
+
+def test_a_key_with_no_json_name_is_refused(tmp_path):
+    """
+    A tuple key used to hash cleanly and then fail at submission -- and, before
+    that, come back from canonicalization as an unhashable list.
+    """
+    dag, _consumer_node = _mapping_key_dag()
+    with pytest.raises(TypeError, match='cannot be recorded'):
+        dag.configure(
+            {'consumer.data_fpath': {('a', 'b'): 1}},
+            root_dpath=tmp_path,
+            cache=False,
+        )
+
+
+def test_mixed_key_types_are_recorded_and_compared(tmp_path):
+    """
+    Legal but unsortable as raw Python. Normalizing first is what lets the
+    requested record be serialized deterministically at all.
+    """
+    dag, consumer = _mapping_key_dag()
+    dag.configure(
+        {'consumer.data_fpath': {1: 'a', 'b': 2, 2.5: 'c', None: 'd'}},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    record = consumer.requested_provenance_record()['consumer.data_fpath']
+    assert json.loads(record) == {'1': 'a', 'b': 2, '2.5': 'c', 'null': 'd'}

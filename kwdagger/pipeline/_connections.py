@@ -221,8 +221,10 @@ def _dependency_preds(input_node: Any) -> list:
 
     An ``input -> input`` edge is an *alias*: the upstream node does not
     produce this value, it merely consumes the same one. Treating that as a
-    dependency would make the consumer inherit the producer's identity --
-    including sweep axes it never reads -- so aliases are excluded here.
+    dependency would queue a job the consumer does not wait on anything for,
+    and give the borrower ``.pred`` / ``.succ`` links to a process that made
+    nothing it reads, so aliases are excluded here. Identity is not at stake
+    either way -- it hashes effective values, not dependencies.
     """
     return [pred for pred in input_node.pred if not isinstance(pred, InputNode)]
 

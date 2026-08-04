@@ -71,6 +71,29 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   decided the persisted record, so reversing a matrix changed what was written.
   Delivery still does not reach `process_id`; the conflicting requests are the
   same computation and still hash alike.
+* Requests sharing one `process_id` were arbitrated only on state stored on the
+  node, so an ordinary pipeline never compared top-level `__slurm_options__`
+  (which `Pipeline.configure` keeps on the pipeline and never copies onto a
+  node) or the `log`, `enable_links`, `write_invocations`, and `write_configs`
+  arguments to `submit_jobs`. A duplicate request returns before any of those
+  is applied, so two rows requesting `gres: gpu:1` and `gres: gpu:4` submitted
+  one job whose resources depended on row order, and submitting first with
+  `write_configs=False` and then with `write_configs=True` wrote no
+  `job_config.json` at all. The snapshot now takes pipeline-wide Slurm options
+  from the submitter and merges them with the node's own, and compares the
+  bookkeeping flags. `skip_existing` is deliberately not compared: it selects
+  which requests are made rather than what a request asks for. The full-matrix
+  path was unaffected, because the compiler copies a row-global value into each
+  node configuration.
+* Mapping keys now follow one policy, applied by `configure` where the value is
+  stored: a key is normalized to the name it will carry in `job_config.json`
+  (`os.fspath` for a path, the JSON literal for a number, boolean, or null),
+  keys with no JSON name are refused, and two keys naming one JSON key are
+  reported as a collision. Previously the conversion was left to the
+  serializers, which disagree: a `PathLike` key raised `TypeError` when the
+  requested record or `job_config.json` was written, an `int` key was renamed
+  silently so the identity payload and the persisted record disagreed, and a
+  mixture of key types could not be sorted for comparison.
 * Canonicalizing a mapping's keys relative to the cache root is many-to-one, so
   two distinct keys could land on one canonical key and the rebuilt dictionary
   silently dropped an entry -- leaving a mapping whose hashed payload matched a

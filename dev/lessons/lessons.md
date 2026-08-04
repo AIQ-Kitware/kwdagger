@@ -77,3 +77,34 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
     `_root_relative`.
   - **Applies when:** normalizing, canonicalizing, or rewriting anything used
     as a dictionary key in an identity payload.
+
+- **Lesson:** A per-node snapshot cannot arbitrate request state that never
+  reaches a node. `Pipeline.configure` keeps top-level `__slurm_options__` on
+  the pipeline, and `log` / `enable_links` / `write_invocations` /
+  `write_configs` are arguments to `submit_jobs`; a duplicate request returns
+  before any of them is applied, so the comparison has to take them from the
+  submitter. The full-matrix path was accidentally safe because the compiler
+  copies a row-global value into each node config -- which is why a passing
+  gather test did not imply the ordinary path was covered. When a check reads
+  its inputs from one object, enumerate what the *caller* holds that the object
+  does not.
+  - **Evidence / MWE:** `tests/test_identity_model.py`
+    `test_gather_free_pipeline_slurm_options_conflict` and
+    `test_submission_bookkeeping_flags_must_agree`; commit "Arbitrate the state
+    the submitter holds, and give mapping keys one policy".
+  - **Applies when:** adding a `submit_jobs` argument, or moving configuration
+    between the pipeline and its nodes.
+
+- **Lesson:** Deferring a type conversion to the serializer makes the readers
+  disagree. JSON object names are strings, and `json.dumps` renames an `int`
+  key silently, refuses a `Path` key, and cannot sort a mixture -- so a mapping
+  key left unconverted hashes as one thing, compares as another, and persists
+  as a third (or crashes). Normalizing at the point the value is stored gives
+  the stored configuration, the identity payload, the requested record, and the
+  file on disk one answer, and turns `1` versus `'1'` into a reportable
+  collision rather than a silent overwrite.
+  - **Evidence / MWE:** `tests/test_identity_model.py`
+    `test_a_pathlike_mapping_key_survives_submission` and
+    `test_keys_that_name_one_json_key_are_refused`; `_json_object_key`.
+  - **Applies when:** adding a value shape to configuration, or relying on a
+    serializer to coerce something the rest of the system also reads.

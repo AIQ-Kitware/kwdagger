@@ -795,3 +795,64 @@ still claiming producer `process_id` enters consumer identity (it was written
 mid-sequence and was left contradicting the entry below it), and updated the
 hashing-scheme doc for both findings. Full suite 313 passed / 18 skipped,
 doctests 90 passed, ruff/ty/flake8 clean.
+
+## 2026-08-04 12:35:26 -0400
+
+Third review round, two blockers, and both were cases where a check I had
+already written was reading the wrong surface rather than reading it wrongly.
+
+The first: arbitration compares `execution_snapshot(node)`, and an ordinary
+pipeline's top-level `__slurm_options__` is never on a node -- `configure` pops
+it onto the `Pipeline` and the runtime applies it at submission. Same for
+`log`, `enable_links`, `write_invocations`, `write_configs`, which are
+arguments to `submit_jobs`. A duplicate returns before any of it is applied, so
+two rows asking for `gpu:1` and `gpu:4` produced one job whose resources
+depended on row order. I reproduced all of it before touching anything, which I
+should keep doing: the write_configs case in particular is nastier than it
+sounds, because `write_configs=False` then `True` leaves *no* `job_config.json`
+anywhere.
+
+What I want to record is why the gather path was fine and the ordinary one was
+not. The compiler copies a row-global `__slurm_options__` into each node's
+config, so a node-only snapshot happened to see it there. A passing gather test
+therefore said nothing about the ordinary path, and I had read that test as
+coverage. The general form -- when a check reads from one object, enumerate
+what the *caller* holds that the object does not -- is now a lesson.
+
+Slurm options are compared as the effective merge of pipeline-wide and
+node-level rather than as two fields, so asking for the same thing at either
+level is agreement. `skip_existing` is deliberately excluded and I want the
+reasoning on record: it decides whether a request is made, not what it asks
+for, and I checked both orders leave the same queue because each `submit_jobs`
+call reprocesses the whole graph after `configure` resets `enabled`.
+
+The second blocker was partly my own doing. I taught `_root_relative` to
+canonicalize `PathLike` mapping keys last round and tested it at the identity
+level only -- so the test passed and submitting the same node raised
+`TypeError` on `json.dumps`, because `default=str` does not apply to keys. And
+my `sort_keys=True` in the requested record broke mixed `str`/`int` keys, which
+had previously reached disk fine. Two crashes I introduced, neither caught,
+because the test stopped at the hash.
+
+The fix is one policy at one place: `configure` already normalizes values for
+serializability, so keys are normalized there too, to exactly the name
+`json.dumps` would give them. That makes the stored config, the identity
+payload, the requested record, and the file on disk agree, and it turns `1`
+versus `'1'` from a silent overwrite into a reported collision. Deferring the
+conversion to the serializer was the actual mistake -- three readers, three
+different answers.
+
+Less sure about: normalizing `int` keys to `"1"` changes identity for anyone
+using them. That is right (it is what was always persisted) but it is a silent
+cache invalidation on top of the several this release already has. And refusing
+tuple keys is new; they used to hash and then crash at submission, so nobody
+can have been relying on them, but it is a `TypeError` at configure time where
+there was none.
+
+Also swept the comments the reviewer flagged as still describing the discarded
+lineage model -- `_lookup_on_node`, `_dependency_preds`, and two headers in
+`test_review_regressions_extra.py` -- plus three "inherit that identity"
+phrasings in the gather code that mean group membership, not `process_id`, and
+would mislead exactly the reader this documentation exists to stop.
+
+Full suite 327 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.
