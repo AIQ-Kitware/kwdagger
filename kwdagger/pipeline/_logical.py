@@ -503,15 +503,17 @@ class Pipeline:
 
         assert isinstance(self.proc_graph, nx.DiGraph)
         if config is not None:
-            config = dict(config)
+            # The row crosses the boundary once, here, and *before* anything
+            # reads a reserved key out of it -- full-matrix compilation
+            # normalizes its rows at the same point, and the two paths must
+            # not disagree about which keys they can even see. A reader of
+            # ``Pipeline.config`` then sees the shape the nodes were
+            # configured with.
+            config = normalize_config(config)
             self.__slurm_options__ = layer_slurm_options(
                 self._base_slurm_options,
                 config.pop('__slurm_options__', None),
             )
-            # The requested row crosses the boundary once, here, rather than
-            # each node re-deriving it: what a reader of ``Pipeline.config``
-            # sees is then the same shape the nodes were configured with.
-            config = normalize_config(config)
             self.config = config
             # print('CONFIGURE config = {}'.format(ub.urepr(config, nl=1)))
 

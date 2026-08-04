@@ -20,6 +20,7 @@ what resources one of its nodes asked for, which is what this file pins.
 from __future__ import annotations
 
 import pytest
+import ubelt as ub
 
 from kwdagger.pipeline import GatherSpec, Pipeline, ProcessNode
 
@@ -197,3 +198,69 @@ def test_a_gather_does_not_change_what_a_node_asks_for(
         root=tmp_path / 'gather',
     )
     assert plain == gathered == expected
+
+
+# ---------------------------------------------------------------------------
+# Both paths cross the normalization boundary at the same point
+# ---------------------------------------------------------------------------
+#
+# ``Pipeline.configure`` used to pop ``__slurm_options__`` *before* normalizing
+# the row, while full-matrix compilation normalized its rows first. So whether
+# a reserved key could even be seen, and what a value inside it looked like,
+# depended on which path the row took.
+
+
+@pytest.mark.parametrize(
+    'row, expected',
+    [
+        pytest.param(
+            {'__slurm_options__': {'partition': ub.Path('/p')}},
+            {'partition': '/p'},
+            id='pathlike-value-inside-row-global-options',
+        ),
+        pytest.param(
+            {ub.Path('__slurm_options__'): {'partition': 'row'}},
+            {'partition': 'row'},
+            id='pathlike-outer-key-naming-the-reserved-option',
+        ),
+        pytest.param(
+            {'train.__slurm_options__': {'partition': ub.Path('/n')}},
+            {'partition': '/n'},
+            id='pathlike-value-inside-a-per-node-override',
+        ),
+    ],
+)
+def test_normalization_reaches_slurm_options_on_both_paths(
+    row, expected, tmp_path
+):
+    plain = _effective_options(
+        row,
+        base=None,
+        node_default=None,
+        gather=False,
+        root=tmp_path / 'plain',
+    )
+    gathered = _effective_options(
+        row,
+        base=None,
+        node_default=None,
+        gather=True,
+        root=tmp_path / 'gather',
+    )
+    assert plain == gathered == expected
+    # The point of normalizing: what reaches the sbatch line is text, whichever
+    # entrance it came in by.
+    assert all(isinstance(value, str) for value in plain.values())
+
+
+def test_a_pathlike_pipeline_base_normalizes_too(tmp_path):
+    """The base is the fourth entrance, and it bypasses row normalization."""
+    got = _effective_options(
+        {},
+        base={'partition': ub.Path('/base')},
+        node_default=None,
+        gather=False,
+        root=tmp_path,
+    )
+    assert got == {'partition': '/base'}
+    assert isinstance(got['partition'], str)

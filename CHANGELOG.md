@@ -111,10 +111,15 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   `__slurm_options__`, so it silently overwrote a row that requested its own.
   Those options are the pipeline base now, which is where the guard was trying
   to put them, so the injection is gone.
-* Full-matrix compilation read reserved keys and routed values from rows that
-  had not crossed the configuration normalization boundary, so whether a
-  mapping key was accepted could depend on whether the pipeline contained a
-  gather. Rows are normalized first, as `Pipeline.configure` already did.
+* The two scheduling paths crossed the configuration normalization boundary at
+  different points. Full-matrix compilation read reserved keys and routed
+  values from rows that had not been normalized at all, while
+  `Pipeline.configure` normalized the row only *after* extracting
+  `__slurm_options__` from it. So whether a mapping key was accepted, and
+  whether a reserved key could even be seen, depended on which path a row took.
+  Both now normalize the complete row first, before anything reads a reserved
+  key out of it, and `coerce_slurm_options` normalizes too -- options arrive by
+  four routes and only some of them have crossed the boundary already.
 * A matrix row that omitted top-level `__slurm_options__` inherited the
   previous row's value, because `Pipeline.configure` defaulted to its own
   current value rather than to a baseline. "Explicit options" and "no options"

@@ -1028,3 +1028,51 @@ fail at `json.dumps`. That is inconsistent, and the TODO says so rather than
 pretending otherwise.
 
 373 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:54:31 -0400
+
+Two small things and one deferral.
+
+The typing pass reached `_logical`. `root_dpath` now has a `PathSpec` alias --
+how a caller *spells* a path, as distinct from what a path is stored as, which
+is the distinction that kept getting lost. Typing the two arguments beside it
+turned up two latent bugs, which is becoming the reliable pattern: `node_dict`
+built its mapping from `node.name`, which is `str | None`, so a nameless node
+produced a `None` key that no lookup would ever match; and `submit()` appended
+to `self.nodes`, which raises `AttributeError` on a pipeline built from the
+`{name: node}` mapping form -- the form all of our own tests and the YAML
+loader use.
+
+Then the boundary fix. `Pipeline.configure` popped `__slurm_options__` *before*
+normalizing the row, while the compiler normalized rows first, so whether a
+reserved key could even be seen depended on which path the row took. A
+`PathLike` outer key naming `__slurm_options__` was silently dropped on one
+path and honored on the other. Also normalized inside `coerce_slurm_options`,
+because options arrive by four routes and only some have crossed the boundary
+already -- the pipeline base bypasses row normalization entirely.
+
+I checked both halves are load-bearing by restoring each old behavior in turn:
+the ordering fix is caught by the outer-key case, the `coerce` fix by the
+pipeline-base case. Worth the two minutes; a parity test that passes either way
+is not a parity test.
+
+Recorded as deferred 0.4.0 work, not started: universal full-matrix
+compilation. The direction is to keep `configure` as the interactive single-row
+API, always compile the complete matrix for batch scheduling, allow
+compilation without a gather, canonicalize and arbitrate only in the compiler,
+and have the runtime consume an already-finalized graph. Most of the defects
+this review sequence found -- stale row state, divergent Slurm layering,
+divergent normalization boundaries -- are the same defect wearing different
+hats: two scheduling paths that must agree and have nothing forcing them to.
+That is the real fix, and it is too broad for today.
+
+One more thing I noticed while answering whether the dict form of `nodes` is
+vestigial (it is not -- 70 call sites, and the YAML loader passes a mapping
+deliberately so `aggregate` can find per-node result loaders): with the dict
+form, `node_dict` returns the *caller's* keys, while every graph keys on
+`node.name`. `build_nx_graphs` even binds `for name, node in ...` and then
+never uses `name`. A dict whose key disagrees with its node's name would split
+the pipeline's idea of a node's identity. Not fixed, not urgent, but it is
+exactly the kind of thing that becomes a two-day bug later.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean, wheel builds.

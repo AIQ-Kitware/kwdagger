@@ -13,6 +13,8 @@ from typing import Any, TypeAlias
 
 import kwutil
 
+from kwdagger.pipeline._config_values import normalize_config
+
 #: Slurm options as a caller may write them: a mapping, a YAML string, or
 #: nothing. :func:`coerce_slurm_options` is what turns any of those into the
 #: dict the rest of the package passes around.
@@ -33,7 +35,12 @@ def coerce_slurm_options(slurm_options: SlurmOptions) -> dict[str, Any]:
         raise TypeError(
             f'Expected slurm options to be a dict, got {type(slurm_options)}. {slurm_options=!r}'
         )
-    return dict(slurm_options)
+    # Options reach this function by four routes -- the CLI, a parameter
+    # file, a matrix row, a node declaration -- and only some of them have
+    # crossed the configuration boundary already. Normalizing here means a
+    # ``Path`` value renders the same on the sbatch line however it arrived,
+    # rather than depending on which entrance it used.
+    return normalize_config(slurm_options)
 
 
 def layer_slurm_options(*layers: SlurmOptions) -> dict[str, Any]:
