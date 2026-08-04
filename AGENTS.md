@@ -109,8 +109,9 @@ compilation, generated commands, hashing, or artifact layout.
   identity,” even for values such as verbosity that are not performance knobs.
   Preserve compatibility now; do not redesign the taxonomy incidentally.
 - **Operational identity is a reuse mechanism:** `process_id` decides result
-  directory and queue reuse under kwdagger's declared parameters, paths, and
-  lineage. It is not a content hash or a proof of determinism. `algo_id` is a
+  directory and queue reuse under kwdagger's declared parameters and effective
+  input values -- not under lineage; see "Process identity, scheduling, and
+  provenance" below. It is not a content hash or a proof of determinism. `algo_id` is a
   current implementation component without a strong standalone public contract;
   do not optimize the architecture around it at the expense of observable
   command, reuse, or lineage behavior.
@@ -131,6 +132,66 @@ compilation, generated commands, hashing, or artifact layout.
   hashes, and SMART/geowatch-specific conventions matter, but they are secondary
   to command generation and the result directory graph. Keep the filesystem
   useful to custom scripts and other inspection tools.
+
+### Process identity, scheduling, and provenance
+
+These three answer different questions. Conflating them has caused several
+rounds of subtle bugs, in both directions, so the invariant is stated here
+rather than left to be re-derived.
+
+> **A process is identified by the computation it will perform:** its effective
+> algorithm configuration, its effective resolved input values, and anything
+> else that changes its command or its outputs. **It is not identified by how
+> those input values were obtained.**
+
+Concretely:
+
+- Equal effective input values produce equal `process_id`, regardless of the
+  delivery mechanism. A path a producer writes and the identical path typed
+  into a config are the same computation and share a result directory.
+- A producer affects a consumer's identity **only through the value it
+  supplies**. That is not weakened invalidation: a produced path contains the
+  producer's `process_id`, so reconfiguring the producer moves the path and the
+  consumer's identity follows. If a producer change leaves the output path
+  unchanged, kwdagger treats the consumer's input as unchanged -- exactly as it
+  does for a stable hand-written path.
+- **Do not add producer `process_id`, producer `algo_id`, port names,
+  `source_kind`, or "was this produced or manual" flags to a consumer's hash**,
+  under any field name, in order to preserve lineage. That information belongs
+  to provenance and to scheduling. Reintroducing it puts two identical
+  computations in two result directories and makes a producer sweep fan out
+  identical downstream jobs.
+- The one deliberate exception is `__dependency__.<node>`: an explicit ordering
+  edge carries no value, so there is no effective value through which it could
+  reach identity, and it is a declared property of this node's own execution
+  rather than the lineage of an input.
+
+The questions, and who answers them:
+
+| Question | Answered by |
+| --- | --- |
+| Which dependencies are *possible* in this pipeline definition? | `Pipeline.proc_graph` — structural, and built before configuration |
+| Which jobs must finish before this concrete command runs? | `effective_predecessor_process_nodes()` and `Pipeline.effective_execution_graph()` — gating, queue dependencies, `.pred`/`.succ` links, compiled graph |
+| What computation is this? | `ProcessNode.depends` → `process_id` |
+| How was this value requested, and what supplied it? | `_depends_config()` → `job_config.json` |
+
+Provenance keeps every distinction identity drops: manual value, default,
+alias, producer output, gather manifest, and `supplied: false` for wiring that
+was requested but outranked. That is where a reader looks to tell a produced
+input from a hand-supplied one.
+
+**Identity is value-based, not content-based.** kwdagger does not read the bytes
+at a path, and equal paths do not prove equal content. If byte-level artifact
+identity is required it must be supplied explicitly — a checksum, a
+content-addressed path, or another explicit artifact identifier used as a
+parameter. Do not infer it from producer relationships.
+
+A corollary, stated because it has been violated: **equal `process_id` must
+imply equal command-defining finalized state.** Nothing may reach the command,
+the node directory, or the output paths without also reaching identity. Path
+templates may therefore use only the node's own ids; substituting an ancestor's
+id was removed for exactly this reason. Compilation asserts this when two
+matrix rows collapse onto one node.
 
 ### Current gather shell constraints
 

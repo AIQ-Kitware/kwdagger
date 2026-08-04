@@ -1319,13 +1319,18 @@ def test_gather_groups_on_a_qualified_output_path(tmp_path):
 def test_gather_qualified_key_must_name_a_node_both_ends_can_see(tmp_path):
     # A grouping key is resolved on the source instances *and* on the target,
     # so it has to name a node reachable from both -- in practice a common
-    # ancestor. Naming the target's own connected input does not work: the
-    # value is produced upstream, so it is not part of the target's own
-    # identity, and the sources cannot see the target at all.
+    # ancestor. Naming the *target* does not work: the sources cannot see it.
+    #
+    # This once failed on the target side too, because a produced input was
+    # not part of its own node's identity and so resolved nowhere. It is now,
+    # so the remaining reason is the only real one: `report` is downstream of
+    # `score`, and a source cannot group by something it cannot reach.
     dag = _fanout_pipeline(['report.data_fpath'])
     with pytest.raises(KeyError) as excinfo:
         _compile(dag, tmp_path / 'c')
-    assert 'data_fpath' in str(excinfo.value)
+    message = str(excinfo.value)
+    assert 'report' in message
+    assert 'not this node nor one of its ancestors' in message
 
 
 def test_gather_groups_on_a_connected_input_path(tmp_path):

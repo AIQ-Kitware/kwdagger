@@ -16,8 +16,9 @@ what the hashes mean.
 
 .. important::
 
-    Pipeline IDs are operational proxies.  They hash declared parameters,
-    paths, and lineage; they do not hash file contents and do not prove that a
+    Pipeline IDs are operational proxies.  They hash declared parameters and
+    effective input values -- not lineage; see `Identity is computation, not
+    lineage`_.  They do not hash file contents and do not prove that a
     program is deterministic.  Re-running the same ``invoke.sh`` reproduces the
     requested command, not necessarily bit-identical output.
 
@@ -31,8 +32,8 @@ Summary of ID types
 
 ``process_id``
     Computed by ``ProcessNode.process_id``.  The operational identity used for
-    result directories and reuse under declared values and produced-artifact
-    lineage.
+    result directories and reuse, under this node's declared values and its
+    effective input values.
 
 ``param_hashid``
     Computed by ``Aggregator.build_effective_params``.  The identity of a
@@ -92,13 +93,18 @@ be generalized later.
 External input configuration: ``final_input_config``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-:meth:`kwdagger.pipeline.ProcessNode.final_input_config` contains input values
-that no concrete upstream process produced.  This includes directly supplied
-inputs and input-to-input shared values.
+:meth:`kwdagger.pipeline.ProcessNode.final_input_config` contains the effective
+resolved value of every input, whichever way it arrived: directly supplied,
+forwarded from a peer port, or produced upstream.
 
-These paths must still influence operational reuse, but they should not create
-false process ancestry merely because another node's input port named the same
-value.
+The one exception is a gathered input, whose manifest lives inside this node's
+own result directory and is therefore derived from ``process_id``.  Hashing that
+path would be circular, so ``depends['__gather__.<port>']`` carries the
+collection's ordered contents instead.
+
+These values influence operational reuse without creating process ancestry:
+sharing a value with another node's input port is not a claim that the other
+node ran.
 
 Non-identity command values: ``final_perf_config``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -123,17 +129,63 @@ Dependency summary: ``depends``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 :meth:`kwdagger.pipeline.ProcessNode.depends` builds the payload hashed by
-``process_id``.  In the current implementation it can include:
+``process_id``.  It contains:
 
-* this node's ``algo_id`` and ancestor algorithm IDs;
-* externally supplied input values;
-* exact produced-input bindings;
-* gather policy and ordered member process IDs; and
-* other lineage details needed to distinguish reusable work.
+* this node's own ``algo_id``;
+* every input's **effective resolved value**, canonicalized, whether that value
+  came from a producer, an alias, or configuration;
+* for a gathered input, the gather policy and the ordered member *paths* the
+  manifest will contain; and
+* ``__dependency__.<node>`` for an explicit ordering edge, which carries no
+  value and so has no other way to reach identity.
 
-A known-value sharing relationship should contribute the effective value and
-requested provenance without pretending that the source process executed or
-materialized the value.
+It deliberately does **not** contain producer process IDs, producer algorithm
+IDs, port names, or any record of how a value was delivered.  A known-value
+sharing relationship contributes the effective value and its requested
+provenance without pretending the source process executed or materialized it.
+
+Identity is computation, not lineage
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A process is identified by *the computation it will perform*: its effective
+algorithm configuration, its effective resolved input values, and anything else
+that changes its command or outputs.  It is not identified by how those input
+values were obtained.
+
+So these two consumers are the same process::
+
+    producer output path: /results/model.pt      # wired: producer -> consumer
+    manual input path:    /results/model.pt      # typed into the config
+
+    consumer process_id:  identical
+    provenance:           different
+    scheduling:           different
+
+The wired consumer waits for the producer and records ``source_kind: output``;
+the manual one waits for nothing and records no producer wiring at all.  Both
+run the same command over the same input, so both reuse the same result
+directory.
+
+This does not weaken invalidation.  A producer still reaches its consumer
+through the value it supplies: a produced path contains the producer's
+``process_id``, so reconfiguring the producer moves the path and the consumer's
+identity moves with it.  If a producer change leaves the output path unchanged,
+kwdagger treats the consumer's input as unchanged -- exactly as it does for a
+stable hand-written path.
+
+.. warning::
+
+   kwdagger treats configured paths and values as data identity.  It does not
+   prove that two files at the same path contain the same bytes.  Users who
+   require content identity must provide checksums, content-addressed paths, or
+   another explicit artifact identifier as a parameter.  Path equality does not
+   guarantee byte equality, and this tradeoff is intentional.
+
+Because identity determines the command, the converse must hold too: **equal
+``process_id`` implies equal command-defining finalized state**.  Nothing may
+reach the command, the node directory, or the output paths without also
+reaching identity.  Compilation raises an internal-consistency error if two
+matrix rows collapse onto one node whose finalized commands or paths differ.
 
 Process ID: ``process_id``
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -155,9 +207,16 @@ fields:
 * :meth:`kwdagger.pipeline.ProcessNode.template_node_dpath` defines the
   directory template;
 * :meth:`kwdagger.pipeline.ProcessNode.condensed` provides ``<node>_id`` from
-  ``process_id``, ``<node>_algo_id`` from ``algo_id``, and ancestor
-  substitutions; and
+  ``process_id`` and ``<node>_algo_id`` from ``algo_id``, **for this node
+  only**; and
 * :meth:`kwdagger.pipeline.ProcessNode.final_node_dpath` formats the final path.
+
+Substituting an *ancestor's* id was removed.  It let a node this one does not
+read decide where its results are written, so two processes with the same
+identity could finalize different paths.  A template that names another node's
+id now raises an error explaining the migration: key the directory on this
+node's own parameters, since an upstream change already reaches it through the
+input value it supplies.
 
 The resulting directory, its ``invoke.sh``, and its ``.pred`` / ``.succ`` links
 are more important user-facing contracts than any standalone interpretation of

@@ -350,10 +350,10 @@ def _effective_origins(input_node: Any) -> list:
     forwarded from a peer port, then an upstream product, then the declared
     default.
 
-    Identity has to ask this one. A port wired to a producer but configured
-    with an explicit path reads that path, not the producer's output -- so the
-    producer must not stand in for it in ``process_id``, or two nodes reading
-    different files would hash the same and share a result directory.
+    Scheduling and provenance ask this one. Identity does **not**: it hashes
+    the effective *value*, not the port that supplied it, so that a produced
+    path and the same path written by hand are one computation. See
+    :meth:`ProcessNode.depends` and the identity invariant in ``AGENTS.md``.
 
     Returns an empty list whenever the value is *not* produced -- gathered,
     explicitly configured, forwarded from a known value, or defaulted -- which
@@ -431,48 +431,6 @@ def _origin_kind(port: Any) -> str:
     gathered input port writes as part of its own consumer's command.
     """
     return 'output' if isinstance(port, OutputNode) else 'gather_manifest'
-
-
-def _origin_identity_bindings(input_node: Any) -> list[dict[str, Any]]:
-    """
-    The canonical identity contribution of everything that produces an input.
-
-    Built from :func:`_effective_origins`, so a port that reads an explicitly
-    configured path contributes nothing here and the path itself goes into
-    ``final_input_config`` instead.
-
-    An input whose value is produced upstream must carry *which* upstream
-    instance produced it. The ancestor payload alone cannot: it records
-    ``algo_id``, which is deliberately blind to the producer's own inputs, so
-    two producers that run the same algorithm over different data look
-    identical there. Without this, two consumers reading different files
-    would hash to one ``process_id`` and share a result directory.
-
-    Deterministically ordered, so the payload does not depend on the order
-    ports were connected.
-
-    Args:
-        input_node (InputNode): the port to describe.
-
-    Returns:
-        list: one record per producing port; empty when nothing produces it.
-    """
-    bindings = [
-        {
-            'source_process_id': port.parent.process_id,
-            'source_port': port.name,
-            'source_kind': _origin_kind(port),
-        }
-        for port in _effective_origins(input_node)
-    ]
-    bindings.sort(
-        key=lambda item: (
-            item['source_process_id'],
-            item['source_kind'],
-            item['source_port'],
-        )
-    )
-    return bindings
 
 
 class Node(ub.NiceRepr):

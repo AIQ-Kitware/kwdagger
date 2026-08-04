@@ -81,6 +81,36 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   real dependencies of the final consumer, while the process that lent the
   input is still not one. An alias with no produced origin is unchanged and
   stays configuration-only.
+* **Process identity describes computation, not lineage.** A consumer whose
+  effective input values are equal now has the same `process_id` whether those
+  values came from a producer connection, an alias chain, or configuration by
+  hand, and therefore shares a result directory. `depends` hashes this node's
+  own `algo_id`, every input's canonical effective value, a gathered input's
+  ordered member paths, and explicit ordering edges. It no longer contains
+  producer process IDs, producer algorithm IDs, port names, or `source_kind`.
+
+  This does not weaken invalidation: a produced path contains the producer's
+  `process_id`, so reconfiguring a producer moves the path and the consumer
+  follows. If a producer change leaves the output path unchanged, kwdagger
+  treats the consumer's input as unchanged, exactly as it does for a stable
+  hand-written path. It does not assert byte equality -- kwdagger's data
+  identity is value/path based unless the user supplies an explicit content
+  identifier. Producer lineage remains fully available in provenance and in
+  scheduling.
+
+  **Process identities change again in this release** for any node with a
+  produced or gathered input.
+* **Removed ancestor-ID substitution from path templates.** `condensed` no
+  longer imports upstream nodes' ids, so `node_dpath` and output templates may
+  use only the node's own `{<node>_id}` / `{<node>_algo_id}`. Naming another
+  node's id let a process this one does not read decide where its results are
+  written, which contradicts the identity invariant; such a template now raises
+  an error explaining the migration. The placeholders never worked in practice
+  -- a node configures itself during construction, before any connection
+  exists, so an ancestor id raised `KeyError` there first.
+* Compilation now asserts that matrix rows collapsing onto one `process_id`
+  agree on their finalized commands, node directories, output paths, and
+  setup/teardown, rather than letting the first row decide what runs.
 * **Configured execution now follows the effective dependency set.** A
   predecessor is not merely an ordering hint -- a disabled or missing one
   suppresses its successor -- so gating a command on a producer it never reads

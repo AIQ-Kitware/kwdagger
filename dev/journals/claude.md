@@ -430,3 +430,82 @@ argument.
 TA1 fingerprints identical for the fifth time. That streak is starting to feel
 like evidence of nothing: the cards never override a connected input, so every
 bug this review process has found sits outside what the fingerprint can see.
+
+## 2026-08-04 04:30:00 -0400
+
+The maintainer caught that the reviewer and I had been wrong for three rounds
+in the same direction, and gave an authoritative identity model. Writing down
+what happened, because the failure was mine and it was a reasoning failure
+rather than a coding one.
+
+**The mistake.** Starting from a real bug -- two consumers reading different
+files hashing alike -- I concluded that the consumer's identity had to record
+*which producer* supplied its input. That produced `_origin_identity_bindings`,
+`__input__.<port>` records carrying `source_process_id` / `source_port` /
+`source_kind`, and eventually effective-ancestry `algo_id` folding. Each round
+the reviewer confirmed the direction and asked for more of it, and I supplied
+it.
+
+**Why it seemed right.** The symptom really was under-identification, and
+lineage really does distinguish the colliding cases. It also felt principled:
+"produced artifacts define execution lineage" is in AGENTS.md, and I read that
+as a statement about identity when it is a statement about *scheduling*. The
+thing I never questioned was the premise underneath the original bug --
+`final_input_config` excluded produced inputs, so the effective value was
+missing from the hash and something had to stand in for it. I reached for
+lineage as the substitute instead of asking why the value was absent.
+
+**The actual defect** was that exclusion. Produced paths were being kept out of
+identity because they are cache-rooted, and the fix for a missing *value* was
+to put the value back, not to hash the provenance of the value. Once
+`__inputs__` carries every effective input, a producer reaches its consumer
+through the path it writes -- which contains its own `process_id` -- and every
+collision I was chasing is handled without a single lineage field.
+
+**What that conflated.** Provenance answers "how was this obtained"; identity
+answers "what will this compute". They are different questions and I merged
+them, which is why the fixes kept generating new problems at the seams: a
+producer sweep fanning out identical consumers, row-order-dependent
+canonicalization, path templates disagreeing with identity. Those were not
+separate bugs. They were the same category error surfacing in four places.
+
+**The tradeoff, stated plainly** so nobody re-repairs it: a produced path and
+the same path typed by hand now hash identically. That is *not* an assertion
+that the bytes are equal. kwdagger's data identity is value/path based unless
+the user supplies an explicit content identifier, and the docs now say so in a
+warning rather than leaving it implied.
+
+**Compatibility.** Ancestor-id placeholders in `node_dpath` are gone. They were
+documented in `hashing_scheme.rst` but did not work: a node configures itself
+during construction, before any connection exists, so `{producer_id}` raised
+`KeyError` there first, and setting the template afterwards was ignored. So
+nothing working was removed -- but the mechanism behind them, `condensed`
+walking predecessors, was live and was the last route by which an unread
+producer could change where a node's results land. Removing it also removed the
+construction-time memoization staleness I have written about twice: nothing
+asks a lineage question during `__init__` any more.
+
+**TA1 fingerprints changed**, for the first time in six rounds, and the shape
+is exactly right: `per_question_features` and `extract_model_scores` -- the
+nodes with no produced inputs -- are unchanged, and every node downstream of a
+produced or gathered input moved. Node counts, command shapes, and predecessor
+counts are identical, so the DAG is the same and only the hashes moved. Worth
+saying that the five previous byte-identical fingerprints were not evidence of
+correctness: the cards never override a connected input, so every bug in this
+whole review sequence lived outside what that check can see.
+
+**What I would do differently.** When a reviewer confirms my direction three
+times and the fixes keep spawning adjacent problems, that is the signal to
+re-examine the premise rather than to keep extending. I had the evidence in
+hand -- I wrote in an earlier entry that `condensed` pulling structural
+ancestors into paths was "drawn by inertia rather than by argument" -- and
+treated it as a loose end instead of as the contradiction it was.
+
+The invariant is now in `AGENTS.md` with an explicit "do not add producer ids
+to consumer hashes" instruction, in `hashing_scheme.rst` with a worked example
+and the byte-equality warning, and in the docstrings of every helper that
+answers one of the three questions. `tests/test_identity_model.py` pins the
+matrix: produced vs manual equality, two producers exposing one path, different
+paths, producer-derived path changes, four delivery mechanisms, overridden
+connections, row reversal over the complete record, and a guard that fails if
+anything ever reaches the command without reaching identity.

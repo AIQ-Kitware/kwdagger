@@ -592,6 +592,21 @@ _UNHASHED_EXECUTION_STATE = [
 ]
 
 
+#: State that ``process_id`` is supposed to determine. Two concrete nodes
+#: sharing an identity must agree on every one of these, or the surviving row
+#: decides what actually runs.
+_FINALIZED_EXECUTION_STATE = [
+    ('node directories', lambda node: str(node.final_node_dpath)),
+    (
+        'output paths',
+        lambda node: {k: str(v) for k, v in node.final_out_paths.items()},
+    ),
+    ('commands', lambda node: node.final_command()),
+    ('setup commands', lambda node: getattr(node, 'setup', None)),
+    ('teardown commands', lambda node: getattr(node, 'teardown', None)),
+]
+
+
 def _check_execution_state_agreement(
     *,
     canonical: 'ProcessNode',
@@ -624,6 +639,29 @@ def _check_execution_state_agreement(
             'cannot be distinguished. Give them differing parameters, or make '
             f'their {config_key} values agree.'
         )
+    # Equal process_id must imply equal command-defining state. Identity is
+    # built from effective configuration, so anything that reaches the command
+    # or the output paths without reaching identity is a modelling bug, not a
+    # user error -- but it would show up as row-order-dependent execution, so
+    # catch it here rather than let the first row silently win.
+    for label, getter in _FINALIZED_EXECUTION_STATE:
+        try:
+            lhs = getter(canonical)
+            rhs = getter(duplicate)
+        except Exception:  # pragma: no cover - diagnostics must not mask work
+            continue
+        if lhs == rhs:
+            continue
+        raise AssertionError(
+            f'Internal consistency error: rows {canonical_row_idx} and '
+            f'{duplicate_row_idx} compile {template_name!r} to the same '
+            f'process identity {process_id!r} but to different {label}:\n'
+            f'  {lhs!r}\n  {rhs!r}\n'
+            'Process identity is meant to determine the command and its '
+            'outputs, so this is a defect in the identity payload rather '
+            'than a problem with the pipeline. Please report it.'
+        )
+
 
 
 def _compile_pipeline_configurations(

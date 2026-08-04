@@ -30,7 +30,6 @@ from kwdagger.pipeline._connections import (
     _UNSET,
     _alias_preds,
     _effective_origins,
-    _origin_identity_bindings,
     _supplying_ports,
     _origin_kind,
     _produced_origins,
@@ -809,9 +808,11 @@ class ProcessNode(Node):
         This is the dictionary that supplies the templated strings with the
         values we will finalize them with. We may want to change the name.
         """
+        # This process only. Importing an ancestor's ids would let an
+        # upstream node it does not read decide where its results land, so two
+        # nodes with one identity could finalize different paths. See
+        # AGENTS.md.
         condensed = {}
-        for node in self.predecessor_process_nodes():
-            condensed.update(node.condensed)
         assert isinstance(self.name, str)
         condensed.update(
             {
@@ -876,7 +877,12 @@ class ProcessNode(Node):
 
     def _ordinary_input_provenance(self) -> dict[str, Any]:
         """
-        Describe the exact upstream port bound to each ordinary input.
+        Answers: *how was this value requested, and what supplied it?*
+
+        This is provenance, and it deliberately keeps every distinction
+        identity drops -- manual value, default, alias, producer output,
+        gather manifest, and wiring that was requested but outranked. None of
+        it reaches ``process_id``; see :meth:`depends`.
 
         Every wired source is recorded, because the wiring is part of what was
         requested. But a port may be wired to a producer and still not read
@@ -932,9 +938,9 @@ class ProcessNode(Node):
                     }
                     binding.update(_source_value_record(source_port))
                     origins = _supplying_ports(source_port, set())
-                    if origins:
-                        # ... but if that value is produced, the reader still
-                        # needs to know which process made it.
+                    if origins and effective:
+                        # ... but if that value is produced *and read*, the
+                        # reader still needs to know which process made it.
                         binding['origins'] = [
                             {
                                 'source_process_id': port.parent.process_id,
@@ -942,9 +948,15 @@ class ProcessNode(Node):
                             }
                             for port in origins
                         ]
-                    if not effective and origins:
-                        # The alias supplies this port, but something on this
-                        # port outranks it.
+                    elif origins:
+                        # Something on this port outranks the alias. Name the
+                        # wiring, not the instances: several matrix rows can
+                        # wire different producers into one deduplicated node,
+                        # and an instance here would be decided by compile
+                        # order.
+                        binding['origins'] = [
+                            {'source': port.key} for port in origins
+                        ]
                         binding['supplied'] = False
                     bindings.append(binding)
             if bindings:
@@ -1063,7 +1075,7 @@ class ProcessNode(Node):
         # last-visited fold overwrite its siblings, so group by template name
         # first and only then decide how each key must be represented.
         by_name: dict[str, list[ProcessNode]] = defaultdict(list)
-        for depend_node in list(self.ancestor_process_nodes()) + [self]:
+        for depend_node in list(self.effective_ancestor_process_nodes()) + [self]:
             by_name[depend_node.name].append(depend_node)
 
         depends_config: dict[str, Any] = {}
@@ -1151,17 +1163,11 @@ class ProcessNode(Node):
         values = {}
         for name, input_node in self.inputs.items():
             if input_node._gather_members is not None:
-                continue
-            if _effective_origins(input_node):
-                # Something upstream actually makes the value this port
-                # reads. Its identity belongs to the producer, which the
-                # ``__input__`` binding records, and the produced path is
-                # rooted in a cache directory that must not reach identity.
-                #
-                # Asking for the *effective* origin matters: a port wired to a
-                # producer but configured with an explicit path reads that
-                # path, and then the path is this node's own input and has to
-                # be here, or two nodes reading different files hash alike.
+                # A gathered port resolves to a manifest this node writes
+                # inside its own result directory, so its path is derived
+                # from ``process_id`` and cannot take part in computing it.
+                # ``depends['__gather__.<port>']`` carries the collection's
+                # effective contents instead.
                 continue
             values[name] = input_node.final_value
         return ub.udict(values)
@@ -1274,7 +1280,11 @@ class ProcessNode(Node):
         """
         The configured directory where all outputs are relative to.
         """
-        return ub.Path(str(self.template_node_dpath).format(**self.condensed))
+        return ub.Path(
+            _format_node_template(
+                str(self.template_node_dpath), self.condensed, self.name
+            )
+        )
 
     @property
     def template_group_dpath(self) -> Any:
@@ -1310,6 +1320,8 @@ class ProcessNode(Node):
         """
         Process nodes that this one depends on.
 
+        Answers: *which jobs could have to run before this one?*
+
         Structural: every process wired to supply an input, whether or not
         this node ends up reading what it makes. That is deliberately
         conservative -- ordering a job that turns out not to matter costs
@@ -1321,7 +1333,10 @@ class ProcessNode(Node):
     @memoize_configured_method
     def effective_predecessor_process_nodes(self) -> Any:
         """
-        Process nodes whose products this one actually reads.
+        Answers: *which jobs must finish before this concrete command runs?*
+
+        Not *what identifies this node* -- identity hashes effective values,
+        not the processes that supplied them.
 
         The same list as :meth:`predecessor_process_nodes` for an ordinary
         pipeline. They differ only where something outranks a producer -- an
@@ -1417,62 +1432,59 @@ class ProcessNode(Node):
     @memoize_configured_property
     def depends(self) -> Any:
         """
-        Identity inputs for this process, including exact connected bindings.
+        The payload ``process_id`` hashes: the computation this will perform.
 
-        Built from the *effective* ancestry: a process whose output this one
-        was wired to but does not read contributes nothing here, even though
-        it is still ordered ahead of this one. Otherwise sweeping a producer
-        whose output is overridden downstream would fan out identical consumer
-        jobs that differ only in their result directory.
+        Identity answers *what effective computation is this?*, so it is built
+        from this node's own effective configuration -- its algorithm
+        parameters, the resolved values of its inputs, and anything else that
+        changes the command it will run.
+
+        **Source lineage is deliberately excluded.** It is recorded in
+        provenance and in execution dependencies instead. Two consumers whose
+        effective input values are equal are the same computation whether the
+        value arrived from a producer, through an alias, or was written by
+        hand, and they should share a result directory. A producer still
+        reaches this payload when it *changes the value*: a produced path
+        contains the producer's ``process_id``, so reconfiguring the producer
+        moves the path and the consumer's identity follows.
+
+        This is value identity, not content identity -- kwdagger does not read
+        the bytes at a path. See ``docs/source/manual/technical/hashing_scheme.rst``.
         """
-        ancestors = self.effective_ancestor_process_nodes()
-        grouped_depends: dict[str, list[str]] = defaultdict(list)
-        for node in ancestors:
-            grouped_depends[node.name].append(node.algo_id)
         depends: dict[str, Any] = {}
-        for name, algo_ids in grouped_depends.items():
-            unique_ids = sorted(set(algo_ids))
-            depends[name] = (
-                unique_ids[0] if len(unique_ids) == 1 else unique_ids
-            )
         for input_name, input_node in self.inputs.items():
-            # Whatever produces this input identifies it, whether it is wired
-            # straight in or reached through an alias. ``__inputs__`` cannot
-            # stand in for this: a produced path is rooted in a cache
-            # directory and is deliberately kept out of identity, and the
-            # ancestor payload above records only ``algo_id``, which is blind
-            # to the producer's own inputs. Two producers running one
-            # algorithm over different data would otherwise be
-            # indistinguishable here, and their consumers would collide.
-            #
-            # The process that merely *lends* an aliased input stays out: it
-            # consumes the value, it does not make it. That is what keeps a
-            # pure configuration alias identical to writing the value
-            # directly on the consumer.
-            identity_bindings = _origin_identity_bindings(input_node)
-            if identity_bindings:
-                depends[f'__input__.{input_name}'] = (
-                    identity_bindings[0]
-                    if len(identity_bindings) == 1
-                    else identity_bindings
-                )
-        for input_name, input_node in self.inputs.items():
-            if input_node._gather_members is not None:
-                connection = input_node._gather_connection
-                assert connection is not None
-                depends[f'__gather__.{input_name}'] = {
-                    'spec': connection.spec.to_dict(),
-                    'members': [
-                        (member.parent.process_id, member.name)
-                        for member in input_node._gather_members
-                    ],
-                }
-        # Inputs nothing upstream produced. Without this they would be
-        # invisible to identity entirely, since they are no longer part of
-        # final_algo_config and have no ancestor to speak for them.
+            if input_node._gather_members is None:
+                continue
+            connection = input_node._gather_connection
+            assert connection is not None
+            depends[f'__gather__.{input_name}'] = {
+                'spec': connection.spec.to_dict(),
+                # What the manifest will contain, in the order the command
+                # reads it -- not the traversal that found the members.
+                'members': [
+                    os.fspath(member.final_value)
+                    for member in input_node._gather_members
+                ],
+            }
+        # Every input this node reads, at the value it will read. An input a
+        # producer supplies sits here on the same footing as one configured by
+        # hand, which is the entire point.
         input_config = self.final_input_config
         if input_config:
-            depends['__inputs__'] = dict(sorted(input_config.items()))
+            # Canonicalized: a produced input resolves to a ``Path`` and a
+            # hand-written one to a ``str``. They are the same value and must
+            # hash the same, or the invariant would hold everywhere except
+            # where it is most load-bearing.
+            depends['__inputs__'] = {
+                key: _jsonable_config_value(value)
+                for key, value in sorted(input_config.items())
+            }
+        # An explicit ordering edge carries no value, so there is no effective
+        # value through which it could reach this payload. It is not the
+        # lineage of an input -- it is this node's own declared requirement
+        # that another job has run -- and two nodes differing only in it do
+        # execute differently. AGENTS.md records this as the one deliberate
+        # exception to "no upstream ids in identity".
         dependency_only: dict[str, list[str]] = defaultdict(list)
         for predecessor in self._pred_nodes_without_io_connection:
             dependency_only[predecessor.name].append(predecessor.process_id)
@@ -1861,3 +1873,35 @@ def _fixup_config_serializability(config: Any) -> dict[str, Any]:
     for k, v in config.items():
         fixed_config[k] = _jsonable_config_value(v)
     return fixed_config
+
+
+def _format_node_template(
+    template: str, condensed: dict, node_name: str
+) -> str:
+    """
+    Format a path template, explaining the one substitution that was removed.
+
+    ``condensed`` used to carry every structural ancestor's ids, so a template
+    could name ``{<other_node>_id}``. That let a node this one does not read
+    decide where its results land -- two nodes with one ``process_id``
+    finalizing different paths -- which the identity model forbids. The
+    placeholders never worked in practice either: a node configures itself
+    during construction, before any connection exists, so an ancestor id
+    raised ``KeyError`` there first.
+    """
+    try:
+        return template.format(**condensed)
+    except KeyError as ex:
+        missing = ex.args[0] if ex.args else '?'
+        if missing in condensed:
+            raise
+        raise KeyError(
+            f'Path template {template!r} for node {node_name!r} refers to '
+            f'{{{missing}}}, which is not available. A node may only use its '
+            f'own ids ({sorted(condensed)}). Substituting another node\'s id '
+            'was removed: it let a node this one does not read choose where '
+            'these results are written, so two processes with the same '
+            'identity could finalize different paths. Key the directory on '
+            'this node\'s own parameters instead -- an upstream change '
+            'already reaches it through the input value it supplies.'
+        ) from ex
