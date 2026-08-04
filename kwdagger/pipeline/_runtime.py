@@ -30,7 +30,7 @@ from kwdagger.pipeline._agreement import (
     execution_snapshot,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
-from kwdagger.pipeline._slurm import SlurmOptions, coerce_slurm_options
+from kwdagger.pipeline._slurm import SlurmOptions, layer_slurm_options
 
 if TYPE_CHECKING:
     import cmd_queue
@@ -283,13 +283,12 @@ def submit_jobs(
                 if node_teardown:
                     extra_submitkw['teardown'] = node_teardown
                 if is_slurm:
-                    # Global slurm options apply to every job.
-                    extra_submitkw.update(coerce_slurm_options(slurm_options))
-                    # Allow per-node overrides specified on the class or via
-                    # configuration.
+                    # Pipeline-wide first, then everything the node resolved:
+                    # its declared default and this row's override, already
+                    # layered by ``ProcessNode.configure``.
                     extra_submitkw.update(
-                        coerce_slurm_options(
-                            getattr(node, 'slurm_options', None)
+                        layer_slurm_options(
+                            slurm_options, getattr(node, 'slurm_options', None)
                         )
                     )
                     # Set the slurm output file to be in the node directory

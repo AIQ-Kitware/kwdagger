@@ -29,7 +29,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-from kwdagger.pipeline._slurm import coerce_slurm_options
+from kwdagger.pipeline._slurm import layer_slurm_options
 
 if TYPE_CHECKING:
     # Annotation only: ``_process`` sits above this leaf, and the layering
@@ -111,10 +111,10 @@ def execution_snapshot(
         'enabled': node.enabled,
         # Effective, because neither half is the whole answer: the submitter
         # applies pipeline-wide options first and the node's own on top.
-        'slurm_options': {
-            **coerce_slurm_options(submission.pop('slurm_options', None)),
-            **coerce_slurm_options(getattr(node, 'slurm_options', None)),
-        },
+        'slurm_options': layer_slurm_options(
+            submission.pop('slurm_options', None),
+            getattr(node, 'slurm_options', None),
+        ),
         'submission': submission,
         'perf_config': node.final_perf_config,
         'out_paths': node.final_out_paths,

@@ -287,9 +287,6 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
             for row_config in pman.progiter(
                 all_param_grid, desc='configure dags', verbose=3
             ):
-                if param_slurm_options and 'slurm_options' not in row_config:
-                    row_config = ub.udict(row_config)
-                    row_config['__slurm_options__'] = param_slurm_options
                 dag.configure(
                     config=row_config,
                     root_dpath=root_dpath,

@@ -40,7 +40,10 @@ from kwdagger.pipeline._connections import (
     _supplying_ports,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
-from kwdagger.pipeline._slurm import coerce_slurm_options
+from kwdagger.pipeline._slurm import (
+    coerce_slurm_options,
+    layer_slurm_options,
+)
 
 
 def _classvar_init(self: Any, args: Any, fallbacks: Any) -> None:
@@ -859,9 +862,8 @@ class ProcessNode(Node):
         self.enabled = config.pop('__enabled__', enabled)
         # Special case for process specific slurm options
         _raw_slurm_opts = config.pop('__slurm_options__', None)
-        _configured_slurm_options = coerce_slurm_options(_raw_slurm_opts)
-        self.slurm_options = (
-            ub.udict(self._base_slurm_options) | _configured_slurm_options
+        self.slurm_options = layer_slurm_options(
+            self._base_slurm_options, _raw_slurm_opts
         )
         self.__slurm_options__ = dict(self.slurm_options)
         self.config = ub.udict(config)

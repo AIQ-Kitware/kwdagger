@@ -32,6 +32,7 @@ from kwdagger.pipeline._agreement import (
     check_execution_agreement,
     execution_snapshot,
 )
+from kwdagger.pipeline._config_values import normalize_config
 from kwdagger.pipeline._connections import (
     _UNSET,
     GatherConnection,
@@ -41,6 +42,7 @@ from kwdagger.pipeline._connections import (
 )
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._runtime import QueueSpec
+from kwdagger.pipeline._slurm import layer_slurm_options
 
 if TYPE_CHECKING:
     from kwdagger.pipeline._logical import Pipeline
@@ -582,7 +584,11 @@ def _compile_pipeline_configurations(
     from kwdagger.utils import util_dotdict
 
     template._ensure_clean()
-    rows = [dict(config) for config in configs]
+    # The same boundary an ordinary ``Pipeline.configure`` applies, and
+    # before anything reads a reserved key or routes a value to a node:
+    # whether a mapping key is accepted must not depend on whether the
+    # pipeline happens to contain a gather.
+    rows = [normalize_config(config) for config in configs]
     if root_dpath is None:
         template_nodes = list(template.node_dict.values())
         root_dpath = (
@@ -629,12 +635,23 @@ def _compile_pipeline_configurations(
         for row_idx, row_config in enumerate(rows):
             dotconfig = util_dotdict.DotDict(row_config)
             node_config = dict(dotconfig.prefix_get(template_name, {}))
+            # A row-global mapping is a *layer* under the node's own, not a
+            # stand-in for it. Substituting one for the other meant a node
+            # with any local option silently dropped every row-global key,
+            # and a node with none took the row-global mapping at node
+            # precedence -- so an otherwise identical node asked for
+            # different resources depending on whether the pipeline had a
+            # gather. The node's declared default is restated between them
+            # because it outranks a row-global one, exactly as it does on the
+            # row-at-a-time path.
             row_slurm_options = row_config.get('__slurm_options__')
-            if (
-                row_slurm_options is not None
-                and '__slurm_options__' not in node_config
-            ):
-                node_config['__slurm_options__'] = row_slurm_options
+            node_slurm_options = node_config.get('__slurm_options__')
+            if row_slurm_options is not None or node_slurm_options is not None:
+                node_config['__slurm_options__'] = layer_slurm_options(
+                    row_slurm_options,
+                    template_node._base_slurm_options,
+                    node_slurm_options,
+                )
             node = _clone_unconnected_process_node(template_node)
             node.root_dpath = root_dpath
 

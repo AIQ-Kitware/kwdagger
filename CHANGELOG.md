@@ -97,6 +97,24 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   decided the persisted record, so reversing a matrix changed what was written.
   Delivery still does not reach `process_id`; the conflicting requests are the
   same computation and still hash alike.
+* Slurm options layered differently on the two scheduling paths, so adding an
+  unrelated gather to a pipeline could change what resources one of its nodes
+  asked for. The compiler *substituted* a row-global `__slurm_options__` for a
+  node's own instead of merging them: a node with any local option dropped
+  every row-global key, and a node with none took the row-global mapping at
+  node precedence. The four layers -- pipeline base, matrix-row global, node
+  declared default, that row's per-node override -- are now defined once in
+  `kwdagger.pipeline._slurm.layer_slurm_options` and combined key-wise by
+  every site that combines them.
+* The `schedule` CLI injected a parameter file's top-level `slurm_options` into
+  every matrix row, guarded by a check for `slurm_options` rather than
+  `__slurm_options__`, so it silently overwrote a row that requested its own.
+  Those options are the pipeline base now, which is where the guard was trying
+  to put them, so the injection is gone.
+* Full-matrix compilation read reserved keys and routed values from rows that
+  had not crossed the configuration normalization boundary, so whether a
+  mapping key was accepted could depend on whether the pipeline contained a
+  gather. Rows are normalized first, as `Pipeline.configure` already did.
 * A matrix row that omitted top-level `__slurm_options__` inherited the
   previous row's value, because `Pipeline.configure` defaulted to its own
   current value rather than to a baseline. "Explicit options" and "no options"

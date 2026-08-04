@@ -34,3 +34,32 @@ def coerce_slurm_options(slurm_options: SlurmOptions) -> dict[str, Any]:
             f'Expected slurm options to be a dict, got {type(slurm_options)}. {slurm_options=!r}'
         )
     return dict(slurm_options)
+
+
+def layer_slurm_options(*layers: SlurmOptions) -> dict[str, Any]:
+    """
+    Combine Slurm option layers key-wise, least specific first.
+
+    The layers, in order, are:
+
+    1. the pipeline base -- the CLI's ``--slurm_options`` or a parameter
+       file's top-level ``slurm_options``;
+    2. a matrix row's global ``__slurm_options__``;
+    3. a node's declared default, from its class or its YAML;
+    4. that row's per-node ``<node>.__slurm_options__`` override.
+
+    Defined once and called from every site that combines them, because the
+    two scheduling paths used to layer differently: the compiler substituted a
+    row-global mapping for a node's own instead of merging them, so adding an
+    unrelated gather to a pipeline could change what resources a node asked
+    for. Each caller names the layers it has; the ordering lives here.
+
+    Example:
+        >>> layer_slurm_options({'partition': 'a', 'gres': 'gpu:1'},
+        ...                     {'partition': 'b'})
+        {'partition': 'b', 'gres': 'gpu:1'}
+    """
+    merged: dict[str, Any] = {}
+    for layer in layers:
+        merged.update(coerce_slurm_options(layer))
+    return merged

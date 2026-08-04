@@ -246,8 +246,12 @@ identity must therefore agree on — compilation reports each as a user-facing
 `ValueError`:
 
 - **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
-  and output-path overrides. A row that omits any of it is requesting the
-  declared default, never the previous row's value: `Pipeline.configure` resets
+  and output-path overrides. Slurm options have four layers -- pipeline base,
+  matrix-row global, node declared default, that row's per-node override --
+  combined key-wise by `kwdagger.pipeline._slurm.layer_slurm_options`. Both
+  scheduling paths must call it: they used to layer differently, so adding an
+  unrelated gather changed what a node asked for. A row that omits any of this
+  state is requesting the declared default, never the previous row's value: `Pipeline.configure` resets
   `__slurm_options__` from `_base_slurm_options` each call, because otherwise
   "explicit options" and "no options" are indistinguishable in row order. These change how a process runs, not what it
   computes. Note that not all of it is *on* the node: an ordinary pipeline

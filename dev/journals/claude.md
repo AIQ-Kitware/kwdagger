@@ -979,3 +979,52 @@ unconnected node. That is the construction-time staleness lesson already in
 `dev/lessons/lessons.md`, and a repr is exactly where it would sneak back in.
 
 354 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:41:00 -0400
+
+Review round five, and the finding is a good one: the two scheduling paths
+layered Slurm options differently. The row-at-a-time path merged key-wise; the
+gather compiler *substituted* a row-global mapping for a node's own, so a node
+with any local option dropped every row-global key, and a node with none took
+the row-global mapping at node precedence. The consequence is the sentence
+worth remembering: **adding an unrelated gather to a pipeline could change what
+resources an unrelated node asked for.**
+
+Both behaviours looked locally sensible, which is why this survived. Nothing
+ever compared them. So the fix is a single `layer_slurm_options` in the `_slurm`
+leaf that names the four layers -- pipeline base, row global, node declared
+default, row per-node override -- and every site that combines options calls
+it. The parity tests assert the two pipeline shapes *agree*, rather than
+asserting each in isolation, which is the shape of test that would have caught
+it. I checked they discriminate: restoring the old substitution fails exactly
+four cases, all on the gather path.
+
+The subtle part was deciding where a row-global sits. It has to lose to a node's
+declared default, which felt backwards to me at first -- a matrix row is more
+specific to the run than code is. But that is the documented and implemented
+contract for the pipeline-wide global (`global -> node default -> per-node
+override`), and a row-global is a global. Doing anything else would have made
+the row-at-a-time path change behavior to match a rule I invented for the
+compiler. So: consistency with the existing contract, and the ordering is
+written down in one docstring now instead of being implicit in two places.
+
+Also removed a row injection in `schedule.py` that pushed a parameter file's
+top-level `slurm_options` into every row behind a guard checking
+`slurm_options` rather than `__slurm_options__` -- so it silently clobbered a
+row that asked for its own. Those options are the pipeline base now, which is
+what the guard was reaching for.
+
+Second finding, smaller: full-matrix compilation read reserved keys and routed
+values from rows that had not crossed the normalization boundary. Same defect
+as the declared-defaults gap last round, one surface over: I keep having to
+re-ask "what are *all* the entry points to this boundary?" rather than fixing
+the one in front of me.
+
+Bytes values are a documented TODO rather than a fix, per the maintainer --
+niche, and the domain is text. Worth noting the asymmetry I left deliberately:
+a bytes-returning `PathLike` *is* rejected, because that arrives through a
+conversion this module performs, while a raw bytes value passes through to
+fail at `json.dumps`. That is inconsistent, and the TODO says so rather than
+pretending otherwise.
+
+373 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.

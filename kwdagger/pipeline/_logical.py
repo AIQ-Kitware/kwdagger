@@ -37,7 +37,7 @@ from kwdagger.pipeline._connections import (
 )
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._runtime import QueueSpec
-from kwdagger.pipeline._slurm import coerce_slurm_options
+from kwdagger.pipeline._slurm import layer_slurm_options
 from kwdagger.utils import util_dotdict
 
 
@@ -471,8 +471,9 @@ class Pipeline:
         assert isinstance(self.proc_graph, nx.DiGraph)
         if config is not None:
             config = dict(config)
-            self.__slurm_options__ = ub.udict(self._base_slurm_options) | (
-                coerce_slurm_options(config.pop('__slurm_options__', None))
+            self.__slurm_options__ = layer_slurm_options(
+                self._base_slurm_options,
+                config.pop('__slurm_options__', None),
             )
             # The requested row crosses the boundary once, here, rather than
             # each node re-deriving it: what a reader of ``Pipeline.config``

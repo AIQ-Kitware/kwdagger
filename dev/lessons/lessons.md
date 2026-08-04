@@ -135,3 +135,17 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
     `test_the_requested_record_and_the_written_file_agree`.
   - **Applies when:** comparing a serialized form of something that is also
     written somewhere else.
+
+- **Lesson:** Two code paths that combine the same layers must call the same
+  function to do it. Slurm options are merged from four layers; the
+  row-at-a-time path merged them key-wise while the gather compiler
+  *substituted* a row-global mapping for a node's own, so adding an unrelated
+  gather to a pipeline changed what resources an unrelated node requested. Both
+  behaviours looked locally reasonable, and nothing compared them --
+  `layer_slurm_options` now exists so there is one answer to combine with, and
+  the parity tests assert the two shapes agree rather than asserting each in
+  isolation.
+  - **Evidence / MWE:** `tests/test_slurm_layering.py`, which fails four cases
+    on the gather path if the old substitution is restored.
+  - **Applies when:** adding a configuration layer, or adding a second path
+    that resolves configuration.

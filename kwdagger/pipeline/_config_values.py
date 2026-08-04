@@ -2,13 +2,29 @@
 The configuration domain's one internal representation.
 
 kwdagger accepts configuration from three places -- YAML, the command line, and
-Python callers -- and they do not agree about types: YAML and the CLI supply
-strings, while a Python caller may reasonably pass ``pathlib.Path``. This module
-is the boundary that resolves that, and the invariant it establishes is what
-every later reader may assume:
+Python callers -- and they do not agree about types. This module is the
+boundary that resolves that, and the invariant it establishes is what every
+later reader may assume:
 
     After configuration coercion, every path-like object is a string and every
     mapping key is a string.
+
+The second half is a domain rule, not merely the removal of a Python-only
+shape: **configuration mappings must use string keys, including mappings loaded
+from YAML.** YAML decodes ``0:``, ``true:`` and ``null:`` into non-string Python
+keys, so ``class_weights: {0: 1.0, 1: 2.5}`` is rejected here. Mapping keys are
+variable identifiers. ``os.PathLike`` values *and* keys are accepted as a
+Python-side convenience and normalized to strings.
+
+TODO:
+    Raw ``bytes`` configuration values are not normalized and are not
+    guaranteed to serialize -- they reach ``json.dumps`` unchanged and fail
+    there, rather than being rejected here. kwdagger's YAML/CLI-oriented
+    configuration domain is text based; callers should decode bytes to strings
+    before configuring. A bytes-returning ``os.PathLike`` *is* rejected, by
+    :func:`_fspath_str`, because that one arrives through a conversion this
+    module performs. Adding bytes-specific traversal or an encoding policy is
+    deliberately out of scope.
 
 Identity, commands, provenance, arbitration, and the JSON written to
 ``job_config.json`` all read the same shape as a result. The alternative --
