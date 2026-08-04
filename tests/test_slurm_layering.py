@@ -75,7 +75,7 @@ def _effective_options(row, *, base, node_default, gather, root):
     if gather:
         nodes.update(_gather_nodes())
         row.update(_GATHER_ROW)
-    dag = Pipeline(nodes)
+    dag = Pipeline(list(nodes.values()))
     dag._base_slurm_options = dict(base or {})
     dag.__slurm_options__ = dict(dag._base_slurm_options)
 

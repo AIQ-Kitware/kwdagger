@@ -51,9 +51,7 @@ def _demo_gather_pipeline():
     ensemble.outputs['ensemble_fpath'].connect(
         evaluate.inputs['ensemble_fpath']
     )
-    return Pipeline(
-        {'train': train, 'ensemble': ensemble, 'evaluate': evaluate}
-    )
+    return Pipeline([train, ensemble, evaluate])
 
 
 def _demo_rows(data_fpath='data.txt'):
@@ -707,7 +705,7 @@ def test_gather_allows_global_group():
         summarize.inputs['items'],
         gather=GatherSpec(group_by=[], order_by=['trial']),
     )
-    dag = Pipeline({'source': source, 'summarize': summarize})
+    dag = Pipeline([source, summarize])
     rows = [{'source.trial': trial} for trial in range(3)]
     compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
     summaries = [
@@ -757,7 +755,7 @@ def test_gather_compiler_preserves_input_forwarding():
             order_by=['fold'],
         ),
     )
-    dag = Pipeline({'train': train, 'ensemble': ensemble})
+    dag = Pipeline([train, ensemble])
     rows = [
         {
             'train.data_fpath': f'fold{fold}.txt',
@@ -837,7 +835,7 @@ def test_compile_configurations_defaults_none_root_to_cwd():
         collect.inputs['results_fpath'],
         gather=GatherSpec(group_by=[]),
     )
-    dag = Pipeline({'source': source, 'collect': collect})
+    dag = Pipeline([source, collect])
     compiled = dag.compile_configurations([{}], cache=False)
     assert compiled.root_dpath == ub.Path('.')
     assert all(
@@ -869,7 +867,7 @@ def test_multiple_gathered_inputs_are_aligned():
     trial.outputs['metric_fpath'].connect(
         select.inputs['metrics_fpath'], gather=gather
     )
-    dag = Pipeline({'trial': trial, 'select': select})
+    dag = Pipeline([trial, select])
     rows = [
         {
             'trial.algorithm': 'linear',
@@ -931,7 +929,7 @@ def test_gather_compiler_preserves_dependency_only_edges():
         gather=GatherSpec(group_by=[], order_by=['trial']),
     )
     summarize._pred_nodes_without_io_connection.append(prepare)
-    dag = Pipeline({'prepare': prepare, 'trial': trial, 'summarize': summarize})
+    dag = Pipeline([prepare, trial, summarize])
     rows = [{'trial.trial': trial_idx} for trial_idx in range(3)]
     compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
     summaries = [
@@ -978,14 +976,7 @@ def test_gather_can_refan_out_and_gather_again():
         summarize.inputs['scores_fpath'],
         gather=GatherSpec(group_by=[], order_by=['dataset', 'metric']),
     )
-    dag = Pipeline(
-        {
-            'shard': shard,
-            'merge': merge,
-            'score': score,
-            'summarize': summarize,
-        }
-    )
+    dag = Pipeline([shard, merge, score, summarize])
     rows = []
     for dataset in ['a', 'b']:
         for fold in [0, 1]:
@@ -1273,7 +1264,7 @@ def _fanout_pipeline(group_by, report_port='data_fpath'):
         report.inputs['scores_fpath'],
         gather=GatherSpec(group_by=list(group_by), order_by=['model']),
     )
-    dag = Pipeline({'prepare': prepare, 'score': score, 'report': report})
+    dag = Pipeline([prepare, score, report])
     dag.build_nx_graphs()
     return dag
 
@@ -1296,7 +1287,7 @@ def _compile(dag, root_dpath, matrix=None):
 
 
 def _instances(dag, name):
-    return [n for n in dag.nodes.values() if n.name == name]
+    return [n for n in dag.node_dict.values() if n.name == name]
 
 
 def _assert_partitioned_by_dataset(dag):
@@ -1397,7 +1388,7 @@ def test_gather_key_error_names_every_place_it_looked(tmp_path):
         report.inputs['scores_fpath'],
         gather=GatherSpec(group_by=['dataset'], order_by=['model']),
     )
-    dag = Pipeline({'prepare': prepare, 'score': score, 'report': report})
+    dag = Pipeline([prepare, score, report])
     dag.build_nx_graphs()
 
     with pytest.raises(KeyError) as excinfo:
@@ -1443,9 +1434,7 @@ def test_gather_unqualified_key_refuses_to_guess_between_ancestors(tmp_path):
         report.inputs['scores_fpath'],
         gather=GatherSpec(group_by=['split'], order_by=['model']),
     )
-    dag = Pipeline(
-        {'left': left, 'right': right, 'score': score, 'report': report}
-    )
+    dag = Pipeline([left, right, score, report])
     dag.build_nx_graphs()
 
     matrix = {
@@ -1484,9 +1473,7 @@ def _predict_only(model='resnet'):
         out_paths={'pred_fpath': 'pred.json'},
         algo_params={'model': model},
     )
-    dag = Pipeline(
-        {'predict': node, 'collect': _collector_for(node, 'pred_fpath')}
-    )
+    dag = Pipeline([node, _collector_for(node, 'pred_fpath')])
     dag.build_nx_graphs()
     return dag
 
@@ -1529,11 +1516,7 @@ def test_algo_id_is_independent_of_how_a_path_is_wired():
     )
     peer.inputs['data_fpath'].connect(aliased_predict.inputs['data_fpath'])
     aliased = Pipeline(
-        {
-            'peer': peer,
-            'predict': aliased_predict,
-            'collect': _collector_for(aliased_predict, 'pred_fpath'),
-        }
+        [peer, aliased_predict, _collector_for(aliased_predict, 'pred_fpath')]
     )
     aliased.build_nx_graphs()
 
@@ -1552,11 +1535,7 @@ def test_algo_id_is_independent_of_how_a_path_is_wired():
     )
     prep.outputs['data_fpath'].connect(produced_predict.inputs['data_fpath'])
     produced = Pipeline(
-        {
-            'prep': prep,
-            'predict': produced_predict,
-            'collect': _collector_for(produced_predict, 'pred_fpath'),
-        }
+        [prep, produced_predict, _collector_for(produced_predict, 'pred_fpath')]
     )
     produced.build_nx_graphs()
 
@@ -1602,9 +1581,7 @@ def test_perf_params_are_not_identity_bearing():
         algo_params={'model': 'resnet'},
         perf_params={'workers': 4},
     )
-    dag = Pipeline(
-        {'predict': node, 'collect': _collector_for(node, 'pred_fpath')}
-    )
+    dag = Pipeline([node, _collector_for(node, 'pred_fpath')])
     dag.build_nx_graphs()
     ids = set()
     for workers in [4, 16]:
@@ -1643,7 +1620,7 @@ def test_algo_id_distinguishes_nodes_with_empty_algo_configs():
         src.outputs['o_fpath'].connect(
             tgt.inputs['i_fpath'], gather=GatherSpec(group_by=[])
         )
-        dag = Pipeline({'src': src, name: tgt})
+        dag = Pipeline([src, tgt])
         dag.build_nx_graphs()
         return dag
 
@@ -1686,7 +1663,7 @@ def test_group_by_may_name_the_key_differently_on_each_side():
             order_by=['model'],
         ),
     )
-    dag = Pipeline({'predict': predict, 'score': score})
+    dag = Pipeline([predict, score])
     dag.build_nx_graphs()
 
     rows = [
@@ -1764,7 +1741,7 @@ def _family_pipeline(consumers=('score',)):
             gather=GatherSpec(group_by=['model_family'], order_by=['model']),
         )
         nodes[name] = node
-    dag = Pipeline(nodes)
+    dag = Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag
 

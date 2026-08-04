@@ -84,7 +84,7 @@ def _alias_chain_pipeline(*, reverse=False):
     nodes = {'producer': producer, 'middle': middle, 'consumer': consumer}
     if reverse:
         nodes = {k: nodes[k] for k in ['consumer', 'middle', 'producer']}
-    return Pipeline(nodes), producer, middle, consumer
+    return Pipeline(list(nodes.values())), producer, middle, consumer
 
 
 def test_alias_preserves_the_produced_dependency(tmp_path):
@@ -171,7 +171,7 @@ def test_a_configured_alias_stays_configuration_only(tmp_path):
         out_paths={'result_fpath': 'result.json'},
     )
     source.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag = Pipeline([source, consumer])
     dag.configure(
         {'source.data_fpath': '/data/current.json'},
         root_dpath=tmp_path,
@@ -194,7 +194,7 @@ def test_a_configured_alias_stays_configuration_only(tmp_path):
         in_paths={'data_fpath'},
         out_paths={'result_fpath': 'result.json'},
     )
-    direct_dag = Pipeline({'consumer': direct})
+    direct_dag = Pipeline([direct])
     direct_dag.configure(
         {'consumer.data_fpath': '/data/current.json'},
         root_dpath=tmp_path,
@@ -231,14 +231,7 @@ def test_alias_chain_recovers_a_transitive_producer(tmp_path):
     producer.outputs['produced_fpath'].connect(middle.inputs['data_fpath'])
     middle.inputs['data_fpath'].connect(relay.inputs['data_fpath'])
     relay.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline(
-        {
-            'producer': producer,
-            'middle': middle,
-            'relay': relay,
-            'consumer': consumer,
-        }
-    )
+    dag = Pipeline([producer, middle, relay, consumer])
     dag.configure({}, root_dpath=tmp_path, cache=False)
 
     preds = consumer.predecessor_process_nodes()
@@ -286,7 +279,7 @@ def _nested_gather_pipeline():
         analysis.inputs['model_features_fpath'],
         gather=GatherSpec(group_by=['task'], order_by=['model']),
     )
-    return Pipeline({'shard': shard, 'merge': merge, 'analysis': analysis})
+    return Pipeline([shard, merge, analysis])
 
 
 def _nested_gather_rows():
@@ -439,7 +432,7 @@ def test_gather_can_group_on_a_structured_parameter():
         report.inputs['scores_fpath'],
         gather=GatherSpec(group_by=['prepare.window'], order_by=['model']),
     )
-    dag = Pipeline({'prepare': prepare, 'score': score, 'report': report})
+    dag = Pipeline([prepare, score, report])
     windows = [
         {'size': 1, 'stride': [1, 2]},
         {'size': 2, 'stride': [1, 2]},
@@ -492,7 +485,7 @@ def test_gather_provenance_uses_the_public_group_by_schema():
             order_by=['seed'],
         ),
     )
-    dag = Pipeline({'predict': source, 'score': sink})
+    dag = Pipeline([source, sink])
     rows = [
         {
             'predict.dataset_fpath': 'train.kwcoco',
@@ -583,9 +576,7 @@ def _identity_chain_pipeline():
     )
     producer.outputs['produced_fpath'].connect(middle.inputs['data_fpath'])
     middle.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline(
-        {'producer': producer, 'middle': middle, 'consumer': consumer}
-    )
+    dag = Pipeline([producer, middle, consumer])
     return dag, producer, consumer
 
 
@@ -657,9 +648,7 @@ def test_aliasing_two_ports_of_one_producer_stays_distinguishable(tmp_path):
         )
         producer.outputs[port].connect(middle.inputs['data_fpath'])
         middle.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-        dag = Pipeline(
-            {'producer': producer, 'middle': middle, 'consumer': consumer}
-        )
+        dag = Pipeline([producer, middle, consumer])
         dag.configure({}, root_dpath=tmp_path, cache=False)
         ids[port] = consumer.process_id
     assert ids['first_fpath'] != ids['second_fpath']
@@ -701,7 +690,7 @@ def test_aliasing_a_gathered_input_depends_on_the_manifest_writer():
         gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
     )
     merge.inputs['parts_fpath'].connect(audit.inputs['parts_fpath'])
-    dag = Pipeline({'shard': shard, 'merge': merge, 'audit': audit})
+    dag = Pipeline([shard, merge, audit])
     root = (
         ub.Path.appdir('kwdagger/tests/regressions/gather-alias')
         .delete()
@@ -758,7 +747,7 @@ def _connected_input_pipeline():
         out_paths={'result_fpath': 'result.json'},
     )
     producer.outputs['produced_fpath'].connect(consumer.inputs['data_fpath'])
-    return Pipeline({'producer': producer, 'consumer': consumer}), consumer
+    return Pipeline([producer, consumer]), consumer
 
 
 def test_overriding_a_connected_input_changes_identity(tmp_path):
@@ -838,9 +827,7 @@ def test_a_forwarded_known_value_outranks_a_producer(tmp_path):
     )
     producer.outputs['produced_fpath'].connect(consumer.inputs['data_fpath'])
     lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline(
-        {'producer': producer, 'lender': lender, 'consumer': consumer}
-    )
+    dag = Pipeline([producer, lender, consumer])
     ids = {}
     for value in ['/data/one.json', '/data/two.json']:
         dag.configure(
@@ -881,7 +868,7 @@ def _gather_alias_pipeline():
         gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
     )
     merge.inputs['parts_fpath'].connect(audit.inputs['parts_fpath'])
-    return Pipeline({'shard': shard, 'merge': merge, 'audit': audit}), audit
+    return Pipeline([shard, merge, audit]), audit
 
 
 def test_template_graph_shows_the_manifest_writer():
@@ -920,7 +907,7 @@ def test_template_lineage_is_not_stale_after_construction():
     assert consumer.predecessor_process_nodes() == [producer]
     # Building the graph clears the caches regardless, so a future query added
     # to __init__ cannot silently reintroduce the staleness.
-    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag = Pipeline([producer, consumer])
     assert dag.proc_graph.has_edge('producer', 'consumer')
     assert consumer.predecessor_process_nodes() == [producer]
     assert consumer.ancestor_process_nodes() == [producer]
@@ -952,7 +939,7 @@ def test_same_node_gather_alias_is_rejected_with_a_clear_error():
     )
     merge.inputs['parts_fpath'].connect(merge.inputs['parts_copy_fpath'])
     with pytest.raises(ValueError) as excinfo:
-        Pipeline({'shard': shard, 'merge': merge})
+        Pipeline([shard, merge])
     message = str(excinfo.value)
     assert 'same process' in message
     assert 'merge.parts_fpath' in message
@@ -967,7 +954,7 @@ def test_ordinary_same_node_forwarding_still_works(tmp_path):
         out_paths={'dst_fpath': 'dst.json'},
     )
     node.inputs['src_fpath'].connect(node.inputs['copy_fpath'])
-    dag = Pipeline({'node': node})
+    dag = Pipeline([node])
     dag.configure(
         {'node.src_fpath': '/data/in.json'}, root_dpath=tmp_path, cache=False
     )
@@ -1004,9 +991,7 @@ def _override_upstream_pipeline():
     )
     producer.outputs['data_fpath'].connect(lender.inputs['data_fpath'])
     lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline(
-        {'producer': producer, 'lender': lender, 'consumer': consumer}
-    )
+    dag = Pipeline([producer, lender, consumer])
     return dag, consumer
 
 
@@ -1068,7 +1053,7 @@ def test_an_unread_producer_does_not_reach_consumer_identity(tmp_path):
             out_paths={'result_fpath': 'result.json'},
         )
         producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag = Pipeline([producer, consumer])
         dag.configure(
             {'consumer.data_fpath': '/precomputed/data', 'producer.algo': algo},
             root_dpath=tmp_path,
@@ -1111,7 +1096,7 @@ def test_provenance_does_not_claim_an_unread_producer_supplied_the_value(
         out_paths={'result_fpath': 'result.json'},
     )
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag = Pipeline([producer, consumer])
     dag.configure(
         {'consumer.data_fpath': '/precomputed/data'},
         root_dpath=tmp_path,
@@ -1146,7 +1131,7 @@ def test_a_read_producer_is_not_marked_unsupplied(tmp_path):
         out_paths={'result_fpath': 'result.json'},
     )
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag = Pipeline([producer, consumer])
     dag.configure({}, root_dpath=tmp_path, cache=False)
     binding = consumer._depends_config()['__input__.data_fpath']
     assert 'supplied' not in binding
@@ -1185,7 +1170,7 @@ def test_single_row_gate_ignores_a_producer_the_command_does_not_read(
         out_paths={'result_fpath': 'result.json'},
     )
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag = Pipeline([producer, consumer])
     dag.configure(
         {
             'consumer.data_fpath': '/precomputed/data',
@@ -1230,7 +1215,7 @@ def test_single_row_gate_still_respects_a_producer_that_is_read(tmp_path):
         out_paths={'result_fpath': 'result.json'},
     )
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag = Pipeline([producer, consumer])
     dag.configure(
         {'producer.__enabled__': False}, root_dpath=tmp_path, cache=False
     )
@@ -1284,14 +1269,7 @@ def _dedup_pipeline():
         out_paths={'result_fpath': 'result.json'},
     )
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    return Pipeline(
-        {
-            'shard': shard,
-            'merge': merge,
-            'producer': producer,
-            'consumer': consumer,
-        }
-    )
+    return Pipeline([shard, merge, producer, consumer])
 
 
 def _dedup_rows():
@@ -1384,7 +1362,7 @@ def _link_pipeline(config, label):
         out_paths={'result_fpath': 'result.json'},
     )
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag = Pipeline([producer, consumer])
     root = (
         ub.Path.appdir(f'kwdagger/tests/regressions/links/{label}')
         .delete()
@@ -1448,7 +1426,7 @@ def test_effective_ancestry_drops_what_only_reached_here_through_an_override(
         )
         node_a.outputs['out_fpath'].connect(node_b.inputs['in_fpath'])
         node_b.outputs['out_fpath'].connect(node_c.inputs['in_fpath'])
-        dag = Pipeline({'node_a': node_a, 'node_b': node_b, 'node_c': node_c})
+        dag = Pipeline([node_a, node_b, node_c])
         dag.configure(
             {'node_b.in_fpath': '/precomputed/b-input', 'node_a.algo': algo},
             root_dpath=tmp_path,
@@ -1498,7 +1476,7 @@ def test_overriding_a_gathered_manifest_alias_is_a_conflict(tmp_path):
         gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
     )
     merge.inputs['parts_fpath'].connect(audit.inputs['parts_fpath'])
-    dag = Pipeline({'shard': shard, 'merge': merge, 'audit': audit})
+    dag = Pipeline([shard, merge, audit])
     rows = [
         {
             'shard.dataset': 'a',
@@ -1534,7 +1512,7 @@ def test_an_alias_forwarding_the_value_already_configured_is_not_unsupplied(
         out_paths={'result_fpath': 'result.json'},
     )
     lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'lender': lender, 'consumer': consumer})
+    dag = Pipeline([lender, consumer])
     dag.configure(
         {
             'lender.data_fpath': '/same/value.json',
@@ -1580,14 +1558,7 @@ def test_an_alias_that_supplies_nothing_does_not_hide_one_that_does(tmp_path):
     producer.outputs['data_fpath'].connect(lender.inputs['data_fpath'])
     lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
     silent.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline(
-        {
-            'producer': producer,
-            'lender': lender,
-            'silent': silent,
-            'consumer': consumer,
-        }
-    )
+    dag = Pipeline([producer, lender, silent, consumer])
     dag.configure({}, root_dpath=tmp_path, cache=False)
 
     assert str(consumer.final_in_paths['data_fpath']) == str(
@@ -1634,14 +1605,7 @@ def test_a_gather_outranks_an_alias_into_the_same_port():
         gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
     )
     lender.inputs['data_fpath'].connect(merge.inputs['parts_fpath'])
-    dag = Pipeline(
-        {
-            'shard': shard,
-            'source': source,
-            'lender': lender,
-            'merge': merge,
-        }
-    )
+    dag = Pipeline([shard, source, lender, merge])
     root = (
         ub.Path.appdir('kwdagger/tests/regressions/gather-outranks-alias')
         .delete()

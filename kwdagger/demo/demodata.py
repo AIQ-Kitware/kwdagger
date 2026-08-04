@@ -432,7 +432,7 @@ def my_demo_pipeline() -> Pipeline:
         nodes['stage1_evaluate'].inputs['true_fpath']
     )
 
-    dag = Pipeline(nodes)
+    dag = Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag
 

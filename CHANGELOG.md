@@ -17,6 +17,18 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+* **`Pipeline` takes a sequence of nodes, not a mapping.** A node knows its own
+  name, so the `{name: node}` form was a second place for that name to live and
+  a second place for it to disagree: every graph, dotted config key, and result
+  directory keys on `node.name`, while `node_dict` returned the caller's keys.
+  `Pipeline.node_dict` builds the name index from the nodes themselves, and is
+  what to ask for a name lookup -- it always has been, for list-built
+  pipelines. Passing a mapping now raises `TypeError` naming the one-line
+  migration, `list(nodes.values())`.
+
+  This also fixes aggregation, which indexed `dag.nodes[name]` directly and so
+  raised `TypeError: list indices must be integers` on any pipeline built from
+  a list. It asks `node_dict` now, and works for either.
 * `Node.connect()` no longer takes `param_mapping`, `src_map`, or `dst_map`.
   A node-level connection now means exactly one thing: every output whose name
   is also an input name of the target is connected, and nothing else. Renaming

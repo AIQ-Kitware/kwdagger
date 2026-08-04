@@ -194,7 +194,7 @@ def test_the_resulting_graph_is_what_the_pipeline_sees(tmp_path):
             src.outputs['shared'].connect(dst.inputs['shared'])
         else:
             src.connect(dst)
-        dag = Pipeline({'src': src, 'dst': dst})
+        dag = Pipeline([src, dst])
         dag.configure({}, root_dpath=tmp_path, cache=False)
         assert dag.proc_graph.has_edge('src', 'dst')
         ids.append(dst.process_id)

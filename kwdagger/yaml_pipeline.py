@@ -464,9 +464,9 @@ def load_yaml_pipeline(
     for edge in data.get('edges', []) or []:
         _connect_edge(node_dict, edge)
 
-    # Pass the node mapping (not a list) so ``dag.nodes`` is keyed by name, the
-    # form ``aggregate`` relies on when looking up per-node result loaders.
-    dag = Pipeline(node_dict, root_dpath=root_dpath)
+    # A pipeline holds an ordered sequence; a node knows its own name, so
+    # ``Pipeline.node_dict`` is what anyone wanting a name lookup asks for.
+    dag = Pipeline(list(node_dict.values()), root_dpath=root_dpath)
     dag.build_nx_graphs()
     return dag
 

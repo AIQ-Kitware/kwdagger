@@ -1076,3 +1076,40 @@ the pipeline's idea of a node's identity. Not fixed, not urgent, but it is
 exactly the kind of thing that becomes a two-day bug later.
 
 377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean, wheel builds.
+
+## 2026-08-04 14:15:28 -0400
+
+`Pipeline` takes a sequence now. The maintainer asked whether the mapping form
+was ever really used, and the honest answer took two rounds to get right.
+
+First answer: yes, `aggregate` indexes `dag.nodes[node_name]` in six places, so
+it needs a dict. Second answer, after actually looking: that is a *bug*, not a
+requirement. `node_dict` has always built a name index from the nodes
+themselves, so those six sites should have asked it -- and because they did
+not, **a list-built pipeline could not be aggregated at all**, raising
+`TypeError: list indices must be integers`. `demodata.py` builds one that way.
+So the feature that looked like it justified the mapping form was actually
+being broken by it.
+
+The lesson I want to keep: "X depends on it" is not the end of the
+investigation. The question is whether X depends on it *correctly*.
+
+Two things went wrong during the sweep that are worth recording. `list(mapping)`
+yields the keys, so the first pass silently turned nine tutorial pipelines into
+lists of strings and failed much later with `'str' object has no attribute
+'name'`. That is exactly the failure mode this change exists to remove, so
+`__init__` now rejects a Mapping with a message naming the migration rather
+than quietly doing something indefensible. And my AST sweep missed a
+`Pipeline({{...}})` inside an f-string template -- a reminder that a
+source-rewriting sweep is only as complete as the parser's view of the file.
+
+The scope was bigger than the maintainer or I expected: 89 call sites in tests,
+plus every tutorial and example under `docs/`. That is the part worth flagging
+to users -- the mapping form is what the tutorials taught, so this is a real
+break for anyone who followed them, not just an internal tidy.
+
+What it buys: `node_dict` has no branch and no second source of truth, `submit`
+has no branch, and the wart where a dict key could disagree with `node.name`
+is gone by construction rather than by discipline.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.

@@ -81,9 +81,7 @@ def demodata_pipeline(dpath):
                 return flat_resolved
 
         def build_pipeline():
-            nodes = {}
-            nodes['step1'] = Step1()
-            dag = Pipeline(nodes)
+            dag = Pipeline([Step1()])
             dag.build_nx_graphs()
             return dag
         """

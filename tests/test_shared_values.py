@@ -31,7 +31,7 @@ def _input_alias_pipeline(*, reverse=False):
         if reverse
         else {'source': source, 'consumer': consumer}
     )
-    return Pipeline(nodes), source, consumer
+    return Pipeline(list(nodes.values())), source, consumer
 
 
 def _parameter_pipeline(*, reverse=False):
@@ -53,7 +53,7 @@ def _parameter_pipeline(*, reverse=False):
         if reverse
         else {'source': source, 'consumer': consumer}
     )
-    return Pipeline(nodes), source, consumer
+    return Pipeline(list(nodes.values())), source, consumer
 
 
 def test_input_alias_is_ordered_for_configuration_not_execution(tmp_path):
@@ -155,7 +155,7 @@ def test_same_node_shared_values_are_allowed(tmp_path):
         algo_params={'canonical': 'cnn', 'alias': 'cnn'},
     )
     node.param_ports['canonical'].connect(node.param_ports['alias'])
-    dag = Pipeline({'node': node})
+    dag = Pipeline([node])
     dag.configure(
         {'node.canonical': 'transformer'},
         root_dpath=tmp_path,
@@ -187,7 +187,7 @@ def _same_node_forwarding_gather_pipeline():
         collect.inputs['checkpoints_fpath'],
         gather=GatherSpec(group_by=['canonical'], order_by=['fold']),
     )
-    return Pipeline({'train': train, 'collect': collect})
+    return Pipeline([train, collect])
 
 
 def test_same_node_shared_values_survive_compilation(tmp_path):
@@ -235,7 +235,7 @@ def test_an_unresolved_wired_parameter_supplies_nothing(tmp_path):
         algo_params={'family'},
     )
     source.param_ports['family'].connect(consumer.param_ports['family'])
-    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag = Pipeline([source, consumer])
     dag.configure({}, root_dpath=tmp_path, cache=False)
 
     assert 'family' not in source.final_algo_config
@@ -267,7 +267,7 @@ def test_an_unresolved_wire_is_distinguishable_from_an_explicit_none(tmp_path):
             algo_params={'family': 'cnn'},
         )
         source.param_ports['family'].connect(consumer.param_ports['family'])
-        return Pipeline({'source': source, 'consumer': consumer}), consumer
+        return Pipeline([source, consumer]), consumer
 
     # Nothing supplied: the wire carried no value, so the record must not
     # claim one, and the defaulted value must not be reported as requested.
@@ -306,7 +306,7 @@ def test_an_unresolved_input_alias_is_marked_rather_than_valued(tmp_path):
         out_paths={'result_fpath': 'result.json'},
     )
     source.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag = Pipeline([source, consumer])
     dag.configure({}, root_dpath=tmp_path, cache=False)
 
     binding = consumer._depends_config()['__input__.data_fpath']
@@ -330,7 +330,7 @@ def test_an_unresolved_wire_leaves_the_consumer_default_alone(tmp_path):
         algo_params={'family': 'cnn'},
     )
     source.param_ports['family'].connect(consumer.param_ports['family'])
-    dag = Pipeline({'source': source, 'consumer': consumer})
+    dag = Pipeline([source, consumer])
     dag.configure({}, root_dpath=tmp_path, cache=False)
 
     assert consumer.final_algo_config['family'] == 'cnn'
@@ -366,7 +366,7 @@ def test_shared_values_survive_in_a_descendants_config_record(tmp_path):
     train.outputs['checkpoint_fpath'].connect(
         evaluate.inputs['checkpoint_fpath']
     )
-    dag = Pipeline({'label': label, 'train': train, 'evaluate': evaluate})
+    dag = Pipeline([label, train, evaluate])
     dag.configure(
         {'label.family': 'transformer', 'train.data_fpath': '/data/x.json'},
         root_dpath=tmp_path,
@@ -399,7 +399,7 @@ def test_shared_value_cycles_are_rejected():
     left.param_ports['value'].connect(right.param_ports['value'])
     right.param_ports['value'].connect(left.param_ports['value'])
     with pytest.raises(ValueError, match='shared-value relationships.*cycle'):
-        Pipeline({'left': left, 'right': right})
+        Pipeline([left, right])
 
 
 def test_direct_and_aliased_inputs_reuse_the_same_process(tmp_path):
@@ -410,7 +410,7 @@ def test_direct_and_aliased_inputs_reuse_the_same_process(tmp_path):
         out_paths={'result_fpath': 'result.json'},
         algo_params={'mode': 'fast'},
     )
-    direct_dag = Pipeline({'consumer': direct})
+    direct_dag = Pipeline([direct])
     direct_dag.configure(
         {
             'consumer.data_fpath': '/data/items.json',
@@ -434,7 +434,7 @@ def test_direct_and_aliased_inputs_reuse_the_same_process(tmp_path):
         algo_params={'mode': 'fast'},
     )
     source.inputs['data_fpath'].connect(aliased.inputs['data_fpath'])
-    alias_dag = Pipeline({'consumer': aliased, 'source': source})
+    alias_dag = Pipeline([aliased, source])
     alias_dag.configure(
         {'source.data_fpath': '/data/items.json', 'consumer.mode': 'fast'},
         root_dpath=tmp_path,
@@ -497,7 +497,7 @@ def test_dependency_only_edges_include_concrete_predecessor_identity(tmp_path):
         out_paths={'summary_fpath': 'summary.json'},
     )
     summarize._pred_nodes_without_io_connection.append(prepare)
-    dag = Pipeline({'summarize': summarize, 'prepare': prepare})
+    dag = Pipeline([summarize, prepare])
 
     child_ids = []
     predecessor_ids = []
@@ -537,7 +537,7 @@ def test_unwired_parameter_ports_stay_out_of_the_io_graph():
         out_paths={'dst': 'dst.json'},
         algo_params={'alpha': 1, 'beta': 2},
     )
-    dag = Pipeline({'solo': node})
+    dag = Pipeline([node])
     assert 'solo.src' in dag.io_graph
     assert 'solo.dst' in dag.io_graph
     assert 'solo.alpha' not in dag.io_graph
@@ -573,7 +573,7 @@ def _gather_with_shared_parameter(reverse=False):
     nodes = {'collect': collect, 'train': train, 'label': label}
     if not reverse:
         nodes = {'label': label, 'train': train, 'collect': collect}
-    return Pipeline(nodes)
+    return Pipeline(list(nodes.values()))
 
 
 def test_gather_compiler_uses_shared_value_configuration_order(tmp_path):
@@ -612,7 +612,7 @@ def test_qualified_group_key_checks_all_same_named_ancestors(tmp_path):
         ensemble.inputs['checkpoints_fpath'],
         gather=GatherSpec(group_by=['dataset'], order_by=['fold']),
     )
-    dag = Pipeline({'ensemble': ensemble, 'train': train})
+    dag = Pipeline([ensemble, train])
     compiled = dag.compile_configurations(
         [
             {'train.dataset': 'demo', 'train.fold': 0},

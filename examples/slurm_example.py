@@ -285,7 +285,7 @@ def make_pipeline() -> Pipeline:
         nodes['final'].inputs['in_fpath_b']
     )
 
-    dag = Pipeline(nodes)
+    dag = Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag
 

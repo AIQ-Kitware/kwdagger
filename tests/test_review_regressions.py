@@ -29,9 +29,7 @@ def test_produced_value_forwarded_through_alias_keeps_dependency(tmp_path):
     )
     producer.outputs['data_fpath'].connect(middle.inputs['data_fpath'])
     middle.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline(
-        {'producer': producer, 'middle': middle, 'consumer': consumer}
-    )
+    dag = Pipeline([producer, middle, consumer])
     dag.configure({'producer.revision': 1}, root_dpath=tmp_path, cache=False)
 
     assert os.fspath(consumer.final_in_paths['data_fpath']) == os.fspath(
@@ -86,7 +84,7 @@ def test_nested_gather_provenance_keeps_each_consumer_instance(tmp_path):
         report.inputs['merged_items_fpath'],
         gather=GatherSpec(group_by=[], order_by=['dataset']),
     )
-    dag = Pipeline({'shard': shard, 'merge': merge, 'report': report})
+    dag = Pipeline([shard, merge, report])
     rows = [
         {
             'shard.dataset': dataset,
@@ -144,7 +142,7 @@ def test_qualified_group_by_accepts_mapping_values(tmp_path):
             order_by=['fold'],
         ),
     )
-    dag = Pipeline({'train': train, 'collect': collect})
+    dag = Pipeline([train, collect])
     settings = {
         'family': 'cnn',
         'thresholds': {'low': 0.2, 'high': 0.8},
@@ -191,7 +189,7 @@ def test_gather_provenance_uses_public_group_by_shape(tmp_path):
     predict.outputs['pred_fpath'].connect(
         score.inputs['preds_fpath'], gather=spec
     )
-    dag = Pipeline({'predict': predict, 'score': score})
+    dag = Pipeline([predict, score])
     rows = [
         {
             'predict.dataset_fpath': '/data/items.json',

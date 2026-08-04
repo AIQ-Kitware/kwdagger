@@ -80,7 +80,7 @@ class Pipeline:
 
     def __init__(
         self,
-        nodes: dict[str, Any] | list[Any] | None = None,
+        nodes: Sequence[Any] | None = None,
         config: Mapping[str, Any] | None = None,
         root_dpath: PathSpec | None = None,
     ) -> None:
@@ -88,21 +88,26 @@ class Pipeline:
         self.config_graph: nx.DiGraph = nx.DiGraph()
         self.value_graph: nx.DiGraph = nx.DiGraph()
         self.io_graph: nx.DiGraph = nx.DiGraph()
-        if nodes is None:
-            nodes = []
-        # ``dict`` and ``list`` exactly, not ``Mapping`` and ``Sequence``:
-        # ``node_dict`` branches on ``isinstance(..., dict)`` and ``submit``
-        # appends, so another mapping type would fall through to the sequence
-        # branch and iterate keys. Both forms are used -- the YAML loader
-        # passes a mapping so ``aggregate`` can find per-node result loaders --
-        # and the container is held as given rather than copied, because a
-        # caller expects the pipeline to hold theirs.
-        #
-        # The value type is ``Any`` rather than ``ProcessNode`` because
-        # ``dict`` is invariant: ``{'a': SubclassA(), 'b': SubclassB()}`` is
-        # how pipelines are normally written, and it is not a
-        # ``dict[str, ProcessNode]``.
-        self.nodes: dict[str, Any] | list[Any] = nodes
+        #: The nodes, in the order given. A pipeline holds a sequence and
+        #: nothing else: a node knows its own name, so a name lookup is
+        #: :func:`node_dict`'s job rather than a second container the caller
+        #: has to build and keep consistent. Copied so the pipeline owns what
+        #: it mutates.
+        #:
+        #: Typed ``Any`` rather than ``ProcessNode`` because a list of
+        #: subclasses is how pipelines are normally written and Python's
+        #: containers are invariant.
+        if isinstance(nodes, Mapping):
+            # ``list(mapping)`` would silently yield the *keys*, and the
+            # failure would surface much later as a string with no ``.name``.
+            raise TypeError(
+                'Pipeline takes a sequence of nodes, not a mapping. A node '
+                'knows its own name, so the {name: node} form was a second '
+                'place for that name to live and a second place for it to '
+                'disagree; ask Pipeline.node_dict for a name lookup. Pass '
+                'list(nodes.values()) instead.'
+            )
+        self.nodes: list[Any] = list(nodes or [])
         self.config: Any = None
         #: Where results are rooted, once ``configure`` has been told. Declared
         #: here so the attribute always exists: it is public state a caller
@@ -166,42 +171,35 @@ class Pipeline:
                 raise Exception(name)
             self._unique_hanes.add(name)
         task = ProcessNode(executable=executable, **kwargs)
-        if isinstance(self.nodes, dict):
-            # A pipeline may be built from either container, and appending to
-            # the mapping form raised AttributeError.
-            if task.name is None:
-                raise ValueError(
-                    'This pipeline holds its nodes by name, so a node added '
-                    'to it needs one: pass name= to submit().'
-                )
-            self.nodes[task.name] = task
-        else:
-            self.nodes.append(task)
+        self.nodes.append(task)
         self._dirty = True
         return task
 
     @property
     def node_dict(self) -> dict[str, Any]:
-        if isinstance(self.nodes, dict):
-            node_dict = self.nodes
-        else:
-            unnamed = [node for node in self.nodes if node.name is None]
-            if unnamed:
-                raise ValueError(
-                    f'{len(unnamed)} node(s) in this pipeline have no name. A '
-                    'name identifies a node everywhere it appears -- its '
-                    'dotted configuration keys, its result directory, and the '
-                    'graphs -- so it cannot be omitted. Give every node a '
-                    'name, or pass a {name: node} mapping.'
-                )
-            node_names = [node.name for node in self.nodes]
-            if len(node_names) != len(set(node_names)):
-                print('node_names = {}'.format(ub.urepr(node_names, nl=1)))
-                raise AssertionError(
-                    f'Non unique nodes detected: {len(node_names)}, {len(set(node_names))}'
-                )
-            node_dict = dict(zip(cast(list[str], node_names), self.nodes))
-        return node_dict
+        """
+        The nodes keyed by name, which is the only name index there is.
+
+        Built here rather than stored, so a name and the node it points at
+        cannot drift apart -- the graphs, the dotted configuration, and the
+        result directories all key on ``node.name``, and a separately held
+        mapping was free to disagree with it.
+        """
+        unnamed = [node for node in self.nodes if node.name is None]
+        if unnamed:
+            raise ValueError(
+                f'{len(unnamed)} node(s) in this pipeline have no name. A '
+                'name identifies a node everywhere it appears -- its dotted '
+                'configuration keys, its result directory, and the graphs -- '
+                'so it cannot be omitted.'
+            )
+        node_names = cast('list[str]', [node.name for node in self.nodes])
+        if len(node_names) != len(set(node_names)):
+            print('node_names = {}'.format(ub.urepr(node_names, nl=1)))
+            raise AssertionError(
+                f'Non unique nodes detected: {len(node_names)}, {len(set(node_names))}'
+            )
+        return dict(zip(node_names, self.nodes))
 
     @property
     def gather_connections(self) -> list[GatherConnection]:

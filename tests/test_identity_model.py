@@ -64,14 +64,12 @@ def test_produced_and_manual_inputs_with_one_value_share_an_identity(tmp_path):
     producer = _producer()
     wired = _consumer()
     producer.outputs['data_fpath'].connect(wired.inputs['data_fpath'])
-    _configured(
-        Pipeline({'producer': producer, 'consumer': wired}), {}, tmp_path
-    )
+    _configured(Pipeline([producer, wired]), {}, tmp_path)
     produced_path = str(wired.final_in_paths['data_fpath'])
 
     manual = _consumer()
     _configured(
-        Pipeline({'consumer': manual}),
+        Pipeline([manual]),
         {'consumer.data_fpath': produced_path},
         tmp_path,
     )
@@ -105,7 +103,7 @@ def test_two_producers_exposing_one_path_give_one_consumer_identity(tmp_path):
         producer = _producer(algo=algo, node_dpath='.')
         consumer = _consumer()
         producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag = Pipeline([producer, consumer])
         _configured(dag, {'producer.algo': algo}, tmp_path)
         ids[algo] = {
             'producer': producer.process_id,
@@ -124,7 +122,7 @@ def test_different_effective_paths_give_different_identities(tmp_path):
     for value in ['/data/one.json', '/data/two.json']:
         consumer = _consumer()
         _configured(
-            Pipeline({'consumer': consumer}),
+            Pipeline([consumer]),
             {'consumer.data_fpath': value},
             tmp_path,
         )
@@ -144,7 +142,7 @@ def test_a_producer_change_that_moves_its_output_moves_the_consumer(tmp_path):
         producer = _producer(algo=algo)
         consumer = _consumer()
         producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag = Pipeline([producer, consumer])
         _configured(dag, {'producer.algo': algo}, tmp_path)
         seen[algo] = (
             producer.process_id,
@@ -205,7 +203,7 @@ def _by_delivery(tmp_path, mechanism, value):
             nodes['lender'] = lender
             producer.outputs['data_fpath'].connect(lender.inputs['data_fpath'])
             lender.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    _configured(Pipeline(nodes), config, tmp_path)
+    _configured(Pipeline(list(nodes.values())), config, tmp_path)
     return consumer
 
 
@@ -239,7 +237,7 @@ def test_an_override_removes_the_producer_from_identity_and_scheduling(
         producer = _producer(algo=algo)
         consumer = _consumer()
         producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag = Pipeline([producer, consumer])
         _configured(
             dag,
             {'consumer.data_fpath': '/precomputed/data', 'producer.algo': algo},
@@ -289,14 +287,7 @@ def _dedup_pipeline():
     producer = _producer()
     consumer = _consumer()
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    return Pipeline(
-        {
-            'shard': shard,
-            'merge': merge,
-            'producer': producer,
-            'consumer': consumer,
-        }
-    )
+    return Pipeline([shard, merge, producer, consumer])
 
 
 def _dedup_rows():
@@ -414,14 +405,7 @@ def _root_probe_pipeline():
     producer = _producer()
     consumer = _consumer()
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    return Pipeline(
-        {
-            'shard': shard,
-            'merge': merge,
-            'producer': producer,
-            'consumer': consumer,
-        }
-    )
+    return Pipeline([shard, merge, producer, consumer])
 
 
 ROOT_PROBE_ROWS = [
@@ -459,7 +443,7 @@ def test_moving_the_cache_root_does_not_change_any_identity():
     assert edges['root-a'] == edges['root-b']
     # An external input is *not* rewritten, so it still identifies the data.
     consumer = _consumer()
-    Pipeline({'consumer': consumer}).configure(
+    Pipeline([consumer]).configure(
         {'consumer.data_fpath': '/outside/the/root.json'},
         root_dpath=ub.Path.appdir('kwdagger/tests/identity/root-a'),
         cache=False,
@@ -496,14 +480,7 @@ def _mixed_delivery_pipeline():
     producer = _producer(node_dpath='.')
     consumer = _consumer()
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    return Pipeline(
-        {
-            'shard': shard,
-            'merge': merge,
-            'producer': producer,
-            'consumer': consumer,
-        }
-    )
+    return Pipeline([shard, merge, producer, consumer])
 
 
 def test_one_produced_row_and_one_manual_row_are_a_reported_conflict():
@@ -572,7 +549,7 @@ def test_perf_params_may_differ_between_rows_only_by_agreeing(tmp_path):
         algo_params={'model': 'm'},
         perf_params={'workers': 4},
     )
-    dag = Pipeline({'shard': shard, 'merge': merge, 'predict': predict})
+    dag = Pipeline([shard, merge, predict])
     base = {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
     rows = [
         dict(base, **{'predict.workers': workers, 'predict.model': 'm'})
@@ -630,15 +607,15 @@ def _submit_rows(dag, rows, root, backend='serial', per_row=None, **kwargs):
 
 def _perf_pipeline():
     return Pipeline(
-        {
-            'predict': ProcessNode(
+        [
+            ProcessNode(
                 name='predict',
                 executable='python predict.py',
                 out_paths={'out_fpath': 'out.json'},
                 algo_params={'model': 'm'},
                 perf_params={'workers': 4},
             )
-        }
+        ]
     )
 
 
@@ -667,7 +644,7 @@ def _delivery_pipeline():
     producer = _producer(node_dpath='.')
     consumer = _consumer()
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    return Pipeline({'producer': producer, 'consumer': consumer})
+    return Pipeline([producer, consumer])
 
 
 def test_gather_free_mixed_delivery_is_reported_in_either_order(tmp_path):
@@ -730,7 +707,7 @@ def test_structured_input_values_hash_relative_to_the_cache_root(shape):
         )
         producer = _producer()
         consumer = _consumer()
-        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag = Pipeline([producer, consumer])
         dag.configure({}, root_dpath=root, cache=False)
         produced = str(producer.outputs['data_fpath'].final_value)
         value = {
@@ -754,7 +731,7 @@ def test_a_path_merely_sharing_the_roots_prefix_is_left_alone(tmp_path):
     root.mkdir()
     outsider = str(tmp_path / 'cache-backup' / 'data.json')
     consumer = _consumer()
-    Pipeline({'consumer': consumer}).configure(
+    Pipeline([consumer]).configure(
         {'consumer.data_fpath': outsider}, root_dpath=root, cache=False
     )
     assert consumer.depends['__inputs__']['data_fpath'] == outsider
@@ -785,7 +762,7 @@ def _two_output_pipeline():
     )
     producer.outputs['out_a_fpath'].connect(consumer.inputs['in_a_fpath'])
     producer.outputs['out_b_fpath'].connect(consumer.inputs['in_b_fpath'])
-    return Pipeline({'producer': producer, 'consumer': consumer})
+    return Pipeline([producer, consumer])
 
 
 def _delivery_rows(root):
@@ -834,7 +811,7 @@ def test_delivery_conflict_is_caught_by_the_compiler_too(tmp_path):
         dag = _two_output_pipeline()
         nodes = dict(dag.node_dict)
         nodes.update({'shard': shard, 'merge': merge})
-        return Pipeline(nodes)
+        return Pipeline(list(nodes.values()))
 
     base = {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
     probe = build().compile_configurations(
@@ -877,7 +854,7 @@ def test_invoke_sh_lineage_comments_follow_effective_ancestry(tmp_path):
     producer = _producer()
     consumer = _consumer()
     producer.outputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    dag = Pipeline({'producer': producer, 'consumer': consumer})
+    dag = Pipeline([producer, consumer])
     dag.configure(
         {'consumer.data_fpath': '/precomputed/data'},
         root_dpath=tmp_path,
@@ -902,7 +879,7 @@ def test_mapping_keys_are_root_relative_too():
         )
         producer = _producer()
         consumer = _consumer()
-        dag = Pipeline({'producer': producer, 'consumer': consumer})
+        dag = Pipeline([producer, consumer])
         dag.configure({}, root_dpath=root, cache=False)
         produced = str(producer.outputs['data_fpath'].final_value)
         dag.configure(
@@ -948,7 +925,7 @@ def _two_alias_pipeline():
     consumer = _consumer()
     left.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
     right.inputs['data_fpath'].connect(consumer.inputs['data_fpath'])
-    return Pipeline({'left': left, 'right': right, 'consumer': consumer})
+    return Pipeline([left, right, consumer])
 
 
 _ALIAS_ROWS = [
@@ -1008,7 +985,7 @@ def test_alias_provenance_conflict_reaches_the_compiler_too(order, tmp_path):
     def build():
         nodes = dict(_two_alias_pipeline().node_dict)
         nodes.update({'shard': shard, 'merge': merge})
-        return Pipeline(nodes)
+        return Pipeline(list(nodes.values()))
 
     base = {'shard.dataset': 'a', 'shard.fold': 0, 'merge.dataset': 'a'}
     rows = [dict(base, **_ALIAS_ROWS[idx]) for idx in order]
@@ -1044,7 +1021,7 @@ def _param_alias_pipeline():
     consumer = _consumer()
     left.param_ports['thresh'].connect(consumer.param_ports['thresh'])
     right.param_ports['thresh'].connect(consumer.param_ports['thresh'])
-    return Pipeline({'left': left, 'right': right, 'consumer': consumer})
+    return Pipeline([left, right, consumer])
 
 
 @pytest.mark.parametrize('order', [[0, 1], [1, 0]])
@@ -1084,7 +1061,7 @@ def test_colliding_canonical_mapping_keys_are_refused(tmp_path):
     schedules that never see each other cannot be arbitrated after the fact.
     """
     consumer = _consumer()
-    dag = Pipeline({'consumer': consumer})
+    dag = Pipeline([consumer])
     inside = str(tmp_path / 'x.json')
     aliased = str(tmp_path / 'sub' / '..' / 'x.json')
     with pytest.raises(ValueError, match='canonicalize'):
@@ -1098,7 +1075,7 @@ def test_colliding_canonical_mapping_keys_are_refused(tmp_path):
 def test_distinct_mapping_keys_are_still_hashed_together(tmp_path):
     """The complement: only genuine collisions are refused."""
     consumer = _consumer()
-    dag = Pipeline({'consumer': consumer})
+    dag = Pipeline([consumer])
     mapping = {
         str(tmp_path / 'x.json'): 1,
         str(tmp_path / 'y.json'): 2,
@@ -1120,7 +1097,7 @@ def test_a_pathlike_mapping_key_canonicalizes_like_a_string_one(tmp_path):
     ids = []
     for key in [str(tmp_path / 'x.json'), ub.Path(tmp_path / 'x.json')]:
         consumer = _consumer()
-        dag = Pipeline({'consumer': consumer})
+        dag = Pipeline([consumer])
         dag.configure(
             {'consumer.data_fpath': {key: 1}},
             root_dpath=tmp_path,
@@ -1218,7 +1195,7 @@ def test_agreeing_submission_flags_still_deduplicate(tmp_path):
 
 def _mapping_key_dag():
     consumer = _consumer()
-    return Pipeline({'consumer': consumer}), consumer
+    return Pipeline([consumer]), consumer
 
 
 def test_a_pathlike_mapping_key_survives_submission(tmp_path):
@@ -1368,7 +1345,7 @@ def test_a_declared_default_crosses_the_boundary_too(tmp_path):
         out_paths={'result_fpath': 'result.json'},
         algo_params={'weights': {ub.Path('rel/w.json'): 1}},
     )
-    dag = Pipeline({'consumer': node})
+    dag = Pipeline([node])
     dag.configure({}, root_dpath=tmp_path, cache=False)
     assert node.in_paths['data_fpath'] == 'rel/default.json'
     assert node.algo_params['weights'] == {'rel/w.json': 1}
