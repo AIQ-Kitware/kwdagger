@@ -881,7 +881,6 @@ class ProcessNode(Node):
             node_default=self._base_slurm_options,
             node_override=self._row_slurm_options,
         )
-        self.__slurm_options__ = dict(self.slurm_options)
         # A default that is right for a node configured on its own. Anything
         # that compiles this node overwrites it with the full resolution; a
         # node never silently reports a request with layers missing.

@@ -173,12 +173,14 @@ selects a known collection of concrete source outputs, writes a path manifest,
 and passes that manifest to an ordinary consumer input.
 
 Gather is intentionally not runtime directory discovery.  The membership must
-be fixed before the consumer runs.  The current implementation obtains that
-knowledge by compiling the complete matrix before submission, which is a newer
-and more expensive path than the historical row-at-a-time scheduler.  Gather is
-still a relatively new feature, so changes should be validated against the
-established command, identity, and result-graph behavior rather than treating
-its current implementation as settled architecture.
+be fixed before the consumer runs, and it is obtained by compiling the complete
+matrix before submission.  Every pipeline is compiled that way now, whether or
+not it gathers; a gather-free matrix simply has no collections to resolve.
+Gather needing whole-matrix knowledge is what made compilation necessary, but
+it is a feature *of* a compiled matrix rather than a second way to schedule
+one.  Gather is still a relatively new feature, so changes should be validated
+against the established command, identity, and result-graph behavior rather
+than treating its current implementation as settled architecture.
 
 For grouping keys, prefer fully qualified ``node.parameter`` names.  An
 unqualified name is convenient shorthand but can become ambiguous when a
@@ -307,8 +309,10 @@ priorities:
    relationships.
 #. Keep dotted requested lineage understandable without inventing process
    dependencies for values that did not require materialization.
-#. Maintain the established row-at-a-time configuration path unless a feature
-   explicitly requires whole-matrix knowledge.
+#. Keep one path from a matrix to submitted work.  A batch and an interactive
+   single row differ in how many rows are compiled and in nothing else; a
+   second implementation of scheduling is how the two used to disagree about
+   Slurm layering, normalization, and arbitration.
 #. Treat aggregation as an important consumer, but do not let one historical
    reporting workflow define the entire execution model.
 #. Prefer compatibility and concrete exhibitions over broad taxonomy redesigns.

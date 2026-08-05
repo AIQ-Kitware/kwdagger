@@ -1140,7 +1140,7 @@ def test_a_read_producer_is_not_marked_unsupplied(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 10. The runtime gate is effective, on both scheduling paths
+# 10. The runtime gate is effective, for a single compiled row
 # ---------------------------------------------------------------------------
 #
 # The gate is not merely an ordering hint. A disabled or missing predecessor

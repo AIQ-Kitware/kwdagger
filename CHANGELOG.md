@@ -4,6 +4,65 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Version 0.3.1 - Unreleased
 
+### Changed
+
+* **There is one scheduling path.** kwdagger used to schedule a batch two ways:
+  a pipeline with a gather compiled the whole matrix and submitted a
+  `CompiledPipeline`, while a pipeline without one configured and submitted a
+  row at a time. Whether a pipeline contained a gather -- a *compilation*
+  feature -- decided which execution architecture ran.
+
+  This is removed. `build_schedule` compiles the matrix and submits the
+  compiled graph, for every pipeline, and `Pipeline.submit_jobs` compiles the
+  row it was configured with and submits that, so an interactive submission is
+  a matrix of one rather than a second implementation.
+
+  It is worth being explicit about why, because the individual symptoms were
+  each fixed once already during 0.3.x and the list kept growing. Stale row
+  state, divergent Slurm layering, and divergent normalization boundaries were
+  one defect: **two authorities for one question, with nothing forcing them to
+  agree.** Neither path was wrong; having two was.
+
+* `build_schedule` now returns a `CompiledPipeline` for every pipeline, where
+  it previously returned the template `Pipeline` unless a gather was present.
+  A compiled pipeline holds the concrete processes, so `nodes` is keyed by
+  `process_id` rather than by name. `CompiledPipeline.nodes_by_name` is added
+  for the name lookup `Pipeline.node_dict` used to serve; it maps to a *list*,
+  because a matrix expands one template into many processes.
+
+* `submit_jobs` reports `node_status` keyed by `process_id` rather than by node
+  name, and a batch now returns one matrix-wide summary instead of one summary
+  per row. A name cannot key a compiled matrix without silently overwriting
+  siblings, and `process_id` is the key `queue.named_jobs` and
+  `CompiledPipeline.nodes` already use -- `compiled.nodes[pid].name` recovers
+  the name.
+
+* The effective Slurm request has one resolver,
+  `kwdagger.pipeline.resolve_slurm_options`, and one home,
+  `node.effective_slurm_options`. It was previously computed in three places
+  from three different subsets of its four layers, which is why
+  `node.slurm_options` meant "node-level options" on one scheduling path and
+  "node-level plus row-global" on the other. That attribute now means the
+  node's own layers on both. `kwdagger.pipeline._runtime.submit_jobs` no
+  longer takes a `slurm_options` argument, and `CompiledPipeline` no longer
+  carries a pipeline-wide copy.
+
+* The scheduler crosses the configuration normalization boundary once, before
+  the parameter matrix is expanded rather than after. Expanding first let
+  `Path('/a')` and `'/a'` count as two points on an axis and then compile to
+  one process, so the reported cardinality contradicted the compiled graph.
+
+* Compiling a pipeline without gather connections is allowed;
+  `compile_configurations` used to reject it. This is what forced the second
+  scheduling path to exist, and nothing in the compiler was ever
+  gather-specific.
+
+### Fixed
+
+* Configuring a batch and then inspecting the pipeline reported only the last
+  row, because the row-at-a-time path reused one mutable node per name. A
+  compiled pipeline clones per row, so every row is still described afterwards.
+
 
 ## Version 0.3.0 - Released 2026-08-04
 

@@ -459,7 +459,7 @@ def test_moving_the_cache_root_does_not_change_any_identity():
 
 
 def _mixed_delivery_pipeline():
-    """A gather elsewhere, so the full-matrix path is taken at all."""
+    """A gather elsewhere, as this was written before every matrix compiled."""
     shard = ProcessNode(
         name='shard',
         executable='python shard.py',
@@ -568,13 +568,13 @@ def test_perf_params_may_differ_between_rows_only_by_agreeing(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Arbitration must reach both scheduling paths
+# Arbitration must reach a pipeline with no gather in it
 # ---------------------------------------------------------------------------
 #
-# A pipeline with any gather compiles the whole matrix up front; an ordinary
-# one configures and submits a row at a time. The safeguards used to live only
-# in the compiler, so a gather-free matrix was still first-row-wins. These
-# tests deliberately use *no* gather.
+# The safeguards used to live only in the compiler, which only ran when a
+# pipeline gathered, so a gather-free matrix was still first-row-wins. Every
+# pipeline compiles now; these tests deliberately use *no* gather, because
+# that is the shape the hole was in.
 
 
 def _submit_rows(dag, rows, root, backend='serial', per_row=None, **kwargs):
@@ -799,7 +799,7 @@ def test_delivery_conflict_is_caught_when_prerequisites_agree(tmp_path):
 
 
 def test_delivery_conflict_is_caught_by_the_compiler_too(tmp_path):
-    """The same conflict, on the full-matrix path."""
+    """The same conflict, reached by compiling the matrix in one call."""
     shard = ProcessNode(
         name='shard',
         executable='python shard.py',
@@ -974,7 +974,7 @@ def test_alias_provenance_conflict_is_reported_in_either_order(order, tmp_path):
 
 @pytest.mark.parametrize('order', [[0, 1], [1, 0]])
 def test_alias_provenance_conflict_reaches_the_compiler_too(order, tmp_path):
-    """The same conflict on the full-matrix path, which a gather forces."""
+    """The same conflict, compiling the matrix in one call."""
     shard = ProcessNode(
         name='shard',
         executable='python shard.py',

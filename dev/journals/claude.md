@@ -1228,3 +1228,101 @@ visible behavior change.
 
 Baseline at `346ac18`: 391 passed / 18 skipped, 92 doctests, ruff/ty/flake8
 clean.
+
+## 2026-08-05 12:21:47 -0400
+
+Picked the authority refactor back up in the same day I handed it off and ran
+it to the end: phases 2 through 7, one commit each, on `dev/0.3.1`.
+
+The thing I got wrong in the handoff, and it is worth writing down because it
+changed how the whole job felt: I described Phase 2 as "remove the restriction
+at `_logical.py:549`" and expected to then make the compiler handle ordinary
+nodes. It already did. Nothing in `_compile_pipeline_configurations` was
+gather-specific -- with no gather connections the collection resolution simply
+has nothing to select -- so the guard *was* the entire barrier. A five-line
+diff. Which means the second scheduling path had been kept alive for months by
+a precondition nobody had tested the falsity of. I wrote a probe script before
+touching anything, ran the compiler on a gather-free pipeline with the guard
+bypassed, and it produced exactly the right graph on the first try. That probe
+is the single highest-value thing I did all session: it turned a phase I had
+budgeted a day of care for into an afternoon, and it would have been just as
+valuable had it failed.
+
+Phase 3 was where the real work was, and where I found a seventh divergence
+the authority table had missed. `submit_jobs` keyed `node_status` by whatever
+the graph key was -- node *names* on the row path, `process_id` on the
+compiled one. The parity harness filtered statuses by name, which on the
+compiled side yielded an empty dict, so it had been silently comparing nothing
+for that field the entire time. Two lessons in one: the table I was so pleased
+with was incomplete, and a characterization test can pass through a refactor
+while asserting less than it appears to. I made the key `process_id`
+everywhere, since a name cannot key a compiled matrix without dropping
+siblings, and updated the tests that read it by name to translate explicitly
+rather than quietly.
+
+The delegation in Phase 3 is the decision I went back and forth on most.
+`Pipeline.submit_jobs` had to stop being a second scheduler, and the shape the
+handoff suggested -- a one-row compiled representation -- was right. What I
+nearly got wrong was where the row comes from. My first design reconstructed
+it from node state after the fact, walking `node.config` back into dotted
+keys. I had it half-written before noticing I was building a second answer to
+"what was this row" inside a refactor whose entire purpose is removing second
+answers. It would also have silently lost the row-global `__slurm_options__`,
+which `configure` pops. Having `configure` *remember* the row before popping
+is four lines and has no second authority in it. When the fix for a
+duplicate-authority problem introduces a duplicate authority, stop typing.
+
+Phase 4 was the satisfying one. Three sites each computed the effective Slurm
+request from a different subset of four layers, and the fix is a single
+keyword-only pure function plus one attribute on the node. Making it
+keyword-only mattered more than it looks: the order of those layers *is* the
+semantics, and a positional call site is one refactor away from silently
+reordering them. The characterization test that recorded the disagreement
+flipped to an equality, which is the moment the whole Phase 1 investment paid
+off -- I did not have to argue that something changed, the test that was
+written to fail failed, and then passed for the right reason.
+
+Phase 5 turned out to be mostly proof rather than code, which surprised me
+until I understood why: once Phase 3 made compilation universal, the runtime
+registry structurally *cannot* fire on the graph it was handed, because a
+`process_id` is a key there. It was already only a cross-submission backstop.
+So the phase became writing that down and then proving the compiler catches
+every conflict class in either row order -- seven classes, parameterized, plus
+the fingerprint-of-the-whole-compilation check that reversing a matrix changes
+nothing. I would rather have that table than another paragraph of reasoning
+about why order cannot matter.
+
+Phase 6's test is the one I am least sure earns its place and most glad I
+wrote. To show the graph outranks node state I had to *provoke* a
+disagreement -- remove an edge from a compiled graph whose nodes still
+describe it -- because normal use cannot produce one; the compiler builds
+those edges from that node state. A test asserting a claim about which of two
+sources wins is worth nothing if the two never differ. It looks artificial and
+it is exactly what the claim means.
+
+And the TA1 fingerprint: found it. It was never a fixture, which is why I
+could not locate it in the previous session -- the procedure existed only as
+prose in my own journal entries ("`lift` and `lomo` fingerprints unchanged").
+It is the two `*_kwdagger.yaml` cards in incubilate, compiled and dumped. I
+wrote `dev/ta1_fingerprint.py`, ran it at `84cbb01` and at HEAD, and the two
+are byte-identical: 53 concrete processes per card, same ids, same directories,
+same commands. Nothing anybody has on disk moves. First run leaked
+`build_schedule`'s own stdout into the comparison and showed a spurious diff,
+which was a useful thirty seconds of alarm.
+
+What I am confident about: no identity changed, the suite went 391 -> 454, and
+every removal was checked against the dependents in the superproject first.
+`aiq-magnet` already read `dag.nodes.values()` with a comment saying
+`build_schedule` returns instances keyed by process id -- it was written
+against the compiled shape and had been quietly relying on its cards
+gathering. This fixes it rather than breaking it.
+
+What I am not confident about, and left open on purpose: the version. The
+brief says 0.4.0, the maintainer said 0.3.1, and the changes genuinely are
+breaking for anyone reading `node_status` by name. Nothing in the refactor
+decides it, so I recorded the evidence in the handoff and left the number
+where the maintainer put it. Bumping is one line. I would rather hand back a
+visible decision than a quiet one.
+
+The other risk worth naming: the branches still are not pushed, in any of
+these repos. Same as it has been all week.

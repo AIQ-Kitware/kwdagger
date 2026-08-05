@@ -1,21 +1,23 @@
 """
-Characterization: the two batch scheduling paths must agree.
+A whole matrix and one row at a time must produce the same requests.
 
-kwdagger currently schedules a batch two ways. A pipeline with a gather
-compiles the whole matrix up front and submits a ``CompiledPipeline``; a
-pipeline without one configures and submits a row at a time. That is two
-implementations of the same job, and every review round has found them
-disagreeing somewhere -- stale row state, divergent Slurm layering, divergent
-normalization boundaries.
+Written as characterization, before the single-path refactor, when kwdagger
+scheduled a batch two ways: a pipeline with a gather compiled the whole matrix
+and submitted a ``CompiledPipeline``, while a pipeline without one configured
+and submitted a row at a time. Two implementations of one job, and every review
+round found them disagreeing somewhere -- stale row state, divergent Slurm
+layering, divergent normalization boundaries.
 
-These tests pin what the two paths must produce identically, so the single-path
-refactor can be shown to preserve behavior rather than merely to compile. Each
-case builds the *same* pipeline twice, once with an unrelated gather bolted on
-to force full-matrix compilation, and compares everything observable about the
-nodes that have nothing to do with that gather.
+The second implementation is gone: both sides below now reach the same
+compiler. That does not retire this file, it changes what it pins. Each case
+still builds the *same* pipeline twice, once with an unrelated gather bolted
+on, and compares everything observable about the nodes that gather has nothing
+to do with -- so it now asserts that compiling a matrix in one call and
+compiling its rows one at a time agree, and that declaring a gather changes
+nothing for the nodes around it.
 
-The gather is deliberately unrelated. Its only job is to select the engine.
-Nothing about an unrelated node's request should depend on it.
+The gather is deliberately unrelated. It used to select the engine; it now
+selects nothing, which is the point.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ import ubelt as ub
 from kwdagger.pipeline import GatherSpec, Pipeline, ProcessNode
 
 # ---------------------------------------------------------------------------
-# The pipeline under test, and the unrelated gather that switches engines
+# The pipeline under test, and the gather that used to switch engines
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +99,7 @@ def _rows_for(rows, with_gather):
 
 
 # ---------------------------------------------------------------------------
-# Observing a submitted batch, identically on either engine
+# Observing a submitted batch, identically either way
 # ---------------------------------------------------------------------------
 
 
@@ -130,7 +132,7 @@ def _job_slurm_options(job):
 
 
 def _node_record(node, job, root):
-    """Everything about one submitted node that the two paths must agree on."""
+    """Everything about one submitted node that must not depend on shape."""
     return _scrub(
         {
             'process_id': node.process_id,
@@ -145,10 +147,9 @@ def _node_record(node, job, root):
             'algo_config': dict(sorted(node.final_algo_config.items())),
             'perf_config': dict(sorted(node.final_perf_config.items())),
             'enabled': bool(node.enabled),
-            # What the scheduler is actually asked for. Deliberately not
-            # ``node.slurm_options``: that is an intermediate the two paths fill
-            # differently (see the test at the bottom of this file), and comparing
-            # it would pin an implementation detail rather than the request.
+            # What the scheduler is actually asked for, as the queue
+            # received it. ``node.effective_slurm_options`` is the resolved
+            # request; this checks that it survived submission intact.
             'effective_slurm': _job_slurm_options(job),
             'predecessors': sorted(
                 n.name for n in node.effective_predecessor_process_nodes()
@@ -171,8 +172,9 @@ def _submit(rows, with_gather, root, backend='serial', **submit_kw):
     """
     Schedule ``rows`` and report each subject node's request.
 
-    With a gather this compiles the full matrix; without one it configures and
-    submits a row at a time. Those are the two paths under comparison.
+    With a gather the whole matrix is compiled in one call; without one the
+    rows are configured and submitted one at a time, which is a one-row
+    compile each. Those are the two shapes under comparison.
     """
     dag = _build(with_gather)
     rows = _rows_for(rows, with_gather)
@@ -214,10 +216,11 @@ def _submit(rows, with_gather, root, backend='serial', **submit_kw):
             )
             queue = summary['queue']
             statuses.append(summary['node_status'])
-            # Collected per row: this path reuses one mutable node object, so
-            # after the loop every name reports only the final row's state.
-            # The compiler clones instead, which is the difference the
-            # refactor removes.
+            # Collected per row, because the template still reuses one node
+            # object per name: after the loop it describes only the final
+            # row. The compiled instances each row produced do keep their own
+            # state -- see test_single_scheduling_path.py -- but reading the
+            # template here is what makes the two sides comparable.
             _collect(dag.node_dict.values(), queue)
 
     return {
@@ -233,13 +236,13 @@ def _assert_parity(rows, tmp_path, **submit_kw):
     plain = _submit(rows, False, tmp_path / 'plain', **submit_kw)
     gathered = _submit(rows, True, tmp_path / 'gather', **submit_kw)
     assert set(plain['records']) == set(gathered['records']), (
-        'the same requests must exist on both paths'
+        'the same requests must exist either way'
     )
     for key in sorted(plain['records']):
         lhs, rhs = plain['records'][key], gathered['records'][key]
         for field in sorted(lhs):
             assert lhs[field] == rhs[field], (
-                f'{key[0]}.{field} differs between the two scheduling paths'
+                f'{key[0]}.{field} differs between a batch and a row at a time'
             )
     return plain, gathered
 
@@ -265,7 +268,7 @@ def test_multiple_independent_rows(tmp_path):
 
 
 def test_duplicate_equal_identities(tmp_path):
-    """Two identical requests must collapse the same way on both paths."""
+    """Two identical requests must collapse the same way either way."""
     row = {'producer.src_fpath': '/data/a'}
     _assert_parity([dict(row), dict(row)], tmp_path)
 
@@ -303,7 +306,7 @@ def test_manual_and_produced_equal_paths(tmp_path):
         for field in sorted(plain['records'][key]):
             assert (
                 plain['records'][key][field] == gathered['records'][key][field]
-            ), f'{key[0]}.{field} differs between the two scheduling paths'
+            ), f'{key[0]}.{field} differs between a batch and a row at a time'
 
 
 def test_a_node_default_and_a_row_override(tmp_path):
@@ -367,7 +370,7 @@ def test_slurm_options_layer_identically(tmp_path):
 
 
 def test_cache_root_relocation_changes_no_identity(tmp_path):
-    """Identity is root-relative, and must be so on both paths."""
+    """Identity is root-relative, and must be so either way."""
     ids = {}
     for location in ['one', 'two']:
         for with_gather in [False, True]:

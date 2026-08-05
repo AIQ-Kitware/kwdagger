@@ -69,6 +69,22 @@ common workflows, and testing/documentation practices.
   selection does not.
 - Tests and doctests rely on the demo pipeline data where appropriate; keep demo
   CLI behavior stable when making changes.
+- **The TA1 fingerprint**, `dev/ta1_fingerprint.py`, before and after any change
+  to identity, compilation, or command generation. It compiles real TA1 card
+  pipelines and prints every concrete process id, node directory, and command,
+  so a diff answers one narrow question: did this move a result directory
+  somebody already has? Run it from the repository holding the cards:
+  ```bash
+  # from aiq-eval-runner
+  python submodules/kwdagger/dev/ta1_fingerprint.py \
+      ta1/aiq-ta1-incubilate/cards/oc_lift_kwdagger.yaml \
+      ta1/aiq-ta1-incubilate/cards/oc_lomo_kwdagger.yaml > after.json
+  ```
+  A byte-identical fingerprint means "did not change what I care about", not
+  "is correct". Several real defects found during 0.3.x were invisible to it,
+  because they lived in arbitration, provenance, or Slurm options, none of
+  which reach a process id. Do not let a green fingerprint stand in for the
+  suite.
 
 ## Documentation
 - Sphinx sources live in `docs/` with `docs/source/index.rst` as the entry point.
@@ -130,10 +146,11 @@ compilation, generated commands, hashing, or artifact layout.
   qualified source/target names even when they do not create process ancestry.
 - **Gather is new compile-time many-to-one semantics:** gather selects a known
   set of source outputs, writes a manifest, and passes one manifest path to an
-  ordinary consumer. It is not historical result discovery. The current
-  implementation compiles the complete matrix before submission; validate that
-  path against the established row-at-a-time workflow rather than treating it
-  as settled architecture.
+  ordinary consumer. It is not historical result discovery. It is a feature
+  *of* a compiled matrix, not a mode of scheduling one: every pipeline compiles
+  the complete matrix before submission, and a gather-free one simply has no
+  collections to resolve. Whether a pipeline gathers must never decide how its
+  nodes are scheduled -- see "Authoritative pipeline representations".
 - **Prefer qualified grouping keys:** unqualified gather keys are shorthand and
   can become ambiguous when a pipeline expands. Resolve them uniquely or fail,
   and prefer storing/printing the canonical qualified form.
@@ -180,7 +197,7 @@ The questions, and who answers them:
 | Question | Answered by |
 | --- | --- |
 | Which dependencies are *possible* in this pipeline definition? | `Pipeline.proc_graph` — structural, and built before configuration |
-| Which jobs must finish before this concrete command runs? | `effective_predecessor_process_nodes()` and `Pipeline.effective_execution_graph()` — gating, queue dependencies, `.pred`/`.succ` links, compiled graph |
+| Which jobs must finish before this concrete command runs? | `CompiledPipeline.proc_graph` — gating, queue dependencies, `.pred`/`.succ` links. Compilation builds it from `effective_predecessor_process_nodes()`; everything downstream reads the graph rather than asking again. `Pipeline.effective_execution_graph()` is the same view over a template, for inspection. |
 | What computation is this? | `ProcessNode.depends` → `process_id` |
 | How was this value requested, and what supplied it? | `_depends_config()` → `job_config.json` |
 
@@ -248,17 +265,19 @@ identity must therefore agree on — compilation reports each as a user-facing
 - **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
   and output-path overrides. Slurm options have four layers -- pipeline base,
   matrix-row global, node declared default, that row's per-node override --
-  combined key-wise by `kwdagger.pipeline._slurm.layer_slurm_options`. Both
-  scheduling paths must call it: they used to layer differently, so adding an
-  unrelated gather changed what a node asked for. A row that omits any of this
-  state is requesting the declared default, never the previous row's value: `Pipeline.configure` resets
-  `__slurm_options__` from `_base_slurm_options` each call, because otherwise
-  "explicit options" and "no options" are indistinguishable in row order. These change how a process runs, not what it
-  computes. Note that not all of it is *on* the node: an ordinary pipeline
-  keeps top-level `__slurm_options__` on the `Pipeline`, and `log`,
-  `enable_links`, `write_invocations`, and `write_configs` are arguments to
-  `submit_jobs`. A duplicate request returns before any of that is applied, so
-  the snapshot takes them from the submitter rather than from node state.
+  and `kwdagger.pipeline.resolve_slurm_options` is the only thing that knows
+  their order. Compilation is the only caller, because it is the only scope
+  that holds all four; the result is stored as `node.effective_slurm_options`
+  and every consumer *reads* it. Do not re-layer a subset anywhere else: three
+  sites each knowing a different subset is what made `node.slurm_options` mean
+  "node-level" on one scheduling path and "node-level plus row-global" on the
+  other. A row that omits any of this state is requesting the declared
+  default, never the previous row's value, because otherwise "explicit
+  options" and "no options" are indistinguishable in row order. These change
+  how a process runs, not what it computes. `log`, `enable_links`,
+  `write_invocations`, and `write_configs` are the exception that stays off
+  the node: they are arguments to `submit_jobs`, so no compilation can know
+  them, and a duplicate request returns before any of them is applied.
   `skip_existing` is deliberately excluded: it selects which requests are made
   rather than what a request asks for, and reversing two calls that differ in
   it leaves the same queue.
@@ -280,6 +299,59 @@ identity must therefore agree on — compilation reports each as a user-facing
 Anything else reaching the command or the node directory without reaching
 identity is a payload defect, and compilation raises an internal-consistency
 error for it.
+
+### Authoritative pipeline representations
+
+kwdagger used to schedule a batch two ways. A pipeline with a gather compiled
+the whole matrix and submitted a `CompiledPipeline`; a pipeline without one
+configured and submitted a row at a time. Two implementations of one job, with
+a *compilation* feature deciding which execution architecture ran.
+
+Every defect the 0.3.x review rounds found was the same defect wearing a
+different hat -- stale row state, divergent Slurm layering, divergent
+normalization boundaries -- and it was never really any of those. It was
+**two authorities for one question, with nothing forcing them to agree.** The
+dual scheduler was removed for that reason, not because one path was wrong.
+
+There are two representations, and each owns different questions:
+
+| Representation | Answers |
+| --- | --- |
+| `Pipeline` | the *template*. Which nodes exist, which dependencies are possible (`proc_graph`), how the matrix is configured. Built before anything is concrete. |
+| `CompiledPipeline` | the *work*. Which concrete processes exist, what each one runs, and which jobs must finish before which -- `proc_graph`, keyed by `process_id`. |
+
+The rules that follow from that, all of which have been violated at least once:
+
+- **Everything is compiled.** `build_schedule` compiles the matrix and submits
+  the compiled graph, for every pipeline. `Pipeline.submit_jobs` compiles the
+  row it was configured with and submits *that*, so an interactive submission
+  is a matrix of one rather than a second scheduler. If you find yourself
+  writing a code path that schedules without compiling, you are re-creating
+  the thing this removed.
+- **Compilation arbitrates.** It holds the whole matrix, so it is the only
+  place that can report a conflict before a queue exists. The check in
+  `_runtime` is a defensive backstop for what compilation cannot see: several
+  separately compiled graphs sharing one queue, and the submission flags
+  above. It can never fire on the graph it was handed, because a `process_id`
+  is a key there.
+- **The compiled graph is the only dependency authority.** Queue ordering,
+  gating, `.pred`/`.succ` links, and a duplicate request's prerequisites all
+  come from walking its edges. Do not re-derive ancestry from node state at
+  submission time; the compiler already did that, and a second derivation is
+  free to disagree.
+- **Compiled containers are derived.** `CompiledPipeline.nodes` and
+  `nodes_by_name` are `cached_property` views over `proc_graph`. Do not add a
+  collection stored beside it -- that is the shape that goes stale the first
+  time anything mutates.
+- **A name is not a key on a compiled pipeline.** A matrix expands one template
+  into many processes, so `nodes` is keyed by `process_id`, `nodes_by_name`
+  maps to a *list*, and `submit_jobs` reports `node_status` by `process_id`.
+  Reaching for a name-keyed mapping here silently drops siblings.
+
+A compiled pipeline is also what makes a batch inspectable. The row-at-a-time
+loop reused one mutable node per name, so "configure a batch, then look at the
+pipeline" reported only the last row; the compiler clones, so every row is
+still there afterwards.
 
 ### Current gather shell constraints
 

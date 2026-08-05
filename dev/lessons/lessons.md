@@ -149,3 +149,59 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
     on the gather path if the old substitution is restored.
   - **Applies when:** adding a configuration layer, or adding a second path
     that resolves configuration.
+
+- **Lesson:** A precondition that keeps a second implementation alive deserves
+  a probe before a plan. `compile_configurations` refused a gather-free
+  pipeline, which is the only reason the row-at-a-time scheduler existed --
+  and nothing in the compiler was ever gather-specific. Bypassing the guard in
+  a ten-line throwaway script produced a correct compiled graph on the first
+  try, turning a phase budgeted as a rewrite into a five-line diff. The probe
+  would have been just as valuable had it failed; what it removes either way is
+  planning against a guess.
+  - **Evidence / MWE:** `tests/test_compile_without_gather.py`.
+  - **Applies when:** a refactor's cost estimate rests on what some code
+    *cannot* do, and nothing has tested that claim.
+
+- **Lesson:** A characterization test can pass through a refactor while
+  asserting nothing. `submit_jobs` keyed `node_status` by node name on one
+  scheduling path and by `process_id` on the other; the parity harness filtered
+  statuses by name, so on the compiled side it filtered an empty dict and
+  compared it to another empty dict. The field looked covered for as long as
+  the two paths disagreed about it most. When comparing two implementations,
+  assert that the collected records are non-empty before asserting they match.
+  - **Evidence / MWE:** `tests/test_scheduler_parity.py`, whose `_assert_parity`
+    checks the record *sets* are equal before comparing fields.
+  - **Applies when:** writing parity or characterization tests that select
+    subsets of a result by key.
+
+- **Lesson:** The fix for a duplicate-authority defect must not introduce one.
+  Making `Pipeline.submit_jobs` delegate to the compiler needs the row it was
+  configured with; the obvious implementation reconstructs that row from node
+  state afterwards. That is a second answer to "what was this row" inside a
+  refactor whose purpose is removing second answers, and it silently loses the
+  row-global `__slurm_options__`, which `configure` pops before the nodes ever
+  see it. Remembering the input is cheaper and has no second authority in it.
+  - **Evidence / MWE:** `tests/test_single_scheduling_path.py`
+    `test_the_compiled_row_is_the_row_as_given`.
+  - **Applies when:** a caller needs to re-drive a computation from state that
+    was derived from an input it could have kept instead.
+
+- **Lesson:** A claim that one source outranks another is untested until the
+  two disagree. The compiled graph is the authority on execution dependencies,
+  but the compiler builds its edges from node state, so in normal use the two
+  always agree and any test of the claim passes for the wrong reason. Provoking
+  the disagreement -- removing an edge from a compiled graph whose nodes still
+  describe it -- looks artificial and is exactly what the claim means.
+  - **Evidence / MWE:** `tests/test_compiled_graph_authority.py`
+    `test_an_edge_removed_from_the_graph_is_not_waited_on`.
+  - **Applies when:** asserting precedence between two representations that a
+    single code path keeps in sync.
+
+- **Lesson:** A validation procedure that lives only in journal prose is lost.
+  The "TA1 fingerprint" gate was run for six review rounds and referenced in
+  entry after entry, and the next session could not find it, because it had
+  never been anything but a sequence of commands somebody typed. It is two
+  cards compiled and dumped -- thirty lines. Write the gate down as a script in
+  the repository the first time you rely on it, not the sixth.
+  - **Evidence / MWE:** `dev/ta1_fingerprint.py`, named in `AGENTS.md`.
+  - **Applies when:** a check earns a place in your routine.
