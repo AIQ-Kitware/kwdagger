@@ -348,8 +348,13 @@ def test_compilation_cost_does_not_grow_with_the_pipeline(n_nodes, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Sharing a queue between calls that disagree about skip_existing
+# Sharing a queue between independent calls
 # ---------------------------------------------------------------------------
+#
+# Two submissions to one queue are two independent operational requests, not
+# one transaction. Kwdagger does not promise they combine into a single
+# coherent DAG, and it does not reject the second for differing from the
+# first. A caller wanting an independent plan uses a separate queue.
 
 
 def _partially_existing(tmp_path):
@@ -364,65 +369,109 @@ def _partially_existing(tmp_path):
 
 
 @pytest.mark.parametrize('flags', [(True, False), (False, True)], ids=str)
-def test_one_queue_two_skip_existing_answers_is_refused(flags, tmp_path):
+def test_one_queue_two_skip_existing_answers_is_allowed(flags, tmp_path):
     """
-    The job is created once, by whichever call comes first, and keeps that
-    call's dependencies. So a queue shared between a skipping call and a
-    rerunning one used to end up with a different shape depending on their
-    order -- and in one order the consumer had no dependency on a producer the
-    queue was about to rerun, so it could read the stale output.
-
-    Rejected in both orders now, which is the same answer either way.
+    A partial rerun is a normal way to work. The first call may skip a
+    producer whose output exists and queue the consumer; a later call may
+    rerun that producer. Kwdagger does not reconcile the two, and must not
+    refuse the second for saying something different.
     """
-    compiled, _producer, _consumer = _partially_existing(tmp_path)
+    compiled, producer, consumer = _partially_existing(tmp_path)
     first, second = flags
     queue = compiled.submit_jobs(
         queue={'backend': 'serial', 'name': 'mixed'},
         skip_existing=first,
         **SUBMIT_KW,
     )['queue']
-    with pytest.raises(ValueError, match='queued prerequisites'):
-        compiled.submit_jobs(queue=queue, skip_existing=second, **SUBMIT_KW)
-
-
-@pytest.mark.parametrize('skip', [True, False])
-def test_one_queue_and_one_answer_is_an_ordinary_duplicate(skip, tmp_path):
-    """
-    The complement, and the reason this cannot simply reject a second
-    submission: two calls that agree queue the same thing, and the second is a
-    duplicate rather than a conflict.
-    """
-    compiled, _producer, consumer = _partially_existing(tmp_path)
-    first = compiled.submit_jobs(
-        queue={'backend': 'serial', 'name': 'agreeing'},
-        skip_existing=skip,
-        **SUBMIT_KW,
+    summary = compiled.submit_jobs(
+        queue=queue, skip_existing=second, **SUBMIT_KW
     )
-    again = compiled.submit_jobs(
-        queue=first['queue'], skip_existing=skip, **SUBMIT_KW
-    )
-    assert again['node_status'][consumer.process_id] == 'duplicate_submission'
+    # Whatever each call queued, it queued. Nothing raised.
+    assert set(summary['node_status']) == {
+        producer.process_id,
+        consumer.process_id,
+    }
 
 
-def test_the_queued_dependencies_are_the_ones_arbitration_compared(tmp_path):
+def test_an_already_queued_job_is_left_alone(tmp_path):
     """
-    One evaluation, used twice. A job's dependencies and the set arbitration
-    checks have to be the same list, or the check is guarding something other
-    than what was queued.
+    The whole cross-call rule: already in the queue means already submitted.
+    A later call does not reshape it, and does not re-report it as new.
     """
     compiled, producer, consumer = _partially_existing(tmp_path)
-    summary = compiled.submit_jobs(
-        queue={'backend': 'serial', 'name': 'queued'},
+    first = compiled.submit_jobs(
+        queue={'backend': 'serial', 'name': 'reuse'},
         skip_existing=True,
         **SUBMIT_KW,
     )
-    job = summary['queue'].named_jobs[consumer.process_id]
-    assert [getattr(d, 'name', d) for d in (job.depends or [])] == []
-    registry = summary['queue'].__kwdagger_requests__['by_process_id']
-    assert (
-        registry[consumer.process_id]['snapshot']['queued_prerequisites'] == []
+    queue = first['queue']
+    assert first['node_status'][consumer.process_id] == 'new_submission'
+    consumer_job = queue.named_jobs[consumer.process_id]
+    before = list(consumer_job.depends or [])
+
+    second = compiled.submit_jobs(queue=queue, skip_existing=False, **SUBMIT_KW)
+    # The producer was skipped the first time, so it is genuinely new now.
+    assert second['node_status'][producer.process_id] == 'new_submission'
+    # The consumer was already there, and is untouched.
+    assert second['node_status'][consumer.process_id] == 'duplicate_submission'
+    assert list(consumer_job.depends or []) == before
+
+
+def test_a_disabled_request_does_not_poison_a_later_enabled_one(tmp_path):
+    """
+    Disabling a node in one call says nothing about the next call. There is no
+    cross-call memory to disagree with.
+    """
+    disabled = _chain_pipeline().compile_configurations(
+        [{'producer.__enabled__': False}], root_dpath=tmp_path, cache=False
     )
-    # The computation still requires it; only the queue does not contain it.
-    assert registry[consumer.process_id]['snapshot']['prerequisites'] == [
-        producer.process_id
-    ]
+    enabled = _chain_pipeline().compile_configurations(
+        [{}], root_dpath=tmp_path, cache=False
+    )
+    (producer,) = enabled.nodes_by_name['producer']
+    queue = disabled.submit_jobs(
+        queue={'backend': 'serial', 'name': 'poison'}, **SUBMIT_KW
+    )['queue']
+    summary = enabled.submit_jobs(queue=queue, **SUBMIT_KW)
+    assert summary['node_status'][producer.process_id] == 'new_submission'
+
+
+@pytest.mark.parametrize(
+    'flag', ['log', 'enable_links', 'write_invocations', 'write_configs']
+)
+def test_bookkeeping_flags_may_differ_between_calls(flag, tmp_path):
+    """
+    These are per-call choices. The first call created the job and its
+    bookkeeping; a second call that chooses differently is not an error, it
+    just finds the job already there.
+    """
+    compiled = _chain_pipeline().compile_configurations(
+        [{}], root_dpath=tmp_path, cache=False
+    )
+    kwargs = {
+        'log': True,
+        'enable_links': False,
+        'write_invocations': False,
+        'write_configs': False,
+    }
+    queue = compiled.submit_jobs(
+        queue={'backend': 'serial', 'name': 'flags'}, **kwargs
+    )['queue']
+    summary = compiled.submit_jobs(
+        queue=queue, **{**kwargs, flag: not kwargs[flag]}
+    )
+    assert set(summary['node_status'].values()) == {'duplicate_submission'}
+
+
+def test_no_request_registry_is_attached_to_the_queue(tmp_path):
+    """
+    There is no cross-call request history to keep, so none is kept. Stated as
+    a test because the machinery is easy to reintroduce by accident.
+    """
+    compiled = _chain_pipeline().compile_configurations(
+        [{}], root_dpath=tmp_path, cache=False
+    )
+    queue = compiled.submit_jobs(
+        queue={'backend': 'serial', 'name': 'no-registry'}, **SUBMIT_KW
+    )['queue']
+    assert not hasattr(queue, '__kwdagger_requests__')

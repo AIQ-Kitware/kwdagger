@@ -32,11 +32,6 @@ from typing import TYPE_CHECKING, Any
 import networkx as nx
 import ubelt as ub
 
-from kwdagger.pipeline._duplicates import (
-    DuplicatePolicy,
-    coerce_duplicate_policy,
-    compare_duplicate_requests,
-)
 from kwdagger.pipeline._config_values import PathSpec, normalize_config
 from kwdagger.pipeline._connections import (
     _UNSET,
@@ -44,6 +39,11 @@ from kwdagger.pipeline._connections import (
     GatherSpec,
     InputNode,
     OutputNode,
+)
+from kwdagger.pipeline._duplicates import (
+    DuplicatePolicy,
+    coerce_duplicate_policy,
+    compare_duplicate_requests,
 )
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._runtime import QueueSpec

@@ -8,12 +8,18 @@ the graph in topological order, writes the ``invoke.sh`` and
 creates the ``.pred`` / ``.succ`` links that make the result directory
 navigable.
 
-The compiled graph is the sole authority for what must run first. Every
-dependency question -- queue ordering, whether an ancestor will exist, which
-``.pred``/``.succ`` links to write, what a duplicate request's prerequisites
-were -- is answered by walking the edges of the graph passed in. Nothing here
-re-derives ancestry from node state; a second derivation of the edges this
+The compiled graph is the sole authority for what must run first. Queue
+ordering, whether an ancestor will exist, and which ``.pred``/``.succ`` links
+to write are all answered by walking the edges of the graph passed in. Nothing
+here re-derives ancestry from node state; a second derivation of the edges this
 function is already walking would be free to disagree with them.
+
+Submission is not transactional and keeps no history. A call submits the
+compiled request it was given; if a job is already in the queue it has been
+submitted, and that is the entire cross-call rule. Two calls sharing a queue
+are two independent operational requests -- a partial rerun is a normal way to
+work -- and kwdagger does not promise they combine into one coherent DAG, nor
+reject the second for differing from the first.
 
 It deliberately knows nothing about :class:`~kwdagger.pipeline.Pipeline` or
 :class:`~kwdagger.pipeline.CompiledPipeline`, and imports the leaf modules
@@ -31,10 +37,6 @@ from typing import TYPE_CHECKING, Any, TypeAlias, cast
 import networkx as nx
 import ubelt as ub
 
-from kwdagger.pipeline._agreement import (
-    check_execution_agreement,
-    execution_snapshot,
-)
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 
 if TYPE_CHECKING:
@@ -152,91 +154,28 @@ def submit_jobs(
     #: compiled pipeline has to keep describing what was requested.
     active: dict[Any, bool] = {}
 
-    assert isinstance(proc_graph, nx.DiGraph)
-    # A defensive backstop, not the arbitration itself. Compilation is the
-    # authority: it holds the whole matrix, so it catches a conflict before a
-    # queue exists, and within one compiled graph a process_id appears exactly
-    # once -- this can never fire on the graph it was handed. What it does
-    # cover is a caller submitting several separately compiled graphs to one
-    # shared queue, where no single compilation saw both requests. The
-    # registry hangs off the queue for that reason: the queue is what survives
-    # between submissions, whoever is driving them.
-    registry: dict[str, Any] | None = getattr(
-        queue, '__kwdagger_requests__', None
-    )
-    if registry is None:
-        # Counted per submission rather than per registered node: the number a
-        # user can act on is which call to ``submit_jobs`` -- which row of
-        # their loop -- not how many nodes happened to be registered before
-        # this one.
-        registry = {'submissions': 0, 'by_process_id': {}}
-        queue.__kwdagger_requests__ = registry  # type: ignore
-    registry['submissions'] += 1
-    requests: dict[str, Any] = registry['by_process_id']
-    submission_label = f'request {registry["submissions"]}'
-
-    # State this call carries that no node does: the bookkeeping flags are
-    # arguments here, and a duplicate request returns before any of them is
-    # applied, so a disagreement is silently first-call-wins. Slurm options
-    # are no longer among them -- every layer is resolved onto the node.
-    # ``skip_existing`` is deliberately absent: it selects which requests are
-    # made rather than what a request asks for. It is not free of consequence
-    # for the queue, though -- see ``queued_prerequisites`` below.
-    submission_state: dict[str, Any] = {
-        'log': log,
-        'enable_links': enable_links,
-        'write_invocations': write_invocations,
-        'write_configs': write_configs,
-    }
+    # No cross-call request registry, and no comparison against earlier
+    # submissions. Two calls sharing a queue are two independent operational
+    # requests, not one transaction: if a job is already in the queue it has
+    # been submitted, and that is the whole rule.
+    #
+    # There used to be a registry hanging off the queue, comparing each node
+    # against the same identity submitted by an earlier call. It rejected a
+    # second call that differed in ``skip_existing``, in bookkeeping flags, or
+    # in enabled state -- differences a user is entitled to make, and none of
+    # which kwdagger promises to reconcile across invocations. Partial reruns
+    # are a normal way to work: existing outputs may satisfy upstream work,
+    # and a later call may rerun a producer without reshaping what an earlier
+    # call already queued. A caller wanting an independent plan uses a
+    # separate queue.
 
     for node_name in node_order:
         node = proc_graph.nodes[node_name]['node']
-        # Snapshot before anything below can disable the node or rewrite its
-        # state, so what is compared is what the user asked for.
-        _procid = node.process_id
         # The compiled graph is the authority on what must run first. Asking
         # the node again would be a second derivation of the edges this
         # function is walking, free to drift from them.
         pred_names = list(proc_graph.predecessors(node_name))
         pred_nodes = [proc_graph.nodes[name]['node'] for name in pred_names]
-        # Two different questions, and the registry has to hold both. The
-        # compiled predecessors are what this computation requires. The queued
-        # ones are which of those prerequisite jobs *this call* put in the
-        # queue -- a predecessor skipped because its output already exists is
-        # required but not queued.
-        #
-        # Only the first used to be compared, so two calls to one queue that
-        # differed in ``skip_existing`` agreed on the request, the second was
-        # recognized as a duplicate, and the job created by the first kept its
-        # dependency set. Whichever call came first decided whether a consumer
-        # waits for a producer the other call queued for a rerun -- and in one
-        # order the consumer could run first and read the stale output.
-        _queued_prereqs = [
-            pred.process_id
-            for name, pred in zip(pred_names, pred_nodes)
-            if active.get(name)
-        ]
-        _snapshot = execution_snapshot(
-            node,
-            submission_state,
-            prerequisites=[pred.process_id for pred in pred_nodes],
-            queued_prerequisites=_queued_prereqs,
-        )
-        _previous = requests.get(_procid)
-        if _previous is None:
-            requests[_procid] = {
-                'snapshot': _snapshot,
-                'label': submission_label,
-            }
-        else:
-            check_execution_agreement(
-                _previous['snapshot'],
-                _snapshot,
-                template_name=node.name,
-                process_id=_procid,
-                canonical_label=_previous['label'],
-                duplicate_label=submission_label,
-            )
         # print('-----')
         # print(f'node_name={node_name}')
         # print(f'node.enabled={node.enabled}')
@@ -276,9 +215,15 @@ def submit_jobs(
         else:
             node_procid = node.process_id
             node_job = None
-            # Computed above, so the queue gets exactly what arbitration
-            # compared rather than a second evaluation of the same question.
-            pred_node_procids = _queued_prereqs
+            # Predecessors this call actually queued. A predecessor skipped
+            # because its output already exists is not in the queue, so it
+            # cannot be depended on -- an existing output satisfies the
+            # dependency, which is the point of skip_existing.
+            pred_node_procids = [
+                pred.process_id
+                for name, pred in zip(pred_names, pred_nodes)
+                if active.get(name)
+            ]
             is_slurm = 'slurm' in queue.__class__.__name__.lower()
             has_gather = any(
                 input_node._gather_members is not None

@@ -85,10 +85,6 @@ def _paths(value: Mapping[str, Any]) -> dict[str, str]:
     return {key: str(item) for key, item in dict(value).items()}
 
 
-def _identity(value: Any) -> Any:
-    return value
-
-
 #: The non-identity state worth naming when two requests differ, as
 #: ``(label a user recognizes, how to read it off a node)``. Diagnostic only:
 #: nothing here reaches ``process_id``, and nothing here decides what runs.

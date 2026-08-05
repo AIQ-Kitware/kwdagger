@@ -83,6 +83,10 @@ from kwdagger.pipeline._connections import (  # NOQA: F401
     _effective_origins,
     _produced_origins,
 )
+from kwdagger.pipeline._duplicates import (
+    DUPLICATE_POLICIES,
+    coerce_duplicate_policy,
+)
 from kwdagger.pipeline._logical import (  # NOQA: F401
     Pipeline,
     _resolve_pipeline,
@@ -93,10 +97,6 @@ from kwdagger.pipeline._process import (  # NOQA: F401
     _classvar_init,
     memoize_configured_method,
     memoize_configured_property,
-)
-from kwdagger.pipeline._duplicates import (
-    DUPLICATE_POLICIES,
-    coerce_duplicate_policy,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import (
