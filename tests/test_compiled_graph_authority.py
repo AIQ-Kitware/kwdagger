@@ -16,7 +16,6 @@ collection to keep in step with it.
 from __future__ import annotations
 
 import networkx as nx
-import pytest
 
 from kwdagger.pipeline import Pipeline, ProcessNode
 from kwdagger.pipeline._runtime import submit_jobs
@@ -134,30 +133,6 @@ def test_the_links_written_follow_the_graph(tmp_path):
     text = queue.finalize_text()
     assert f'.pred/producer/{producer.process_id}' in text
     assert f'.succ/consumer/{consumer.process_id}' in text
-
-
-def test_prerequisites_compared_at_submission_come_from_the_graph(tmp_path):
-    """
-    Arbitration's prerequisite comparison reads the graph too. Two graphs that
-    disagree about an edge are two different requests, even though the nodes
-    they carry are identically configured.
-    """
-    first = _compile(tmp_path)
-    (producer,) = first.nodes_by_name['producer']
-    (consumer,) = first.nodes_by_name['consumer']
-    queue = _submit(first, 'prereq')['queue']
-
-    second = _compile(tmp_path)
-    graph = second.proc_graph.copy()
-    graph.remove_edge(producer.process_id, consumer.process_id)
-    with pytest.raises(ValueError, match='execution prerequisites'):
-        submit_jobs(
-            graph,
-            queue=queue,
-            enable_links=False,
-            write_invocations=False,
-            write_configs=False,
-        )
 
 
 def test_the_compiled_containers_are_derived_from_the_graph(tmp_path):

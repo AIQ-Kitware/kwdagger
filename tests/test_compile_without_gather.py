@@ -15,8 +15,6 @@ Parity with the historical row-at-a-time path is asserted separately, in
 
 from __future__ import annotations
 
-import pytest
-
 from kwdagger.pipeline import Pipeline, ProcessNode
 
 
@@ -92,24 +90,32 @@ def test_identical_rows_canonicalize_to_one_process(tmp_path):
     assert len(_nodes_named(compiled, 'consumer')) == 1
 
 
-def test_rows_that_share_an_identity_but_disagree_on_execution_are_refused(
-    tmp_path,
-):
+def test_rows_that_share_an_identity_collapse_to_the_first(tmp_path):
     """
-    Arbitration is not a gather feature either.
+    The duplicate policy is not a gather feature either.
 
     ``__enabled__`` is deliberately outside ``process_id``, so two rows can
-    compile to one process and still disagree about whether it runs. Without a
-    check, whichever row came first would silently win.
+    compile to one process and still differ about whether it runs. The first
+    row decides, here as anywhere.
     """
     rows = [
         {'producer.src_fpath': '/data/a', 'producer.__enabled__': True},
         {'producer.src_fpath': '/data/a', 'producer.__enabled__': False},
     ]
-    with pytest.raises(ValueError, match='__enabled__'):
-        _linear_pipeline().compile_configurations(
-            rows, root_dpath=tmp_path, cache=False
+    compiled = _linear_pipeline().compile_configurations(
+        rows, root_dpath=tmp_path, cache=False
+    )
+    (producer,) = compiled.nodes_by_name['producer']
+    assert producer.enabled is True
+
+    (producer,) = (
+        _linear_pipeline()
+        .compile_configurations(
+            list(reversed(rows)), root_dpath=tmp_path, cache=False
         )
+        .nodes_by_name['producer']
+    )
+    assert producer.enabled is False
 
 
 def test_dependency_only_edges_survive_cloning(tmp_path):

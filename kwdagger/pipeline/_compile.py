@@ -916,10 +916,34 @@ def _compile_pipeline_configurations(
     # first would make execution depend on matrix order.
     proc_graph = nx.DiGraph()
     for process_id, node in concrete_by_process_id.items():
+        # An internal invariant, not a policy: a node is filed under the
+        # identity it reported, so if it now reports a different one it
+        # changed its own identity after being canonicalized and the graph
+        # key no longer names what it holds. That is a defect in kwdagger,
+        # distinct from two legitimate requests differing, which is the
+        # user's business and handled by ``duplicate_policy``.
+        if node.process_id != process_id:
+            raise AssertionError(
+                f'Internal consistency error: node {node.name!r} was '
+                f'canonicalized as {process_id!r} but now reports '
+                f'{node.process_id!r}. A concrete node must not change its '
+                'own identity during compilation. Please report this.'
+            )
         proc_graph.add_node(process_id, node=node)
     for process_id, node in concrete_by_process_id.items():
         for pred in node.effective_predecessor_process_nodes():
             proc_graph.add_edge(pred.process_id, process_id)
+
+    missing = [
+        key for key in proc_graph.nodes if key not in concrete_by_process_id
+    ]
+    if missing:
+        raise AssertionError(
+            f'Internal consistency error: the compiled graph references '
+            f'{missing!r}, which no concrete node was built for. An effective '
+            'predecessor resolved to an identity outside the compiled '
+            'matrix. Please report this.'
+        )
 
     if not nx.is_directed_acyclic_graph(proc_graph):
         raise ValueError('Compiled process graph is not acyclic')

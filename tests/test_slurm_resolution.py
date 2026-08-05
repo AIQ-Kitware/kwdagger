@@ -158,20 +158,28 @@ def test_a_row_that_omits_options_resets_to_the_base(tmp_path):
     assert by_model['b'].effective_slurm_options == {'partition': 'base'}
 
 
-def test_rows_that_disagree_about_resources_are_refused(tmp_path):
+def test_rows_that_differ_about_resources_take_the_first(tmp_path):
     """
-    Slurm options are outside ``process_id``, so identical processes asking
-    for different resources cannot be arbitrated by the payload. Arbitration
-    compares the resolved request, which is the only comparison that sees
-    every layer.
+    Slurm options are outside ``process_id``, so two rows asking for
+    different resources are one job and the first supplies the request.
+    Under ``duplicate_policy='error'`` the resolved values are what get
+    compared, which is the only comparison that sees every layer.
     """
     dag = _pipeline()
     rows = [
         {'predict.model': 'm', '__slurm_options__': {'gres': 'gpu:1'}},
         {'predict.model': 'm', '__slurm_options__': {'gres': 'gpu:2'}},
     ]
+    compiled = dag.compile_configurations(
+        rows, root_dpath=tmp_path, cache=False
+    )
+    (node,) = compiled.nodes_by_name['predict']
+    assert node.effective_slurm_options['gres'] == 'gpu:1'
+
     with pytest.raises(ValueError, match='__slurm_options__'):
-        dag.compile_configurations(rows, root_dpath=tmp_path, cache=False)
+        _pipeline().compile_configurations(
+            rows, root_dpath=tmp_path, cache=False, duplicate_policy='error'
+        )
 
 
 def test_the_same_request_at_different_levels_is_agreement(tmp_path):

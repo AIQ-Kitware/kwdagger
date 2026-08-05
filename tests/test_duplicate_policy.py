@@ -345,3 +345,76 @@ def test_an_unknown_policy_is_refused(tmp_path):
         _compile(
             _solo_pipeline, _perf_rows(), tmp_path, duplicate_policy='strict'
         )
+
+
+# ---------------------------------------------------------------------------
+# Internal invariants are not policy
+# ---------------------------------------------------------------------------
+#
+# A difference between two legitimate equal-identity requests is policy. A
+# contradiction within one request, or in the compiled graph, is a kwdagger
+# defect. These stay unconditional under every policy.
+
+
+def test_a_node_changing_its_own_identity_is_refused_under_every_policy(
+    monkeypatch, tmp_path
+):
+    import itertools
+
+    from kwdagger.pipeline import _compile
+
+    counter = itertools.count()
+    original = _compile.ProcessNode.process_id
+
+    def drifting(self):
+        return f'{original.__get__(self, type(self))}_{next(counter)}'
+
+    monkeypatch.setattr(_compile.ProcessNode, 'process_id', property(drifting))
+    for policy in ('first', 'warn', 'error'):
+        with pytest.raises(AssertionError, match='Internal consistency error'):
+            _solo_pipeline().compile_configurations(
+                [{'predict.model': 'm'}],
+                root_dpath=tmp_path,
+                cache=False,
+                duplicate_policy=policy,
+            )
+
+
+def test_configuration_that_cannot_be_normalized_is_still_refused(tmp_path):
+    """Not a difference between requests -- a request that cannot be read."""
+    with pytest.raises(TypeError):
+        _compile(_solo_pipeline, [{b'predict.model': 'm'}], tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# The default costs nothing
+# ---------------------------------------------------------------------------
+
+
+def test_first_builds_no_comparison(monkeypatch, tmp_path):
+    """
+    Not a timing assertion: the comparison is simply never called. Under the
+    default, canonicalization is a dict lookup, and the provenance and command
+    reads a comparison would do never happen.
+    """
+    from kwdagger.pipeline import _compile
+
+    calls = []
+    original = _compile.compare_duplicate_requests
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_compile, 'compare_duplicate_requests', counted)
+
+    rows = _perf_rows() * 4
+    _compile_rows = _solo_pipeline().compile_configurations
+    _compile_rows(rows, root_dpath=tmp_path, cache=False)
+    assert calls == [], 'the default policy must not compare anything'
+
+    with pytest.warns(UserWarning):
+        _solo_pipeline().compile_configurations(
+            rows, root_dpath=tmp_path, cache=False, duplicate_policy='warn'
+        )
+    assert calls, 'warn does compare'
