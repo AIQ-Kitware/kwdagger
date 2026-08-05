@@ -1439,3 +1439,64 @@ four layers calls it", not "there is one call site". I stated the weaker,
 more brittle version and then broke it myself within one commit.
 
 TA1 fingerprint byte-identical. 475 passed / 18 skipped.
+
+## 2026-08-05 16:44:02 -0400
+
+The maintainer read the finished refactor and stopped it. The duplicate
+arbitration I built -- and that two review rounds pushed me to make stricter --
+encodes a policy opinion that is not this project's. Rejecting two matrix rows
+because they differ in `perf_params` is not a safeguard here; it is refusing
+to run somebody's grid over a distinction they deliberately kept out of the
+hash. The phrase that landed: grad-student research grade, not enterprise
+grade. We record what the thing was run with. We don't have to reject.
+
+I want to be honest about how I got here, because "the reviewers pushed me" is
+only half of it. The other half is that I found the strictness *satisfying*.
+Every rejection I added made a crisper invariant, produced a better error
+message, and closed a case in a table. The authority table in the handoff was
+genuinely good work and it made rejection feel like the natural conclusion of
+it. What I never did was ask whether the guarantee being protected was one
+kwdagger offers. Two external reviews didn't ask either -- they were reasoning
+about workflow engines, correctly, about a project that isn't one.
+
+The tell was there and I wrote it myself. `AssertionError: Internal
+consistency error` for two requests that finalize different commands under one
+identity. That is two legitimate requests differing, which is policy, but
+calling it an internal consistency error made it look like a defect nobody
+could argue with. I picked that wording, it survived several reviews
+unquestioned, and it is the single thing that most made the rules look
+unremovable. Reserve internal errors for contradictions inside one request.
+
+The rework itself was smaller than I expected, which is its own signal: the
+authority refactor survives intact. One compilation path, one normalization
+boundary, one Slurm resolver, the compiled graph owning execution
+dependencies, disconnected cloning, derived containers -- all of it stays and
+none of it depended on rejecting anything. What came out was the arbitration
+built on top: 372 lines of `_agreement.py`, the cross-call queue registry, and
+`queued_prerequisites`, which I had added *one commit earlier* to make the
+cross-call check more thorough. That is the clearest evidence I was
+accelerating in the wrong direction right up to the moment I was stopped.
+
+`_duplicates.py` is 210 lines and does not decide anything. It compares and
+formats; the compiler picks `first`, `warn`, or `error`. The comparison table
+is the one piece of the old framework worth keeping, and it now only runs when
+a user asks. Naming mattered here: not `permissive`/`strict`, because that
+would say the strict one is correct and the default is a concession. `error`
+is an extra constraint someone requested.
+
+One thing I decided rather than deferred: matrix order selecting the
+representative is documented as intended, and the tests assert per-order
+behavior rather than order independence. My earlier tests asserted the
+opposite, and asserting order independence is what turned a diagnostic into a
+rule -- once you have promised order cannot matter, every difference has to be
+rejected to keep the promise.
+
+What I am less sure about: whether the `error` policy should eventually be
+per-field rather than all-or-nothing. I kept the implementation private and
+compact so that can be added without committing to it now. Also unsure whether
+`warn` should default to once-per-process-id or once-per-difference-class in a
+large matrix; right now a pathological grid could emit a lot of warnings. It
+is opt-in, so I left it.
+
+TA1 fingerprint byte-identical, which is the right outcome: this changed
+duplicate-handling policy, not identity. 500 passed / 18 skipped, up from 475.

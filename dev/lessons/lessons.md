@@ -277,3 +277,39 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
   commit or write the note as an intention rather than a fact.
   - **Applies when:** documenting why something is safe to exclude from a
     check.
+
+- **Lesson:** "These two requests are indistinguishable, so we cannot know
+  which the user meant" is usually wrong. They meant the first one. Kwdagger
+  spent four review rounds turning first-request-wins -- the correct behavior
+  for a parameter-grid runner -- into a series of rejections, each
+  individually well-argued from the premise that order-dependent selection is
+  a defect. It is not. Deduplication is core behavior; rejection is an
+  optional diagnostic. Before adding a safeguard, ask whether it is needed to
+  execute the ordered grid in *this* compilation, or whether it is enforcing
+  artifact integrity or coherence across independent executions. The latter is
+  out of scope.
+  - **Evidence / MWE:** `tests/test_duplicate_policy.py`; the policy section
+    of `AGENTS.md`.
+  - **Applies when:** two legitimate requests differ in something the identity
+    model deliberately excludes.
+
+- **Lesson:** Review pressure is directional, and reviewers optimize for the
+  system they imagine. Two thorough external reviews of the authority refactor
+  both pushed toward stricter arbitration, and both were internally correct --
+  about a workflow engine with data-integrity guarantees, which kwdagger is
+  not and does not want to be. Neither asked whether the guarantee was in
+  scope. When a review says "add a check", the first question is whether the
+  project promises the thing the check protects.
+  - **Applies when:** acting on review findings that expand a contract rather
+    than fix a violation of one.
+
+- **Lesson:** Do not classify a policy rejection as an internal consistency
+  error. The old arbitration raised `AssertionError: Internal consistency
+  error` for two requests that finalized different commands under one
+  identity. That is two legitimate requests differing -- policy -- but the
+  wording made it look like a defect nobody could argue with, and it survived
+  several reviews unquestioned for that reason. Reserve internal errors for
+  contradictions *within* one request or in the compiled graph.
+  - **Evidence / MWE:** `tests/test_duplicate_policy.py`, the internal
+    invariants section.
+  - **Applies when:** choosing an exception type for a check you are adding.
