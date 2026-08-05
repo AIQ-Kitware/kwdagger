@@ -2,7 +2,14 @@
 We [keep a changelog](https://keepachangelog.com/en/1.0.0/).
 We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## Version 0.3.1 - Unreleased
+## Version 0.4.0 - Unreleased
+
+This is a minor bump rather than a patch because the single-scheduling-path
+refactor changes what several public calls return. No *identity* changes --
+the TA1 card pipelines compile to byte-identical process ids, node
+directories, and commands -- so no result directory moves and no cache is
+invalidated. What breaks is code that reads the shape of a return value; see
+the four entries marked **breaking** below.
 
 ### Changed
 
@@ -23,21 +30,22 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   one defect: **two authorities for one question, with nothing forcing them to
   agree.** Neither path was wrong; having two was.
 
-* `build_schedule` now returns a `CompiledPipeline` for every pipeline, where
-  it previously returned the template `Pipeline` unless a gather was present.
-  A compiled pipeline holds the concrete processes, so `nodes` is keyed by
-  `process_id` rather than by name. `CompiledPipeline.nodes_by_name` is added
-  for the name lookup `Pipeline.node_dict` used to serve; it maps to a *list*,
-  because a matrix expands one template into many processes.
+* **Breaking:** `build_schedule` now returns a `CompiledPipeline` for every
+  pipeline, where it previously returned the template `Pipeline` unless a
+  gather was present. A compiled pipeline holds the concrete processes, so
+  `nodes` is keyed by `process_id` rather than by name.
+  `CompiledPipeline.nodes_by_name` is added for the name lookup
+  `Pipeline.node_dict` used to serve; it maps to a *list*, because a matrix
+  expands one template into many processes.
 
-* `submit_jobs` reports `node_status` keyed by `process_id` rather than by node
-  name, and a batch now returns one matrix-wide summary instead of one summary
-  per row. A name cannot key a compiled matrix without silently overwriting
-  siblings, and `process_id` is the key `queue.named_jobs` and
-  `CompiledPipeline.nodes` already use -- `compiled.nodes[pid].name` recovers
-  the name.
+* **Breaking:** `submit_jobs` reports `node_status` keyed by `process_id`
+  rather than by node name, and a batch now returns one matrix-wide summary
+  instead of one summary per row. A name cannot key a compiled matrix without
+  silently overwriting siblings, and `process_id` is the key
+  `queue.named_jobs` and `CompiledPipeline.nodes` already use --
+  `compiled.nodes[pid].name` recovers the name.
 
-* The effective Slurm request has one resolver,
+* **Breaking:** the effective Slurm request has one resolver,
   `kwdagger.pipeline.resolve_slurm_options`, and one home,
   `node.effective_slurm_options`. It was previously computed in three places
   from three different subsets of its four layers, which is why
@@ -56,6 +64,13 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
   `compile_configurations` used to reject it. This is what forced the second
   scheduling path to exist, and nothing in the compiler was ever
   gather-specific.
+
+### Removed
+
+* **Breaking:** `ProcessNode.__slurm_options__`. It was an unread copy of
+  `slurm_options`, rewritten on every `configure`. Ask for `slurm_options`
+  (the node's own two layers) or `effective_slurm_options` (the complete
+  resolved request), depending on which you meant.
 
 ### Fixed
 

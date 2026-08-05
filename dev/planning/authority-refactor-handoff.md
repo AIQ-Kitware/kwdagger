@@ -46,7 +46,10 @@ Each row of the original finding, and where the answer lives now.
 
 ## 3. Commits
 
-One reviewable commit per phase, each on `dev/0.3.1`:
+One reviewable commit per phase. Phases 2-7 were written on `dev/0.3.1`;
+`dev/0.4.0` was branched from Phase 7 once the version question below was
+settled, and the version bump sits on top of it. The phase commits are shared
+by both branches and unchanged.
 
 | phase | commit | what |
 |---|---|---|
@@ -60,7 +63,8 @@ One reviewable commit per phase, each on `dev/0.3.1`:
 
 ## 4. What a caller sees
 
-Documented in `CHANGELOG.md` under 0.3.1. The breaking ones:
+Documented in `CHANGELOG.md` under 0.4.0, where the four breaking ones are
+marked as such. They are:
 
 * `build_schedule` returns a `CompiledPipeline` for every pipeline, not just a
   gathering one. Its `nodes` are keyed by `process_id`; `nodes_by_name` is the
@@ -104,21 +108,18 @@ have been a second answer to "what was this row", which is the kind of thing
 this refactor removes, and it would have lost the row-global
 `__slurm_options__`.
 
-**Version target -- left at 0.3.1, deliberately, and this is the one thing
-still open.** The brief said 0.4.0; the maintainer said keep 0.3.1. Nothing
-about the refactor decides it, so it stays where the maintainer put it and the
-evidence is recorded here instead:
+**Version target -- 0.4.0, on `dev/0.4.0`.** The brief said 0.4.0 and an
+earlier note said keep 0.3.1; the maintainer settled it as 0.4.0 once the
+evidence for each was written down:
 
-* The changes in section 4 are breaking for a caller who reads
-  `node_status` by name, or who expects the template back from
-  `build_schedule`. Under the semver this repo aims at, that is a minor bump.
-* Against that: no *identity* changed -- the TA1 fingerprint is byte-identical
-  -- so nobody's results move, which is the break users actually feel. And the
-  one known dependent, `aiq-magnet`, was already written against the new
-  shape.
-
-Bumping is one line in `kwdagger/__init__.py` plus the `CHANGELOG.md` heading.
-It is a release decision, not a refactor one.
+* The changes in section 4 are breaking for a caller who reads `node_status`
+  by name, or who expects the template back from `build_schedule`. Under the
+  semver this repo aims at, that is a minor bump. This is what decided it.
+* Against, and still true: no *identity* changed -- the TA1 fingerprint is
+  byte-identical -- so nobody's results move, which is the break users
+  actually feel. And the one known dependent, `aiq-magnet`, was already
+  written against the new shape. The changelog leads with that, so a reader
+  seeing a minor bump does not assume their cache is invalid.
 
 ## 6. Validation
 
