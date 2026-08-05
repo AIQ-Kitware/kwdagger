@@ -295,9 +295,20 @@ Worked example: a produced and a manual path that are equal
     row 2:  consumer.input  =  /data/model.pt     (typed directly)
 
 The same configured path is the same effective data -- that is the governing
-convention -- so both rows are one consumer identity.  The first row wins.
-Provenance still records which one supplied the value; identity and scheduling
-do not distinguish them.
+convention -- so both rows are one consumer identity.  The first row wins, and
+it is kept whole: its provenance *and* its effective predecessors.
+
+Identity does not distinguish the two rows.  Scheduling does.  An explicitly
+configured value outranks the producer, so row 2's consumer requires nothing
+upstream, while row 1's must wait for the producer.  Whichever row comes first
+therefore decides whether the producer is a prerequisite of the consumer::
+
+    rows [1, 2]:  one consumer, waits for the producer
+    rows [2, 1]:  one consumer, waits for nothing
+
+That is the intended consequence of keeping the first request intact rather
+than merging two of them.  If the distinction matters to you, put it into
+identity-bearing configuration so the two rows become two results.
 
 Worked example: separate partial submissions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

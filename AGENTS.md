@@ -119,8 +119,12 @@ Kwdagger runs parameter grids and records what it ran. That is the whole job.
    constraint a user asked for.
 8. **Different delivery mechanisms for an equal effective path are not
    different computations.** A produced path and the identical path typed into
-   a config are the same input. Provenance records the difference; identity
-   and scheduling do not.
+   a config are the same input, and hash alike. Provenance and *effective
+   scheduling* may still differ: an explicitly configured value outranks the
+   producer, so the manual row has no effective predecessor while the produced
+   row does. Identity does not distinguish them; the compiled graph does. The
+   first representative's provenance and predecessor set are what is retained,
+   which is first-request-wins reaching execution and not only the record.
 9. **Partial reruns and shared-queue submissions are not transactional.** Two
    calls sharing a queue are two independent operational requests.
 10. **Existing outputs may satisfy dependencies.** A downstream job may be
@@ -291,8 +295,9 @@ canonicalizes exactly as a produced one does, which is what keeps the two
 delivery mechanisms equal. Canonicalization is recursive and rewrites mapping
 keys as well as values. It is many-to-one, so two keys of one mapping that
 canonicalize alike are rejected rather than merged: silently dropping an entry
-would leave two different configurations with one identity, and separate
-schedules cannot be arbitrated against each other after the fact.
+would leave one configuration meaning two things, which is a contradiction
+*within* a single request and so an internal invariant, not a duplicate-request
+policy question.
 
 **Configuration has one internal representation, established at the boundary.**
 `kwdagger/pipeline/_config_values.py` is that boundary, and the invariant it
@@ -316,14 +321,14 @@ YAML decodes `0:`, `true:`, and `null:` into non-string keys, so
 identifiers here. Two keys normalizing alike are a reported collision, as are
 two paths canonicalizing alike.
 
-Identity, commands, provenance, arbitration, and the JSON on disk may all
-assume the invariant. Do not teach any of them to understand `os.PathLike`
+Identity, commands, provenance, duplicate diagnostics, and the JSON on disk may
+all assume the invariant. Do not teach any of them to understand `os.PathLike`
 separately, and do not leave the conversion to `json.dumps`: it renames an
 `int` key silently, refuses a `Path` one, and cannot sort a mixture, so the
-readers end up disagreeing about what the keys are. For the same reason the
-arbitration serializer carries no `default=` fallback — it must refuse exactly
-what the writer refuses, or a leak passes arbitration and fails at write
-time.
+readers end up disagreeing about what the keys are. For the same reason
+`requested_provenance_record` carries no `default=` fallback — it must refuse
+exactly what the writer refuses, or a value that serializes for the comparison
+fails at write time.
 
 A corollary, stated because it has been violated: **equal `process_id` implies
 equal command-defining state, apart from state that is deliberately unhashed.**
@@ -354,17 +359,16 @@ decides what to put *into* it:
   `write_invocations`, and `write_configs` are the exception that stays off
   the node: they are arguments to `submit_jobs`, so no compilation can know
   them, and a duplicate request returns before any of them is applied.
-  `skip_existing` is deliberately excluded from that comparison: it selects
-  which requests are made rather than what a request asks for. It still
-  reaches the queue, though, so the snapshot carries `queued_prerequisites`
-  beside `prerequisites` -- what the computation requires, and which of those
-  prerequisite jobs this call actually queued. A predecessor skipped as
-  already existing is the first without being the second. Comparing only the
-  first meant two calls to one queue that differed in `skip_existing` agreed
-  about the request, the second was recognized as a duplicate, and the job
-  kept the dependencies of whichever call came first -- so in one order a
-  consumer had no dependency on a producer the queue was about to rerun, and
-  could read the stale output. Both orders are refused now.
+  `skip_existing` is not compared at all: it selects which requests are made
+  rather than what a request asks for, and it is per-submission state that
+  never edits the compiled pipeline. Two calls to one queue that disagree
+  about it are two independent operational requests, and the job keeps the
+  dependencies of whichever call created it. A consumer can therefore be
+  queued without a dependency on a producer a later call reruns. That is
+  point 11 above, not a defect: kwdagger makes no guarantee about data flow
+  when nodes are reinvoked. **0.3.x refused both orders for this, and
+  `queued_prerequisites` existed to make the refusal thorough. Both were
+  removed in 0.4.0. Do not reintroduce either.**
 - **The requested experiment:** everything provenance keeps and identity drops
   -- which producer supplied each input, which alias or parameter port
   forwarded a value and which was outranked, gather membership. Two rows can be
@@ -416,12 +420,15 @@ The rules that follow from that, all of which have been violated at least once:
   is a matrix of one rather than a second scheduler. If you find yourself
   writing a code path that schedules without compiling, you are re-creating
   the thing this removed.
-- **Compilation arbitrates.** It holds the whole matrix, so it is the only
-  place that can report a conflict before a queue exists. The check in
-  `_runtime` is a defensive backstop for what compilation cannot see: several
-  separately compiled graphs sharing one queue, and the submission flags
-  above. It can never fire on the graph it was handed, because a `process_id`
-  is a key there.
+- **Compilation canonicalizes; nothing arbitrates across calls.** Compilation
+  holds the whole matrix, so it is the only place that can canonicalize by
+  `process_id`, and the only place `warn` and `error` can report anything
+  before a queue exists. Those diagnostics are **compile-local**: they see one
+  compilation and are chosen per compilation. `_runtime` performs no
+  cross-call request arbitration and holds no request registry — an existing
+  queue job wins, and a second submission of the same identity is a duplicate
+  that returns. If you find yourself adding a comparison at submission time,
+  you are rebuilding what 0.4.0 deleted; see the duplicate-policy section.
 - **The compiled graph is the only dependency authority.** Queue ordering,
   gating, `.pred`/`.succ` links, and a duplicate request's prerequisites all
   come from walking its edges. Do not re-derive ancestry from node state at

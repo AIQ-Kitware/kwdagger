@@ -224,6 +224,41 @@ def test_a_produced_and_a_manual_equal_path_are_one_computation(tmp_path):
         assert len(compiled.nodes_by_name['consumer']) == 1
 
 
+@pytest.mark.parametrize('order', ['forward', 'reversed'])
+def test_the_first_row_supplies_the_scheduling_edge(order, tmp_path):
+    """
+    First-wins reaches the execution graph, not just the recorded request.
+
+    Produced and manual equal paths are one identity, but they are not one
+    *schedule*: an explicitly configured value outranks the producer, so the
+    manual row's consumer has no effective predecessor. Whichever row is
+    first decides whether the producer must finish before the consumer runs.
+
+    This is the design -- the representative is kept whole -- and it is
+    asserted per order rather than smoothed into order independence.
+    """
+    probe = _compile(_chain_pipeline, [{}], tmp_path)
+    (consumer,) = probe.nodes_by_name['consumer']
+    produced = str(consumer.final_in_paths['data_fpath'])
+
+    produced_row: dict = {}
+    manual_row = {'consumer.data_fpath': produced}
+    rows = _ordered([produced_row, manual_row], order)
+
+    compiled = _compile(_chain_pipeline, rows, tmp_path)
+    (consumer,) = compiled.nodes_by_name['consumer']
+    (producer,) = compiled.nodes_by_name['producer']
+    preds = list(compiled.proc_graph.pred[consumer.process_id])
+
+    if rows[0] is produced_row:
+        assert preds == [producer.process_id]
+    else:
+        assert preds == []
+        # ... and the retained request says so too: the manual row put the
+        # path in its own config rather than reading it from the producer.
+        assert consumer._depends_config()['consumer.data_fpath'] == produced
+
+
 def test_identical_rows_still_collapse(tmp_path):
     row = {'predict.model': 'm', 'predict.workers': 8}
     compiled = _compile(_solo_pipeline, [dict(row), dict(row)], tmp_path)
