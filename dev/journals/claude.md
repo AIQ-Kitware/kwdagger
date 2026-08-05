@@ -1395,3 +1395,47 @@ it back; `git checkout` is not an undo for uncommitted work.
 TA1 fingerprint byte-identical again after all of this, which is the check
 that matters most: none of these fixes moved an identity. 470 passed / 18
 skipped, up from 454.
+
+## 2026-08-05 15:07:40 -0400
+
+Second review round on the same work, and it found a real one I had walked
+straight past: the `skip_existing` fix was incomplete in a way I had actually
+written a comment *asserting* was fine.
+
+The first round made `skip_existing` stop mutating `node.enabled`, which was
+the bug. But arbitration still compared only the compiled predecessor set --
+what the computation requires -- while the queue job got the active-filtered
+set, which is what this call actually queued. Those are different questions
+and I had just spent a phase insisting that conflating two questions is the
+whole defect class here. Two submissions to one queue with different
+`skip_existing` therefore agreed about the request, the second was recorded as
+a duplicate, and the job kept whichever call's dependencies came first. In one
+order that leaves a consumer with no dependency on a producer the queue is
+about to rerun. It can run first and read the stale output.
+
+What stings is that `_runtime.py` said, in a comment I wrote, that reversing
+two calls differing in `skip_existing` leaves the same queue -- and `AGENTS.md`
+repeated it. Neither was tested. I wrote the justification for excluding
+`skip_existing` from the comparison and then never checked the justification.
+A design note that states a property is a claim; either test it in the same
+commit or phrase it as an intention.
+
+The fix is to carry `queued_prerequisites` beside `prerequisites` in the
+snapshot, so the registry describes queue jobs as well as computations. Both
+orders now report the same conflict. The reviewer also suggested not
+registering disabled or skipped nodes at all; I did not take that part,
+because it would drop the existing cross-call `__enabled__` arbitration in
+exchange for solving a problem the added field already solves. Worth naming
+that I disagreed with one step of a review whose other four points I took
+wholesale -- the useful thing was reproducing each claim first, which is what
+made it obvious which parts were load-bearing.
+
+Also corrected two documentation statements that my own previous commit made
+stale: `AGENTS.md` said compilation is the *only* caller of
+`resolve_slurm_options`, which stopped being true the moment I made
+`Pipeline.configure` call it to complete interactive inspection. The rule
+should have been "the resolver is the sole precedence authority; whoever holds
+four layers calls it", not "there is one call site". I stated the weaker,
+more brittle version and then broke it myself within one commit.
+
+TA1 fingerprint byte-identical. 475 passed / 18 skipped.

@@ -345,3 +345,84 @@ def test_compilation_cost_does_not_grow_with_the_pipeline(n_nodes, tmp_path):
         f'{per_clone_ms:.2f} ms per clone at {n_nodes} nodes; cloning is '
         'reaching outside the node again'
     )
+
+
+# ---------------------------------------------------------------------------
+# Sharing a queue between calls that disagree about skip_existing
+# ---------------------------------------------------------------------------
+
+
+def _partially_existing(tmp_path):
+    """A compiled chain where only the producer's output exists."""
+    compiled = _chain_pipeline().compile_configurations(
+        [{}], root_dpath=tmp_path, cache=False
+    )
+    (producer,) = compiled.nodes_by_name['producer']
+    (consumer,) = compiled.nodes_by_name['consumer']
+    _materialize(producer)
+    return compiled, producer, consumer
+
+
+@pytest.mark.parametrize('flags', [(True, False), (False, True)], ids=str)
+def test_one_queue_two_skip_existing_answers_is_refused(flags, tmp_path):
+    """
+    The job is created once, by whichever call comes first, and keeps that
+    call's dependencies. So a queue shared between a skipping call and a
+    rerunning one used to end up with a different shape depending on their
+    order -- and in one order the consumer had no dependency on a producer the
+    queue was about to rerun, so it could read the stale output.
+
+    Rejected in both orders now, which is the same answer either way.
+    """
+    compiled, _producer, _consumer = _partially_existing(tmp_path)
+    first, second = flags
+    queue = compiled.submit_jobs(
+        queue={'backend': 'serial', 'name': 'mixed'},
+        skip_existing=first,
+        **SUBMIT_KW,
+    )['queue']
+    with pytest.raises(ValueError, match='queued prerequisites'):
+        compiled.submit_jobs(queue=queue, skip_existing=second, **SUBMIT_KW)
+
+
+@pytest.mark.parametrize('skip', [True, False])
+def test_one_queue_and_one_answer_is_an_ordinary_duplicate(skip, tmp_path):
+    """
+    The complement, and the reason this cannot simply reject a second
+    submission: two calls that agree queue the same thing, and the second is a
+    duplicate rather than a conflict.
+    """
+    compiled, _producer, consumer = _partially_existing(tmp_path)
+    first = compiled.submit_jobs(
+        queue={'backend': 'serial', 'name': 'agreeing'},
+        skip_existing=skip,
+        **SUBMIT_KW,
+    )
+    again = compiled.submit_jobs(
+        queue=first['queue'], skip_existing=skip, **SUBMIT_KW
+    )
+    assert again['node_status'][consumer.process_id] == 'duplicate_submission'
+
+
+def test_the_queued_dependencies_are_the_ones_arbitration_compared(tmp_path):
+    """
+    One evaluation, used twice. A job's dependencies and the set arbitration
+    checks have to be the same list, or the check is guarding something other
+    than what was queued.
+    """
+    compiled, producer, consumer = _partially_existing(tmp_path)
+    summary = compiled.submit_jobs(
+        queue={'backend': 'serial', 'name': 'queued'},
+        skip_existing=True,
+        **SUBMIT_KW,
+    )
+    job = summary['queue'].named_jobs[consumer.process_id]
+    assert [getattr(d, 'name', d) for d in (job.depends or [])] == []
+    registry = summary['queue'].__kwdagger_requests__['by_process_id']
+    assert (
+        registry[consumer.process_id]['snapshot']['queued_prerequisites'] == []
+    )
+    # The computation still requires it; only the queue does not contain it.
+    assert registry[consumer.process_id]['snapshot']['prerequisites'] == [
+        producer.process_id
+    ]

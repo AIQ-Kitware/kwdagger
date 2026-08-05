@@ -98,6 +98,7 @@ def execution_snapshot(
     submission: Mapping[str, Any] | None = None,
     *,
     prerequisites: Sequence[str] | None = None,
+    queued_prerequisites: Sequence[str] | None = None,
 ) -> Snapshot:
     """
     Capture everything a duplicate request must be compared against.
@@ -121,6 +122,14 @@ def execution_snapshot(
             which is the authority once one exists. Left ``None`` during
             compilation, which is deriving those edges rather than reading
             them, and by a caller holding only a node.
+
+        queued_prerequisites (Sequence[str] | None): which of those
+            prerequisite jobs this submission actually put in the queue. A
+            predecessor skipped because its output already exists is required
+            by the computation but absent from the queue, so the two answers
+            differ, and a job's dependencies are built from this one. ``None``
+            when nothing is being queued -- at compile time, and for a caller
+            holding only a node -- and two such snapshots simply agree.
     """
     submission = dict(submission or {})
     if prerequisites is None:
@@ -144,6 +153,11 @@ def execution_snapshot(
         'setup': getattr(node, 'setup', None),
         'teardown': getattr(node, 'teardown', None),
         'prerequisites': sorted(prerequisites),
+        'queued_prerequisites': (
+            None
+            if queued_prerequisites is None
+            else sorted(queued_prerequisites)
+        ),
         # Finer than the prerequisite union: two requests can need the same
         # jobs while disagreeing about which inputs those jobs supply.
         'delivery': dict(node.delivery_signature()),
@@ -272,6 +286,25 @@ def check_execution_agreement(
             'describes the computation, not how the value arrives, so these '
             'requests cannot be told apart. Use the same delivery in both, or '
             'give them differing parameters.'
+        )
+
+    if canonical['queued_prerequisites'] != duplicate['queued_prerequisites']:
+        raise ValueError(
+            f'Conflicting queued prerequisites for process {template_name!r}. '
+            f'{canonical_label.capitalize()} and {duplicate_label} resolve to '
+            f'the same process identity {process_id!r} and agree about what '
+            f'the computation requires, but put different prerequisite jobs '
+            f'in this queue:\n'
+            f'  {canonical_label}: '
+            f'{canonical["queued_prerequisites"] or "nothing"}\n'
+            f'  {duplicate_label}: '
+            f'{duplicate["queued_prerequisites"] or "nothing"}\n'
+            'This usually means the two calls differ in skip_existing, so one '
+            'of them queued a producer the other skipped as already existing. '
+            'The job is created once, by whichever call came first, and keeps '
+            "that call's dependencies -- so the later request would run "
+            'without waiting for work the queue is going to redo. Submit them '
+            'with the same skip_existing, or use a separate queue.'
         )
 
     if canonical['delivery'] != duplicate['delivery']:

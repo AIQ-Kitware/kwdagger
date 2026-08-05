@@ -180,8 +180,8 @@ def submit_jobs(
     # applied, so a disagreement is silently first-call-wins. Slurm options
     # are no longer among them -- every layer is resolved onto the node.
     # ``skip_existing`` is deliberately absent: it selects which requests are
-    # made rather than what a request asks for, and reversing two calls that
-    # differ in it leaves the same queue.
+    # made rather than what a request asks for. It is not free of consequence
+    # for the queue, though -- see ``queued_prerequisites`` below.
     submission_state: dict[str, Any] = {
         'log': log,
         'enable_links': enable_links,
@@ -199,10 +199,28 @@ def submit_jobs(
         # function is walking, free to drift from them.
         pred_names = list(proc_graph.predecessors(node_name))
         pred_nodes = [proc_graph.nodes[name]['node'] for name in pred_names]
+        # Two different questions, and the registry has to hold both. The
+        # compiled predecessors are what this computation requires. The queued
+        # ones are which of those prerequisite jobs *this call* put in the
+        # queue -- a predecessor skipped because its output already exists is
+        # required but not queued.
+        #
+        # Only the first used to be compared, so two calls to one queue that
+        # differed in ``skip_existing`` agreed on the request, the second was
+        # recognized as a duplicate, and the job created by the first kept its
+        # dependency set. Whichever call came first decided whether a consumer
+        # waits for a producer the other call queued for a rerun -- and in one
+        # order the consumer could run first and read the stale output.
+        _queued_prereqs = [
+            pred.process_id
+            for name, pred in zip(pred_names, pred_nodes)
+            if active.get(name)
+        ]
         _snapshot = execution_snapshot(
             node,
             submission_state,
             prerequisites=[pred.process_id for pred in pred_nodes],
+            queued_prerequisites=_queued_prereqs,
         )
         _previous = requests.get(_procid)
         if _previous is None:
@@ -258,15 +276,9 @@ def submit_jobs(
         else:
             node_procid = node.process_id
             node_job = None
-            # Predecessors this call actually queued. A predecessor skipped
-            # because its output already exists is not in the queue, so it
-            # cannot be depended on -- but it is still an enabled part of the
-            # request, which is why this reads the local decision.
-            pred_node_procids = [
-                pred.process_id
-                for name, pred in zip(pred_names, pred_nodes)
-                if active.get(name)
-            ]
+            # Computed above, so the queue gets exactly what arbitration
+            # compared rather than a second evaluation of the same question.
+            pred_node_procids = _queued_prereqs
             is_slurm = 'slurm' in queue.__class__.__name__.lower()
             has_gather = any(
                 input_node._gather_members is not None

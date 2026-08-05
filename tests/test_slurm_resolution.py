@@ -7,9 +7,11 @@ row-global mapping into node-local configuration, the runtime layered
 pipeline-wide options over whatever the node had resolved, and arbitration
 re-layered those two halves a third time in order to compare them.
 
-Now ``resolve_slurm_options`` is the only thing that knows the precedence,
-compilation is the only thing that calls it, and
-``node.effective_slurm_options`` is the only thing anything downstream reads.
+Now ``resolve_slurm_options`` is the only thing that knows the precedence.
+Whoever holds all four layers calls it -- compilation for each clone, and
+``Pipeline.configure`` so a configured template node reports the same request
+that will be submitted -- and ``node.effective_slurm_options`` is the only
+thing anything downstream reads.
 """
 
 from __future__ import annotations

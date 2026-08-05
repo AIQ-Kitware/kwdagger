@@ -78,6 +78,17 @@ the four entries marked **breaking** below.
   row, because the row-at-a-time path reused one mutable node per name. A
   compiled pipeline clones per row, so every row is still described afterwards.
 
+* Sharing one queue between calls that disagree about `skip_existing` is
+  refused instead of silently producing a different queue depending on their
+  order. A job is created once, by whichever call comes first, and keeps that
+  call's dependencies; arbitration compared only what the computation
+  requires, so the second call was recognized as a duplicate and the
+  discrepancy went unnoticed. In one order a consumer ended up with no
+  dependency on a producer the queue was about to rerun, and could read the
+  stale output. The request snapshot now carries `queued_prerequisites`
+  alongside `prerequisites` -- which of the required jobs this call actually
+  queued -- and a disagreement is reported in either order.
+
 * `skip_existing` no longer edits the pipeline it is submitting. It wrote its
   per-call decision back as `node.enabled = False`, so a compiled pipeline
   stopped describing what was requested: submitting it again with

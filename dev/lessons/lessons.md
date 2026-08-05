@@ -255,3 +255,25 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
   load-bearing, it silently discarded two other uncommitted fixes in the same
   file. Copy the file aside and copy it back.
   - **Applies when:** temporarily breaking code to prove a test fails.
+
+- **Lesson:** "What the computation requires" and "what this call queued" are
+  two questions, and a request registry has to hold both. Arbitration compared
+  only the compiled predecessor set, so two submissions to one queue that
+  differed in `skip_existing` agreed about the request; the second was
+  recorded as a duplicate, and the job kept the dependencies of whichever call
+  came first. In one order that left a consumer with no dependency on a
+  producer the queue was about to rerun -- free to run first and read the
+  stale output. Whenever a per-call decision changes what reaches the queue,
+  the thing arbitration compares must include it.
+  - **Evidence / MWE:** `tests/test_compiled_pipeline_is_static.py`
+    `test_one_queue_two_skip_existing_answers_is_refused`, both orders.
+  - **Applies when:** a flag selects *which* work is submitted rather than
+    what the work is.
+
+- **Lesson:** A comment asserting an invariant is a claim, and claims rot.
+  `_runtime.py` said reversing two calls that differ in `skip_existing` leaves
+  the same queue, and `AGENTS.md` repeated it. It was never tested and it was
+  false. When a design note states a property, write the test in the same
+  commit or write the note as an intention rather than a fact.
+  - **Applies when:** documenting why something is safe to exclude from a
+    check.

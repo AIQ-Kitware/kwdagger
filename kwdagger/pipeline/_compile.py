@@ -380,9 +380,16 @@ def _detach_outward_links(
     """
     Strip a node's references to other nodes, returning them for restoration.
 
-    Temporary, and reversed by the caller in a ``finally``. Compilation is
-    single-threaded and nothing reads the template between the two, so the
-    window is not observable.
+    Temporary, and reversed by the caller in a ``finally`` so a failed copy
+    cannot leave a template detached.
+
+    **This assumes one pipeline is not compiled from two threads at once.**
+    Between the detach and the restore the template is briefly disconnected,
+    and a concurrent reader would see it that way. kwdagger makes no
+    thread-safety promise and compilation is a single pass, so that is the
+    existing contract rather than a new constraint -- but it is the reason
+    this is a detach rather than, say, a shared memo, and it is what would
+    have to change first if compilation were ever parallelized.
     """
     saved: list[tuple[Any, str, Any]] = []
     owners: list[tuple[Any, tuple[tuple[str, Any], ...]]] = [

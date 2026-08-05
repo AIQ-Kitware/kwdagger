@@ -265,10 +265,12 @@ identity must therefore agree on — compilation reports each as a user-facing
 - **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
   and output-path overrides. Slurm options have four layers -- pipeline base,
   matrix-row global, node declared default, that row's per-node override --
-  and `kwdagger.pipeline.resolve_slurm_options` is the only thing that knows
-  their order. Compilation is the only caller, because it is the only scope
-  that holds all four; the result is stored as `node.effective_slurm_options`
-  and every consumer *reads* it. Do not re-layer a subset anywhere else: three
+  and `kwdagger.pipeline.resolve_slurm_options` is the sole precedence
+  authority. Whoever holds all four layers calls it -- compilation, for each
+  clone, and `Pipeline.configure`, so that inspecting a configured template
+  node shows the same request that will be submitted. The result is stored as
+  `node.effective_slurm_options`, and every consumer downstream *reads* it
+  rather than combining anything. Do not re-layer a subset anywhere else: three
   sites each knowing a different subset is what made `node.slurm_options` mean
   "node-level" on one scheduling path and "node-level plus row-global" on the
   other. A row that omits any of this state is requesting the declared
@@ -278,9 +280,17 @@ identity must therefore agree on — compilation reports each as a user-facing
   `write_invocations`, and `write_configs` are the exception that stays off
   the node: they are arguments to `submit_jobs`, so no compilation can know
   them, and a duplicate request returns before any of them is applied.
-  `skip_existing` is deliberately excluded: it selects which requests are made
-  rather than what a request asks for, and reversing two calls that differ in
-  it leaves the same queue.
+  `skip_existing` is deliberately excluded from that comparison: it selects
+  which requests are made rather than what a request asks for. It still
+  reaches the queue, though, so the snapshot carries `queued_prerequisites`
+  beside `prerequisites` -- what the computation requires, and which of those
+  prerequisite jobs this call actually queued. A predecessor skipped as
+  already existing is the first without being the second. Comparing only the
+  first meant two calls to one queue that differed in `skip_existing` agreed
+  about the request, the second was recognized as a duplicate, and the job
+  kept the dependencies of whichever call came first -- so in one order a
+  consumer had no dependency on a producer the queue was about to rerun, and
+  could read the stale output. Both orders are refused now.
 - **The requested experiment:** everything provenance keeps and identity drops
   -- which producer supplied each input, which alias or parameter port
   forwarded a value and which was outranked, gather membership. Two rows can be
