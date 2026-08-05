@@ -18,7 +18,7 @@ common workflows, and testing/documentation practices.
 
 ## Repository layout
 - `kwdagger/`
-  - `pipeline/` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`. Import everything from `kwdagger.pipeline`; the submodules are private and layered one-way (`_config_values`/`_shell`/`_slurm` → `_agreement` → `_runtime` → `_connections` → `_process` → `_compile` → `_logical`). `tests/test_import_compat.py` enforces both the import surface and that direction.
+  - `pipeline/` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`. Import everything from `kwdagger.pipeline`; the submodules are private and layered one-way (`_config_values`/`_shell`/`_slurm` → `_duplicates` → `_runtime` → `_connections` → `_process` → `_compile` → `_logical`). `tests/test_import_compat.py` enforces both the import surface and that direction.
   - `schedule.py` – `ScheduleEvaluationConfig` and supporting helpers that expand YAML/JSON parameter matrices, prepare job directories, and dispatch to cmd_queue backends.
   - `aggregate.py` – `AggregateEvluationConfig` CLI that loads completed runs, computes parameter hash IDs, aggregates metrics, and writes reports.
   - `aggregate_loader.py` / `aggregate_plots.py` – helpers for loading pipeline outputs and producing tabular or plotted summaries.
