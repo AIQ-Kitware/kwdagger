@@ -815,9 +815,9 @@ def test_a_delivery_difference_can_be_reported_on_request(tmp_path):
 
 def test_differing_delivery_still_hashes_the_same(tmp_path):
     """
-    The point of rejecting: these are the *same computation*. Rejection is
-    about which requested record gets written, not about identity -- if this
-    ever starts failing, lineage has crept back into the hash.
+    These are the *same computation*, which is why they deduplicate at all.
+    Delivery affects the record and the scheduling edge, never the hash -- if
+    this ever starts failing, lineage has crept back into identity.
     """
     produced_row, manual_row = _delivery_rows(tmp_path)
     ids = []
@@ -1062,8 +1062,9 @@ def test_colliding_canonical_mapping_keys_are_refused(tmp_path):
     """
     Rewriting a key is many-to-one. Rebuilding the dictionary would drop an
     entry, leaving a two-entry mapping whose hashed payload is identical to a
-    genuinely one-entry mapping while the commands still differ -- and two
-    schedules that never see each other cannot be arbitrated after the fact.
+    genuinely one-entry mapping while the commands still differ. That is one
+    configuration meaning two things -- a contradiction within a single
+    request, so an internal invariant rather than a duplicate-request policy.
     """
     consumer = _consumer()
     dag = Pipeline([consumer])

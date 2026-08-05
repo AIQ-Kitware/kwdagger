@@ -2,9 +2,11 @@
 Full-matrix compilation: the logical template becomes a concrete graph.
 
 This layer expands the whole matrix, clones a process node per configuration,
-canonicalizes duplicate processes, checks that rows which compile to one
-process agree about how it should execute, and builds the concrete execution
-graph. Where a gather is present it additionally resolves grouping keys and
+canonicalizes rows that compile to one process -- the first such row is the
+representative, kept whole -- and builds the concrete execution graph. It
+optionally *describes* how a later equal-identity row differed, under
+``duplicate_policy``; it never merges two rows and never rejects one by
+default. Where a gather is present it additionally resolves grouping keys and
 selects and orders collection members -- a gather is why compilation had to
 exist (its membership is only known once every row does), but it is a feature
 *of* the matrix, not a second way to schedule one. A gather-free pipeline
@@ -876,7 +878,8 @@ def _compile_pipeline_configurations(
             # resolved its own during configuration, and this is the only
             # scope that also holds the pipeline base and the row-global
             # mapping. Resolved once, stored on the node, and then read
-            # verbatim by the runtime and by arbitration.
+            # verbatim by the runtime and, when a policy asks for it, by the
+            # duplicate comparison.
             node.effective_slurm_options = resolve_slurm_options(
                 pipeline_base=pipeline_base,
                 row_global=row_slurm_options,

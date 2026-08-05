@@ -1434,26 +1434,26 @@ class ProcessNode(Node):
         """
         Answers: *what would this request write to ``job_config.json``?*
 
-        This is what arbitration between requests sharing an identity compares.
-        Only one requested-experiment record can be written for a result
-        directory, so the thing that has to agree is the record itself, not a
-        summary of it: any distinction the record keeps -- which alias supplied
-        a value and which was outranked, a parameter forwarded from a different
-        port, a gather membership, a default versus an equal explicit
-        request -- is a distinction that would otherwise be settled by whichever
-        request happened to arrive first. Two requests that serialize
-        identically have nothing left to arbitrate, by construction.
+        The serializable requested record: the whole record, not a summary of
+        it, because any distinction it keeps -- which alias supplied a value
+        and which was outranked, a parameter forwarded from a different port,
+        a gather membership, a default versus an equal explicit request -- is
+        a distinction a summary would flatten.
 
-        Keyed by dotted config key with each value serialized, so a
-        disagreement can be reported as the keys that differ rather than as two
-        opaque blobs. The serialization is the one
+        Under ``duplicate_policy='warn'`` or ``'error'`` this is what the
+        comparison names when two rows sharing an identity differ. Under the
+        default ``'first'`` nothing is compared: only one record can be written
+        for a result directory, and it is the first request's. This method
+        describes a request; it does not decide between requests.
+
+        Keyed by dotted config key with each value serialized, so a difference
+        can be reported as the keys that differ rather than as two opaque
+        blobs. The serialization is the one
         :func:`kwdagger.pipeline.submit_jobs` writes with, so what is compared
         is what lands on disk.
 
         Deliberately **not** identity material. Two requests whose provenance
-        differs still describe the same computation and still hash the same;
-        they simply cannot share one result directory while demanding different
-        records of what was asked for.
+        differs still describe the same computation and still hash the same.
         """
         # No ``default=`` fallback: the writer at submission time has none
         # either, and a serializer that quietly stringifies what the other
@@ -1463,40 +1463,6 @@ class ProcessNode(Node):
             key: json.dumps(value, sort_keys=True)
             for key, value in self._depends_config().items()
         }
-
-    @memoize_configured_method
-    def delivery_signature(self) -> dict[str, Any]:
-        """
-        Answers: *where does each input's value come from, port by port?*
-
-        A refinement of the prerequisite union, which is too coarse on its own:
-        a consumer reading two outputs of one producer keeps that producer as a
-        prerequisite even when one of the two inputs is supplied by hand
-        instead. Both requests would then agree on prerequisites while
-        disagreeing about what ``job_config.json`` should say.
-
-        This exists for the *message* it lets arbitration give for the common
-        produced-versus-manual case, and covers only produced origins. The
-        guarantee is :meth:`requested_provenance_record`, which is complete
-        because it is the record itself.
-
-        Deliberately **not** identity material. Two requests whose delivery
-        differs still describe the same computation and still hash the same;
-        they simply cannot share one canonical request while demanding
-        different provenance records.
-        """
-        signature: dict[str, Any] = {}
-        for name, input_node in self.inputs.items():
-            if input_node._gather_members is not None:
-                signature[name] = 'gather'
-                continue
-            signature[name] = tuple(
-                sorted(
-                    f'{port.parent.process_id}:{port.name}'
-                    for port in _effective_origins(input_node)
-                )
-            )
-        return signature
 
     @memoize_configured_method
     def effective_predecessor_process_nodes(self) -> list['ProcessNode']:

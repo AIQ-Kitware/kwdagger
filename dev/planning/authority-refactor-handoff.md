@@ -5,6 +5,14 @@ started. **Rewritten the same day, complete.** Phases 2-7 are committed, the
 TA1 fingerprint the original could not locate has been found, built, and run,
 and one decision is left open on purpose.
 
+**Superseded in one respect.** Phase 5 below made compilation the arbiter of
+equal-identity requests and kept a runtime registry as a backstop. A later
+round removed all of that: duplicate requests are resolved first-request-wins,
+comparison is an opt-in compile-local diagnostic, and there is no cross-call
+arbitration. The authority refactor itself stands unchanged. Where this
+document and the "Execution, identity, and duplicate-request policy" section of
+`AGENTS.md` disagree, `AGENTS.md` is current and this is history.
+
 Read this with `AGENTS.md` -- "Core execution model and priorities",
 "Authoritative pipeline representations", and "Process identity, scheduling,
 and provenance" -- and the last few entries of `dev/journals/claude.md`.
@@ -41,7 +49,7 @@ Each row of the original finding, and where the answer lives now.
 | may this pipeline compile? | `_logical.py:549` rejected gather-free compilation; `:752` rejected gather submission | everything compiles. `Pipeline.submit_jobs` still refuses a *gather* pipeline, which is a statement about the request (a one-row collection is not the collection), not about the compiler |
 | what is a normalized row? | `Pipeline.configure` and `_compile_pipeline_configurations` each called `normalize_config` | still both, which was always the intent -- one leaf, entered before any reserved key is read. The scheduler additionally crosses it *before* matrix expansion now, so grid cardinality and compiled cardinality cannot disagree |
 | what are the effective Slurm options? | compiler injected row-global into node config; runtime layered pipeline-wide on top; arbitration re-layered the halves | `resolve_slurm_options`, called only by compilation, stored as `node.effective_slurm_options`, read verbatim by everyone else |
-| are two equal-identity requests compatible? | `_compile.py` and `_runtime.py` with separate registries | compilation arbitrates; the runtime registry is a defensive backstop for separately compiled graphs sharing a queue, and for the submission flags no compilation can see |
+| are two equal-identity requests compatible? | `_compile.py` and `_runtime.py` with separate registries | the question was wrong. They are one job; the first request is the representative. Compilation canonicalizes, `duplicate_policy` optionally describes what a later row differed about, and `_runtime` holds no registry at all |
 | what are the runtime dependencies? | `effective_execution_graph()` on one path, `proc_graph` on the other | `CompiledPipeline.proc_graph`, walked by submission. Nothing re-derives ancestry from node state |
 
 ## 3. Commits

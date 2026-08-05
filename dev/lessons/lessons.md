@@ -44,25 +44,25 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
     `dev/journals/claude.md` (2026-08-03).
   - **Applies when:** triaging an unexpectedly red baseline in this repo.
 
-- **Lesson:** When a check exists to protect an artifact, compare the artifact,
-  not something derived from it. Arbitration between requests that share a
-  `process_id` exists because one result directory holds one
-  `job_config.json`. Three successive attempts compared derived summaries --
-  an effective-ancestor set, a prerequisite union, then a per-input delivery
-  signature of produced origins -- and each was defeated by a distinction the
-  record kept and the summary dropped: a second output of the same producer, an
-  input alias that supplied the value versus one left unresolved, a parameter
-  port with no representation in the summary at all. Comparing the serialized
-  record is complete by construction: two requests that would write the same
-  file have nothing left to arbitrate. Derived summaries are still worth
-  keeping *in front of* it for the specific error messages they can give, never
-  in place of it.
-  - **Evidence / MWE:** `tests/test_identity_model.py`
-    `test_which_alias_supplied_the_value_is_a_requested_difference` and
-    `test_which_parameter_port_supplied_the_value_is_arbitrated`; commit
-    "Arbitrate on the requested record, not a summary of it".
-  - **Applies when:** adding to `_agreement.py`, or replacing any comparison in
-    it with a cheaper representation of the same information.
+- **Lesson:** If you *do* compare two requests, compare the artifact and not
+  something derived from it. Three successive attempts compared derived
+  summaries -- an effective-ancestor set, a prerequisite union, then a
+  per-input delivery signature of produced origins -- and each was defeated by
+  a distinction the record kept and the summary dropped: a second output of
+  the same producer, an input alias that supplied the value versus one left
+  unresolved, a parameter port with no representation in the summary at all.
+  The serialized record is complete by construction.
+  - **Superseded in part (0.4.0):** the premise was that requests sharing a
+    `process_id` must *agree*, because one directory holds one
+    `job_config.json`. They need not. The first request wins and writes the
+    record; comparison is an opt-in diagnostic (`warn`/`error`). What survives
+    is the narrow point above, which is why `_duplicates.py` names
+    `requested_provenance_record()` rather than a summary of it -- and why
+    `delivery_signature()`, built purely to sharpen a rejection message, was
+    deleted rather than kept. Read the first-wins policy in `AGENTS.md` before
+    acting on this lesson.
+  - **Applies when:** building a comparison in `_duplicates.py`, having first
+    established that a comparison is wanted at all.
 
 - **Lesson:** A many-to-one rewrite applied to mapping keys cannot be
   reassembled with a dict comprehension. Root-relative canonicalization maps
@@ -78,22 +78,21 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
   - **Applies when:** normalizing, canonicalizing, or rewriting anything used
     as a dictionary key in an identity payload.
 
-- **Lesson:** A per-node snapshot cannot arbitrate request state that never
-  reaches a node. `Pipeline.configure` keeps top-level `__slurm_options__` on
-  the pipeline, and `log` / `enable_links` / `write_invocations` /
-  `write_configs` are arguments to `submit_jobs`; a duplicate request returns
-  before any of them is applied, so the comparison has to take them from the
-  submitter. The full-matrix path was accidentally safe because the compiler
-  copies a row-global value into each node config -- which is why a passing
-  gather test did not imply the ordinary path was covered. When a check reads
-  its inputs from one object, enumerate what the *caller* holds that the object
-  does not.
-  - **Evidence / MWE:** `tests/test_identity_model.py`
-    `test_gather_free_pipeline_slurm_options_conflict` and
-    `test_submission_bookkeeping_flags_must_agree`; commit "Arbitrate the state
-    the submitter holds, and give mapping keys one policy".
-  - **Applies when:** adding a `submit_jobs` argument, or moving configuration
-    between the pipeline and its nodes.
+- **Lesson (superseded, 0.4.0 -- a wrong turn kept as a record):** that a
+  per-node snapshot cannot *arbitrate* request state which never reaches a
+  node, so the comparison must reach into the submitter for `log` /
+  `enable_links` / `write_invocations` / `write_configs`. There is no
+  cross-call arbitration any more: those are submission arguments, no
+  compilation can know them, and two calls sharing a queue are two independent
+  operational requests. The registry this lesson argued for is deleted. Do not
+  restore it; see the duplicate-policy section of `AGENTS.md`.
+  - What remains true and is worth carrying elsewhere: when a check reads its
+    inputs from one object, enumerate what the *caller* holds that the object
+    does not. The full-matrix path was accidentally safe here because the
+    compiler copies a row-global value into each node config, which is why a
+    passing gather test did not imply the ordinary path was covered.
+  - **Applies when:** nothing in the duplicate-request area. Kept so the
+    argument is recognizable if it is made again.
 
 - **Lesson:** Coerce at the configuration boundary, not in each reader.
   kwdagger accepts `os.PathLike` from Python callers and strings from YAML and
@@ -256,19 +255,20 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
   file. Copy the file aside and copy it back.
   - **Applies when:** temporarily breaking code to prove a test fails.
 
-- **Lesson:** "What the computation requires" and "what this call queued" are
-  two questions, and a request registry has to hold both. Arbitration compared
-  only the compiled predecessor set, so two submissions to one queue that
-  differed in `skip_existing` agreed about the request; the second was
-  recorded as a duplicate, and the job kept the dependencies of whichever call
-  came first. In one order that left a consumer with no dependency on a
-  producer the queue was about to rerun -- free to run first and read the
-  stale output. Whenever a per-call decision changes what reaches the queue,
-  the thing arbitration compares must include it.
-  - **Evidence / MWE:** `tests/test_compiled_pipeline_is_static.py`
-    `test_one_queue_two_skip_existing_answers_is_refused`, both orders.
-  - **Applies when:** a flag selects *which* work is submitted rather than
-    what the work is.
+- **Lesson (superseded, 0.4.0 -- a wrong turn kept as a record):** that
+  "what the computation requires" and "what this call queued" are two
+  questions a request registry must hold both of, so `queued_prerequisites`
+  had to join `prerequisites` and disagreeing `skip_existing` calls had to be
+  refused in either order. The described behavior is real -- a consumer can be
+  queued without a dependency on a producer a later call reruns, and can read
+  the stale output -- but it is **not a defect**. It is a partial rerun of a
+  research pipeline, and kwdagger makes no guarantee about data flow when
+  nodes are reinvoked. This lesson was written one commit before the whole
+  mechanism was deleted, and is the clearest example in this file of a
+  correctly-reasoned safeguard for a guarantee the project does not offer.
+  - **Applies when:** never, as written. Read it beside the
+    "indistinguishable, so we cannot know which the user meant" lesson below,
+    which is the general form of the mistake.
 
 - **Lesson:** A comment asserting an invariant is a claim, and claims rot.
   `_runtime.py` said reversing two calls that differ in `skip_existing` leaves

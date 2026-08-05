@@ -26,7 +26,7 @@ TODO:
     module performs. Adding bytes-specific traversal or an encoding policy is
     deliberately out of scope.
 
-Identity, commands, provenance, arbitration, and the JSON written to
+Identity, commands, provenance, duplicate diagnostics, and the JSON written to
 ``job_config.json`` all read the same shape as a result. The alternative --
 each of those separately understanding ``os.PathLike`` -- is what let a ``Path``
 mapping key hash cleanly and then fail at serialization, and let ``json.dumps``
@@ -116,9 +116,9 @@ def normalize_config_value(value: Any) -> Any:
 
     The invariant this establishes, and that everything downstream may assume:
     **after configuration coercion every path-like object is a string and every
-    mapping key is a string.** Identity, commands, provenance, arbitration, and
-    the JSON on disk then all read the same shape, instead of each separately
-    understanding :class:`os.PathLike`.
+    mapping key is a string.** Identity, commands, provenance, duplicate
+    diagnostics, and the JSON on disk then all read the same shape, instead of
+    each separately understanding :class:`os.PathLike`.
 
     The caller's original type is not retained or reproduced. Spelling is:
     ``os.fspath`` does not resolve or absolutize, so a relative path stays
