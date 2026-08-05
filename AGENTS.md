@@ -91,6 +91,78 @@ common workflows, and testing/documentation practices.
 - Build the HTML docs locally with `make -C docs html` (requires
   `requirements/docs.txt`). Generated output is placed under `docs/build/html`.
 
+## Execution, identity, and duplicate-request policy
+
+**Read this before proposing any safeguard.** Every rule below has been
+violated by a well-meaning change, and the changes were well-argued each time.
+
+Kwdagger runs parameter grids and records what it ran. That is the whole job.
+
+1. **It runs the grid and records the result.** It does not manage data.
+2. **It trusts configured paths as data identity.** The governing convention:
+   *the same configured path represents the same effective data.* This is a
+   convention of the system, deliberately not guarded.
+3. **It does not verify file contents or freshness.** Identity is value-based,
+   never content-based. Kwdagger does not read the bytes at a path, and equal
+   paths do not prove equal content.
+4. **`process_id` is the deduplication key.** Two requests that hash alike are
+   one job in one result directory.
+5. **Values excluded from identity may differ between duplicate requests.**
+   That is not a conflict. It is the direct consequence of the user choosing
+   which fields reach the hash.
+6. **The default duplicate policy is first-request-wins.** The first request
+   encountered for a `process_id` is the representative: it runs, and it is
+   what `job_config.json` records. Matrix order selects it. This is normal
+   supported behavior, not a degraded compatibility mode.
+7. **`warn` and `error` are optional diagnostics**, selected per compilation.
+   They change what is *reported*, not what is correct. `error` is an extra
+   constraint a user asked for.
+8. **Different delivery mechanisms for an equal effective path are not
+   different computations.** A produced path and the identical path typed into
+   a config are the same input. Provenance records the difference; identity
+   and scheduling do not.
+9. **Partial reruns and shared-queue submissions are not transactional.** Two
+   calls sharing a queue are two independent operational requests.
+10. **Existing outputs may satisfy dependencies.** A downstream job may be
+    queued without its producer when the producer's output already exists.
+11. **A later upstream rerun does not invalidate or reorder already submitted
+    downstream work.** Kwdagger makes no guarantee about data flow when
+    individual nodes are reinvoked and produce different results, and should
+    not try to.
+12. **Do not add content hashing, lineage-sensitive identity, invalidation
+    cascades, or cross-call arbitration** without an explicit change in
+    project scope. These have each been proposed, and implemented, by review
+    processes reasoning about workflow engines rather than about kwdagger.
+
+### The reviewer test
+
+> Before proposing a safeguard, ask whether it is required to execute the
+> ordered parameter grid in the current compilation, or whether it is
+> attempting to enforce artifact integrity or coherence across independent
+> executions. **The latter is out of scope.**
+
+If a user needs data integrity, they implement it. Kwdagger is running their
+parameter grid.
+
+### How this went wrong once, in detail
+
+Worth keeping, because the failure mode is subtle and recurring. The 0.3.x
+review rounds correctly identified that two matrix rows could compile to one
+process while disagreeing about `perf_params`, Slurm options, or `__enabled__`
+-- and that whichever row came first would silently decide. Each round the fix
+was to *reject*, and each rejection was individually defensible.
+
+The premise was wrong. "Whichever row came first decides" is not a defect; it
+is first-request-wins, which is what a grid runner should do. Rejecting made
+kwdagger refuse ordinary research pipelines in the name of a determinism
+guarantee nobody asked for. A related earlier instance: an agent proposed
+making two requesters with the same path hash differently, which would have
+forced recomputation of every downstream result.
+
+The pattern to watch for: an argument that begins "these two requests are
+indistinguishable, so we cannot know which the user meant". We can. They meant
+the first one. Record it and run it.
+
 ## Core execution model and priorities
 
 Treat these as the primary constraints when changing scheduling, graph
@@ -258,9 +330,11 @@ equal command-defining state, apart from state that is deliberately unhashed.**
 Path templates may therefore use only the node's own ids; substituting an
 ancestor's id was removed for exactly this reason.
 
-Two things identity deliberately cannot arbitrate, which matrix rows sharing an
-identity must therefore agree on — compilation reports each as a user-facing
-`ValueError`:
+Two things identity deliberately does not carry. Matrix rows sharing an
+identity may differ in either, and under the default duplicate policy the
+first row wins and nothing is reported. They are listed because `warn` and
+`error` describe them, and because knowing what identity drops is how a user
+decides what to put *into* it:
 
 - **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
   and output-path overrides. Slurm options have four layers -- pipeline base,
@@ -298,17 +372,21 @@ identity must therefore agree on — compilation reports each as a user-facing
   same computation in two different ways. Only one `job_config.json` can be
   written for the directory they share.
 
-  Arbitration therefore compares the **record itself**, `_depends_config()`, not
-  a summary derived from it. Every attempt to compare a derived summary -- a
-  prerequisite union, a per-port delivery signature -- has lost a distinction
-  the record was keeping on purpose. Those summaries are still checked first,
-  but only because they name the two common conflicts precisely; the record
-  comparison is what makes the check complete. Do not replace it with a cheaper
-  representation of the same information.
+  Under `warn` and `error` the comparison names the **record itself**,
+  `_depends_config()`, because a summary of it loses distinctions the record
+  keeps on purpose. That is a diagnostic choice, not a correctness one: under
+  the default policy nothing is compared at all, and the first request's
+  record is what gets written.
 
-Anything else reaching the command or the node directory without reaching
-identity is a payload defect, and compilation raises an internal-consistency
-error for it.
+Keep the distinction sharp when adding a check:
+
+> A difference between two legitimate equal-identity **requests** is policy.
+> A contradiction *within* one request, or in the compiled graph, is a defect.
+
+Internal invariants stay unconditional -- a graph key that disagrees with its
+node's `process_id`, a missing node, configuration that cannot be normalized.
+Do not disguise a user-policy rejection as an internal-consistency error; that
+is how the duplicate rules became unremovable-looking.
 
 ### Authoritative pipeline representations
 

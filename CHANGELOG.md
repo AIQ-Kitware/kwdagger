@@ -4,6 +4,39 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Version 0.4.0 - Unreleased
 
+### Duplicate requests: first wins, by default
+
+Compilation used to **reject** two matrix rows that produced one `process_id`
+while differing in `perf_params`, Slurm options, `__enabled__`, output
+overrides, delivery mechanism, or provenance. That was wrong for what kwdagger
+is. Anything two equal-identity rows can disagree about is, by construction,
+something the user excluded from identity; refusing to run their grid over it
+protects them from a collision they chose.
+
+The default is now first-request-wins: the first request encountered for a
+`process_id` is the representative, it runs, and `job_config.json` records it.
+Matrix order selects it, deliberately. This is normal supported behavior, not
+a compatibility mode.
+
+`duplicate_policy` is a new compile-time option -- `'first'` (default),
+`'warn'` (same execution, plus a message naming what differed), `'error'` (the
+old rejection, now opt-in). Available on
+`Pipeline.compile_configurations`, `build_schedule`, and as
+`--duplicate_policy` on the CLI. Under `'first'` no comparison is built at all,
+so the default path costs nothing.
+
+Cross-call arbitration is gone entirely. Two submissions sharing a queue are
+two independent operational requests: if a job is already in the queue it has
+been submitted, and that is the whole rule. Partial reruns and differing
+`skip_existing`, bookkeeping flags, or enabled state between calls are no
+longer refused. `kwdagger.pipeline._agreement` is removed; the surviving
+comparison lives in `_duplicates` and only runs when a user asked for it.
+
+`AGENTS.md` gains an "Execution, identity, and duplicate-request policy"
+section stating the scope explicitly, because this was implemented by review
+processes reasoning about workflow engines rather than about a grid runner,
+and would otherwise come back.
+
 This is a minor bump rather than a patch because the single-scheduling-path
 refactor changes what several public calls return. No *identity* changes --
 the TA1 card pipelines compile to byte-identical process ids, node
