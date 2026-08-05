@@ -1235,11 +1235,13 @@ def _dedup_pipeline():
     """
     A consumer whose input is overridden, plus an unrelated gather.
 
-    The gather earns its place: ``compile_configurations`` refuses a pipeline
-    without one, and ``build_schedule`` only takes the full-matrix path when a
-    gather exists. So the deduplication this exercises is reachable only in a
-    pipeline that gathers *somewhere* -- which is exactly why the two
-    scheduling paths could disagree unnoticed.
+    The gather is here for history: when this regression was found,
+    ``compile_configurations`` refused a pipeline without one and
+    ``build_schedule`` only took the full-matrix path when a gather existed,
+    so the deduplication exercised here was reachable only in a pipeline that
+    gathered *somewhere* -- which is exactly why the two scheduling paths
+    could disagree unnoticed. Compilation is now unconditional; the gather is
+    kept so this keeps reproducing the original shape.
     """
     shard = ProcessNode(
         name='shard',

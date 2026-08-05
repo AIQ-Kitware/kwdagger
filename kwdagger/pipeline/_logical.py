@@ -541,16 +541,20 @@ class Pipeline:
         """
         Compile matrix rows into one concrete, static process graph.
 
-        This is required for gather edges because a target instance needs to
-        see source instances configured by multiple matrix rows before its
-        input manifest and process identity can be finalized.
+        This is how kwdagger turns a matrix into work, for every pipeline.
+        A gather *requires* it -- a target instance has to see source
+        instances configured by several rows before its manifest and process
+        identity can be finalized -- but nothing about compilation is specific
+        to gathers, and a pipeline without one is compiled by the same
+        algorithm with no collections to resolve.
+
+        Compiling a gather-free pipeline is not merely permitted, it is what
+        the scheduler does: cloning a node per row is what makes a compiled
+        instance inspectable afterwards, where the historical row-at-a-time
+        loop reused one mutable node and left only the last row's state
+        behind.
         """
         self._ensure_clean()
-        if not self.has_gather_connections:
-            raise ValueError(
-                'compile_configurations is currently intended for pipelines '
-                'with gather connections'
-            )
         return _compile_pipeline_configurations(
             self,
             configs=configs,

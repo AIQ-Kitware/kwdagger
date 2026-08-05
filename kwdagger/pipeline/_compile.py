@@ -1,11 +1,14 @@
 """
 Full-matrix compilation: the logical template becomes a concrete graph.
 
-A gather cannot be resolved one matrix row at a time -- its membership is only
-known once every row exists -- so this layer expands the whole matrix, clones a
-process node per configuration, resolves grouping keys, selects and orders
-gather members, canonicalizes duplicate processes, and checks that rows which
-compile to one process agree about how it should execute.
+This layer expands the whole matrix, clones a process node per configuration,
+canonicalizes duplicate processes, checks that rows which compile to one
+process agree about how it should execute, and builds the concrete execution
+graph. Where a gather is present it additionally resolves grouping keys and
+selects and orders collection members -- a gather is why compilation had to
+exist (its membership is only known once every row does), but it is a feature
+*of* the matrix, not a second way to schedule one. A gather-free pipeline
+compiles by the same algorithm with no collections to resolve.
 
 Imports the connection and process layers. It refers to
 :class:`~kwdagger.pipeline._logical.Pipeline` only as a type annotation, which
@@ -791,7 +794,7 @@ def _compile_pipeline_configurations(
             proc_graph.add_edge(pred.process_id, process_id)
 
     if not nx.is_directed_acyclic_graph(proc_graph):
-        raise ValueError('Compiled gather graph is not acyclic')
+        raise ValueError('Compiled process graph is not acyclic')
 
     collection_groups = 0
     collection_memberships = 0
