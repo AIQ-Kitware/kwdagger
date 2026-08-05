@@ -1189,3 +1189,42 @@ sibling checkout. Until it is published, `cmd_queue >= 0.3.2` makes kwdagger
 installed the local checkout editable.
 
 377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-05 10:32:49 -0400
+
+Closing out a long session. 0.3.0 is released, the dependents are moved onto
+it, and the single-scheduling-path refactor has its characterization baseline
+committed but nothing else. Wrote `dev/planning/authority-refactor-handoff.md`
+rather than leaving that state in my head.
+
+The thing I most want the next person to read is the authority table in that
+document. Every defect this review sequence found -- stale row state, divergent
+Slurm layering, divergent normalization boundaries -- was the same defect:
+two owners for one question, with nothing forcing agreement. I fixed each one
+individually as it was reported, which was right for a release but is why the
+list kept growing. The refactor is the actual fix.
+
+Phase 1 is deliberately only tests. Two of them record current *disagreements*
+rather than asserting agreement, which felt wrong to write and is I think
+correct: `node.slurm_options` genuinely means different things on the two
+paths, and pinning that as a difference now is what lets Phase 4 flip it to an
+equality and prove something changed. A characterization test that quietly
+compares only the fields that already match is a test that will pass through
+the refactor without noticing anything.
+
+Also worth recording: writing the parity harness taught me something about the
+row-at-a-time path I had not appreciated. Reading node state after the loop
+shows only the last row, because that path reuses one mutable node while the
+compiler clones. That is not just an implementation detail -- it means
+"configure a batch, then inspect the pipeline" is misleading today, and the
+refactor incidentally fixes an interactive-inspection wart, not only an
+architectural one.
+
+Two things I could not close and flagged in the handoff: I never found the TA1
+fingerprint fixture the brief asks to run, and the version target is ambiguous
+(the brief says 0.4.0, the maintainer said keep 0.3.1) in a way that matters
+because `build_schedule()` consistently returning a `CompiledPipeline` is a
+visible behavior change.
+
+Baseline at `346ac18`: 391 passed / 18 skipped, 92 doctests, ruff/ty/flake8
+clean.
