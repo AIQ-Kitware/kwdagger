@@ -404,7 +404,9 @@ def test_schedule_with_inline_yaml_pipeline():
     dag, queue = schedule.build_schedule(config)
     # 2 param1 values x 2 param2 values = 4 configs.
     assert len(queue) >= 4
-    assert sorted(dag.node_dict) == ['step1']
+    # The compiled pipeline holds one concrete instance per row.
+    assert sorted(dag.nodes_by_name) == ['step1']
+    assert len(dag.nodes_by_name['step1']) == 4
 
 
 def _write_eval_script(dpath):

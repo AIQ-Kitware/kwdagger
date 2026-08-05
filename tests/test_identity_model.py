@@ -584,6 +584,11 @@ def _submit_rows(dag, rows, root, backend='serial', per_row=None, **kwargs):
     ``per_row`` gives each submission its own ``submit_jobs`` keyword
     arguments, which is how a caller's bookkeeping choices differ between
     otherwise identical requests.
+
+    Statuses come back keyed by ``process_id`` -- a compiled matrix can hold
+    several instances of one name -- and are translated to names here, since
+    these pipelines have exactly one instance per name per row and reading
+    ``statuses[1]['predict']`` is the point being made.
     """
     queue = None
     statuses = []
@@ -601,7 +606,13 @@ def _submit_rows(dag, rows, root, backend='serial', per_row=None, **kwargs):
             **submit_kwargs,
         )
         queue = summary['queue']
-        statuses.append(summary['node_status'])
+        name_of = {n.process_id: n.name for n in dag.node_dict.values()}
+        statuses.append(
+            {
+                name_of.get(process_id, process_id): status
+                for process_id, status in summary['node_status'].items()
+            }
+        )
     return queue, statuses
 
 

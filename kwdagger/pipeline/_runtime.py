@@ -95,7 +95,13 @@ def submit_jobs(
             to False to skip the tee.
 
     Returns:
-        dict: a summary including the ``'queue'`` that was submitted to.
+        dict: a summary including the ``'queue'`` that was submitted to and
+            ``'node_status'``, what happened to each request. That mapping is
+            keyed by ``process_id`` rather than by node name, because a
+            compiled matrix holds many instances of one name and a name would
+            silently overwrite its siblings. It is the same key
+            ``queue.named_jobs`` and :attr:`CompiledPipeline.nodes` use, so
+            ``compiled.nodes[process_id].name`` recovers the name.
     """
     import json
     import shlex
@@ -202,7 +208,7 @@ def submit_jobs(
         # print(f'node_name={node_name}')
         # print(f'node.enabled={node.enabled}')
         if not node.enabled:
-            node_status[node_name] = 'disabled'
+            node_status[node.process_id] = 'disabled'
             node.will_exist = node.does_exist
             continue
 
@@ -224,7 +230,7 @@ def submit_jobs(
         skip_node = not (node.will_exist and node.enabled)
 
         if skip_node:
-            node_status[node_name] = 'skipped'
+            node_status[node.process_id] = 'skipped'
         else:
             node_procid = node.process_id
             node_job = None
@@ -316,11 +322,11 @@ def submit_jobs(
                     name=node_procid,
                     **extra_submitkw,
                 )
-                node_status[node_name] = 'new_submission'
+                node_status[node.process_id] = 'new_submission'
             else:
                 # Some other config submitted this job, we can skip the
                 # rest of the work for this node.
-                node_status[node_name] = 'duplicate_submission'
+                node_status[node.process_id] = 'duplicate_submission'
                 continue
 
             # We might want to execute a few boilerplate instructions

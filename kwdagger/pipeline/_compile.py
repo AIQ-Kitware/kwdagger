@@ -88,6 +88,24 @@ class CompiledPipeline:
             key: data['node'] for key, data in self.proc_graph.nodes(data=True)
         }
 
+    @cached_property
+    def nodes_by_name(self) -> dict[str, list[ProcessNode]]:
+        """
+        The concrete instances of each template node, keyed by name.
+
+        The name lookup :attr:`Pipeline.node_dict` provides, adjusted for the
+        one thing compilation changes: a name identifies a *template*, and a
+        matrix expands it into many processes. So this maps to a list, and the
+        list is in compilation order.
+
+        Derived from ``proc_graph`` for the same reason :attr:`nodes` is.
+        """
+        grouped: dict[str, list[ProcessNode]] = {}
+        for node in self.nodes.values():
+            assert isinstance(node.name, str)
+            grouped.setdefault(node.name, []).append(node)
+        return grouped
+
     def _edge_cardinality_records(self) -> list[dict[str, Any]]:
         """Summarize concrete edge multiplicity by logical port binding."""
         grouped: dict[tuple[Any, ...], dict[str, Any]] = {}

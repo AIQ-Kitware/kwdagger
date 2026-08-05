@@ -123,6 +123,15 @@ class Pipeline:
         #: for, and arbitration compares this to decide whether two rows want
         #: the same resources.
         self.__slurm_options__: dict[str, Any] = {}
+        #: The last row ``configure`` was given, normalized and complete --
+        #: reserved keys included, unlike :attr:`config`, which has had them
+        #: popped. Submission compiles this as a one-row matrix, so it is the
+        #: same input the batch path receives rather than a reconstruction of
+        #: one from node state.
+        self._configured_row: dict[str, Any] = {}
+        #: The ``cache`` flag that row was configured with, remembered for the
+        #: same reason.
+        self._configured_cache: bool = True
 
         self._dirty = True
         self._unique_hanes: set[str] = set()
@@ -513,6 +522,10 @@ class Pipeline:
             # ``Pipeline.config`` then sees the shape the nodes were
             # configured with.
             config = normalize_config(config)
+            # Remembered before any reserved key is popped: submission
+            # compiles this row, so it must be the row as given.
+            self._configured_row = dict(config)
+            self._configured_cache = cache
             self.__slurm_options__ = layer_slurm_options(
                 self._base_slurm_options,
                 config.pop('__slurm_options__', None),
@@ -560,6 +573,25 @@ class Pipeline:
             configs=configs,
             root_dpath=root_dpath,
             cache=cache,
+        )
+
+    def compile_current_configuration(self) -> 'CompiledPipeline':
+        """
+        Compile the row this pipeline is configured with, as a one-row matrix.
+
+        The interactive counterpart to :func:`compile_configurations`, and the
+        reason :func:`submit_jobs` is not a second scheduler: one row is a
+        matrix of one, so it goes through the same compiler with the same
+        arguments and gets the same treatment. What differs is only how many
+        rows there are.
+
+        Returns:
+            CompiledPipeline: the concrete graph for the current row.
+        """
+        return self.compile_configurations(
+            [self._configured_row],
+            root_dpath=self.root_dpath,
+            cache=self._configured_cache,
         )
 
     def _process_display_graph(
@@ -748,26 +780,33 @@ class Pipeline:
         """
         Submits the jobs to an existing command queue or creates a new one.
 
+        Compiles the current row and submits *that*, so an interactive
+        one-row submission and a batch differ only in how many rows were
+        compiled. This used to build its own execution graph and call the
+        runtime directly, which is how the two paths came to disagree about
+        Slurm layering, normalization, and arbitration.
+
+        The nodes that reach the queue are therefore the compiled clones, not
+        this pipeline's own. That is the point -- they are what the scheduler
+        acts on, and unlike the template they still describe this row after
+        the next one is configured.
+
         See :func:`kwdagger.pipeline._runtime.submit_jobs` for the arguments
         and for what gets written to the result directories.
         """
-        from kwdagger.pipeline import _runtime
-
         if self.has_gather_connections:
-            # A gather's membership is only known once the whole matrix has
-            # been compiled, so a logical pipeline cannot answer what a
-            # consumer's collection contains. This precondition belongs to
-            # the logical layer, not to submission.
+            # Not a limit of the compiler -- a one-row gather compiles
+            # perfectly well -- but of the request. A collection's membership
+            # is whatever the matrix contains, so gathering one row at a time
+            # quietly builds a manifest of one row's sources and calls it the
+            # collection. That is a matrix mistake rather than a scheduling
+            # one, so it is refused here rather than being made to work.
             raise RuntimeError(
                 'Gather pipelines must be compiled across all matrix rows '
                 'before submission. Use Pipeline.compile_configurations(...) '
                 'or kwdagger schedule.'
             )
-        return _runtime.submit_jobs(
-            # The execution graph, not the template one: submission has to
-            # ask what each configured command actually requires.
-            self.effective_execution_graph(),
-            slurm_options=self.__slurm_options__,
+        return self.compile_current_configuration().submit_jobs(
             queue=queue,
             skip_existing=skip_existing,
             enable_links=enable_links,

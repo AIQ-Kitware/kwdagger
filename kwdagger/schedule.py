@@ -169,7 +169,7 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     import kwutil
     import pandas as pd
     import rich
-    from kwutil import slugify_ext, util_progress
+    from kwutil import slugify_ext
 
     from kwdagger.pipeline import coerce_pipeline
     from kwdagger.utils.result_analysis import varied_values
@@ -239,56 +239,41 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     if len(all_param_grid) == 0:
         print('WARNING: PARAM GRID IS EMPTY')
 
-    # Ordinary pipelines preserve the historical row-at-a-time configuration
-    # path. Gather pipelines compile every row first so collection membership
-    # is known before any concrete command is submitted.
-    configured_stats = []
+    # One scheduling path: the matrix is compiled, then the compiled graph is
+    # submitted. Whether the pipeline contains a gather is a property of what
+    # is being compiled, not a choice of how to schedule it -- deciding the
+    # execution architecture from a compilation feature is what let the two
+    # implementations drift apart.
+    #
     # A pipeline-wide default, so it must be the *base* rather than the
     # effective value: a row that omits ``__slurm_options__`` then resets to
-    # this instead of inheriting the previous row's request. Applies to both
-    # scheduling paths -- the ordinary one used to drop it entirely.
+    # this instead of inheriting the previous row's request.
     dag._base_slurm_options = pipeline_coerce_slurm_options(
         config.slurm_options
     )
     dag.__slurm_options__ = dict(dag._base_slurm_options)
-    if dag.has_gather_connections:
-        compiled = dag.compile_configurations(
-            all_param_grid,
-            root_dpath=root_dpath,
-            cache=config['cache'],
-        )
-        # Print the concrete cardinality diagnostics before queue submission so
-        # users can audit fan-in and fan-out before any execution is possible.
-        compiled.print_cardinality_graph()
-        print('Gather compilation summary:')
-        for key, value in compiled.compile_summary.items():
-            print(f'    {key}: {value}')
-        summary = compiled.submit_jobs(
-            queue=queue,
-            skip_existing=config['skip_existing'],
-            enable_links=config['enable_links'],
-            log=config['log'],
-        )
-        configured_stats.append(summary)
-        dag = compiled
-    else:
-        pman = util_progress.ProgressManager()
-        with pman:
-            for row_config in pman.progiter(
-                all_param_grid, desc='configure dags', verbose=3
-            ):
-                dag.configure(
-                    config=row_config,
-                    root_dpath=root_dpath,
-                    cache=config['cache'],
-                )
-                summary = dag.submit_jobs(
-                    queue=queue,
-                    skip_existing=config['skip_existing'],
-                    enable_links=config['enable_links'],
-                    log=config['log'],
-                )
-                configured_stats.append(summary)
+    compiled = dag.compile_configurations(
+        all_param_grid,
+        root_dpath=root_dpath,
+        cache=config['cache'],
+    )
+    # Print the concrete cardinality diagnostics before queue submission so
+    # users can audit fan-in and fan-out before any execution is possible.
+    compiled.print_cardinality_graph()
+    print('Compilation summary:')
+    for key, value in compiled.compile_summary.items():
+        print(f'    {key}: {value}')
+    # Matrix-wide rather than per-row: there is one submission now, so there
+    # is one summary. Its ``node_status`` covers every concrete process, keyed
+    # by ``process_id`` -- strictly more than the old loop reported, which was
+    # one dict per row keyed by node name and overwritten as rows repeated.
+    compiled.submit_jobs(
+        queue=queue,
+        skip_existing=config['skip_existing'],
+        enable_links=config['enable_links'],
+        log=config['log'],
+    )
+    dag = compiled
 
     print(f'len(queue)={len(queue)}')
 
@@ -328,10 +313,8 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     # param. The forced reset is removed; ``BashJob.log`` now reflects
     # the configured value as set during submission.
 
-    # Report the local root_dpath rather than ``dag.root_dpath``: both branches
-    # above derive the latter from the former, but an empty param grid never
-    # enters the configure loop, leaving a template Pipeline with no
-    # ``root_dpath`` attribute at all.
+    # Report the local root_dpath: it is what compilation was given, and it is
+    # meaningful even when the param grid was empty and nothing was compiled.
     if config.run:
         root_dpath.ensuredir()
 
