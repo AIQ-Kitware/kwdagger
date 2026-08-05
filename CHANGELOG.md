@@ -78,6 +78,39 @@ the four entries marked **breaking** below.
   row, because the row-at-a-time path reused one mutable node per name. A
   compiled pipeline clones per row, so every row is still described afterwards.
 
+* `skip_existing` no longer edits the pipeline it is submitting. It wrote its
+  per-call decision back as `node.enabled = False`, so a compiled pipeline
+  stopped describing what was requested: submitting it again with
+  `skip_existing=False` still reported the node disabled, and resubmitting to
+  the same queue compared the mutated node against the original snapshot and
+  reported an `__enabled__` conflict the user never created. The decision is
+  now per-submission state.
+
+* A configured pipeline's nodes report the complete Slurm request.
+  `ProcessNode.configure` resolves only the two layers a node knows, and the
+  pipeline base and row-global layers were added only when a clone was
+  compiled -- so submission was correct while
+  `pipeline.node_dict['train'].effective_slurm_options` showed an incomplete
+  request to anyone inspecting the template. `Pipeline.configure` now finishes
+  the resolution, through the same resolver.
+
+* `Pipeline.configure(config=None, cache=...)` records the cache flag. It
+  changes the flag without changing the row, and the flag was only remembered
+  alongside a row, so a later `submit_jobs` recompiled with whatever the
+  previous call had asked for.
+
+* Cloning a node during compilation no longer deep-copies the rest of the
+  pipeline. Ports hold their peers and every port holds its parent, so copying
+  a wired node walked the whole connected component -- materializing every
+  other node, once per clone, only to discard them. Compilation makes one
+  clone per node per matrix row, so the cost was quadratic in the pipeline,
+  and it became every pipeline's cost once compilation stopped being
+  gather-only. A 32-node chain over four rows compiles about 7x faster, and
+  per-clone cost no longer grows with the pipeline at all. It also removes a
+  failure mode: something not deep-copyable attached to one node -- a lock, an
+  open file, a client -- used to break compilation of every node connected to
+  it.
+
 
 ## Version 0.3.0 - Released 2026-08-04
 

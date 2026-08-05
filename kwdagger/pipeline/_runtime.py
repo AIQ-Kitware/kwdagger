@@ -146,6 +146,12 @@ def submit_jobs(
     summary = {'queue': queue, 'node_status': {}}
     node_status = summary['node_status']
 
+    #: Whether each node is being submitted by *this* call, keyed as the graph
+    #: keys it. Per-submission operational state, deliberately not written back
+    #: onto the node: ``skip_existing`` selects what this call queues, and a
+    #: compiled pipeline has to keep describing what was requested.
+    active: dict[Any, bool] = {}
+
     assert isinstance(proc_graph, nx.DiGraph)
     # A defensive backstop, not the arbitration itself. Compilation is the
     # authority: it holds the whole matrix, so it catches a conflict before a
@@ -191,10 +197,8 @@ def submit_jobs(
         # The compiled graph is the authority on what must run first. Asking
         # the node again would be a second derivation of the edges this
         # function is walking, free to drift from them.
-        pred_nodes = [
-            proc_graph.nodes[name]['node']
-            for name in proc_graph.predecessors(node_name)
-        ]
+        pred_names = list(proc_graph.predecessors(node_name))
+        pred_nodes = [proc_graph.nodes[name]['node'] for name in pred_names]
         _snapshot = execution_snapshot(
             node,
             submission_state,
@@ -221,28 +225,48 @@ def submit_jobs(
         if not node.enabled:
             node_status[node.process_id] = 'disabled'
             node.will_exist = node.does_exist
+            active[node_name] = False
             continue
 
         assert isinstance(proc_graph, nx.DiGraph)
         ancestors_will_exist = all(n.will_exist for n in pred_nodes)
-        if skip_existing and node.enabled != 'redo' and node.does_exist:
-            node.enabled = False
+        # Whether this submission skips the node, held locally. It used to be
+        # written back as ``node.enabled = False``, which turned a per-call
+        # decision into a permanent edit of the compiled request: the pipeline
+        # no longer described what was asked for, submitting it again with
+        # ``skip_existing=False`` still reported it disabled, and resubmitting
+        # to the same queue compared the mutated node against the original
+        # snapshot and reported a conflict the user never created.
+        skipped_existing = (
+            skip_existing and node.enabled != 'redo' and node.does_exist
+        )
+        is_active = not skipped_existing
 
         node.will_exist = (
-            node.enabled and ancestors_will_exist
+            is_active and ancestors_will_exist
         ) or node.does_exist
+        active[node_name] = is_active
         if 0:
             print(f'node.final_out_paths={node.final_out_paths}')
             print(f'Checking {node_name}, will_exist={node.will_exist}')
 
-        skip_node = not (node.will_exist and node.enabled)
+        skip_node = not (node.will_exist and is_active)
 
         if skip_node:
             node_status[node.process_id] = 'skipped'
+            active[node_name] = False
         else:
             node_procid = node.process_id
             node_job = None
-            pred_node_procids = [n.process_id for n in pred_nodes if n.enabled]
+            # Predecessors this call actually queued. A predecessor skipped
+            # because its output already exists is not in the queue, so it
+            # cannot be depended on -- but it is still an enabled part of the
+            # request, which is why this reads the local decision.
+            pred_node_procids = [
+                pred.process_id
+                for name, pred in zip(pred_names, pred_nodes)
+                if active.get(name)
+            ]
             is_slurm = 'slurm' in queue.__class__.__name__.lower()
             has_gather = any(
                 input_node._gather_members is not None
@@ -331,8 +355,10 @@ def submit_jobs(
                 node_status[node.process_id] = 'new_submission'
             else:
                 # Some other config submitted this job, we can skip the
-                # rest of the work for this node.
+                # rest of the work for this node. It *is* in the queue, so it
+                # stays a legitimate dependency for anything downstream.
                 node_status[node.process_id] = 'duplicate_submission'
+                active[node_name] = True
                 continue
 
             # We might want to execute a few boilerplate instructions

@@ -255,3 +255,48 @@ def test_the_matrix_is_normalized_before_it_is_expanded(tmp_path):
     )
     dag, _queue = schedule.build_schedule(config)
     assert len(dag.nodes_by_name['step1']) == 1
+
+
+def test_a_configured_template_node_reports_every_layer(tmp_path):
+    """
+    Inspecting a configured pipeline must show the request that will be
+    submitted. ``ProcessNode.configure`` resolves only the two layers a node
+    knows, so a template node used to report an incomplete request while the
+    submitted job used the complete one.
+    """
+    dag = _pipeline(node_default={'time': '3:00'})
+    dag._base_slurm_options = {'account': 'acct'}
+    row = {
+        'predict.model': 'm',
+        '__slurm_options__': {'partition': 'row'},
+        'predict.__slurm_options__': {'gres': 'gpu:4'},
+    }
+    dag.configure(row, root_dpath=tmp_path, cache=False)
+    template = dag.node_dict['predict']
+    (compiled,) = dag.compile_current_configuration().nodes_by_name['predict']
+    assert template.effective_slurm_options == {
+        'account': 'acct',
+        'partition': 'row',
+        'time': '3:00',
+        'gres': 'gpu:4',
+    }
+    assert template.effective_slurm_options == compiled.effective_slurm_options
+
+
+def test_a_row_that_drops_the_pipeline_layers_updates_the_template(tmp_path):
+    """The template follows the current row, not an accumulated one."""
+    dag = _pipeline()
+    dag._base_slurm_options = {'partition': 'base'}
+    dag.configure(
+        {'predict.model': 'a', '__slurm_options__': {'gres': 'gpu:1'}},
+        root_dpath=tmp_path,
+        cache=False,
+    )
+    assert dag.node_dict['predict'].effective_slurm_options == {
+        'partition': 'base',
+        'gres': 'gpu:1',
+    }
+    dag.configure({'predict.model': 'b'}, root_dpath=tmp_path, cache=False)
+    assert dag.node_dict['predict'].effective_slurm_options == {
+        'partition': 'base'
+    }

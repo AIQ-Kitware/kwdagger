@@ -1326,3 +1326,72 @@ visible decision than a quiet one.
 
 The other risk worth naming: the branches still are not pushed, in any of
 these repos. Same as it has been all week.
+
+## 2026-08-05 14:02:11 -0400
+
+Acted on a GPT-5.6 review of the finished refactor. It found one real runtime
+bug and three places where the authority model was not actually closed, and it
+was right about all four. I reproduced every one before touching anything,
+which is worth doing: a review that is right about four things can still be
+right for the wrong reason about one of them, and the probes are what turn
+"plausible" into "confirmed".
+
+The `skip_existing` bug is the one I should have caught myself, and the reason
+I did not is instructive. It predates this work — the line has been there for
+ages — but the refactor is what made it matter, because `build_schedule` now
+*returns* the compiled pipeline and callers hold on to it. Writing a per-call
+decision back as `node.enabled = False` meant the object stopped describing
+what was asked for: a second submission with `skip_existing=False` still
+reported the node disabled, and resubmitting to the same queue compared the
+mutated node against the first snapshot and raised an `__enabled__` conflict
+the user never created. I spent six phases arguing that a compiled pipeline is
+a static description of requested work and never checked whether submitting it
+left it unchanged. The invariant I was most confident about is the one I
+never tested.
+
+The two `cached_property` lookups are a subtler version of the same thing, and
+I would have defended them if asked. They *are* derived from `proc_graph` —
+that was the Phase 6 requirement and I ticked it. But the mapping they hand
+back is independently mutable, so the moment anything edits it, a cached one
+keeps the edit while the graph submission actually walks knows nothing about
+it. Derived-once is not the same as derived. Plain properties, and the cost is
+a dict comprehension.
+
+The interactive Slurm gap is the one that stings, because completing that
+surface was an explicit goal of Phase 4 and I half-did it. `ProcessNode.configure`
+resolves the two layers a node knows, compilation adds the other two — which
+is right, and means a *template* node reported an incomplete request to anyone
+inspecting a configured pipeline while the submitted job used the complete
+one. `Pipeline.configure` knows all four; it now finishes the job through the
+same resolver, so there is still one place that knows the precedence.
+
+The cloning finding is the one I nearly under-fixed. The reviewer flagged it
+as a scalability concern to track rather than block on, and my instinct was to
+add a benchmark and move on. I measured first: per-clone cost went 0.69 ms at
+two nodes to 4.23 ms at thirty-two, so compiling a matrix was quadratic in the
+pipeline — and universal compilation is exactly what made that everyone's
+problem rather than gather users'. That reframed it from "future work" to
+"something my change caused". The fix is to detach the node's outward
+references, copy, and restore, so the copy is born disconnected instead of
+copied connected and then stripped. Flat 0.55 ms/clone at every size; the
+32-node case went 0.541 s to 0.071 s.
+
+Finding the last escape route took a graph walk rather than reading. I
+detached the obvious ones — `pred`, `succ`, gather links,
+`_pred_nodes_without_io_connection` — re-benchmarked, and nothing changed at
+all. The remaining route was `_configured_cache`, the memoization dict, which
+holds a computed list of *other nodes* under the predecessor query. That is
+the second time this session a memo has quietly been part of the object graph,
+and I would not have guessed it; `gc`-style reachability from one node to
+another is a much better tool than staring at attribute lists.
+
+One self-inflicted wound worth recording: I verified the new tests were
+load-bearing by breaking a fix and re-running, then "restored" with
+`git checkout kwdagger/pipeline/_compile.py` — which reverted the file to the
+last *commit*, silently throwing away two of the fixes I had just made in it.
+I noticed because a grep returned 0. Copy the file to a scratch path and copy
+it back; `git checkout` is not an undo for uncommitted work.
+
+TA1 fingerprint byte-identical again after all of this, which is the check
+that matters most: none of these fixes moved an identity. 470 passed / 18
+skipped, up from 454.

@@ -339,10 +339,12 @@ The rules that follow from that, all of which have been violated at least once:
   come from walking its edges. Do not re-derive ancestry from node state at
   submission time; the compiler already did that, and a second derivation is
   free to disagree.
-- **Compiled containers are derived.** `CompiledPipeline.nodes` and
-  `nodes_by_name` are `cached_property` views over `proc_graph`. Do not add a
-  collection stored beside it -- that is the shape that goes stale the first
-  time anything mutates.
+- **Compiled containers are derived, and not cached.** `CompiledPipeline.nodes`
+  and `nodes_by_name` are plain properties built from `proc_graph` on every
+  access. Do not add a collection stored beside it, and do not memoize these:
+  the mapping they return is independently mutable, so a cached one would keep
+  an edit that `proc_graph` -- the thing submission actually walks -- knows
+  nothing about. That is the same competing-authority shape in miniature.
 - **A name is not a key on a compiled pipeline.** A matrix expands one template
   into many processes, so `nodes` is keyed by `process_id`, `nodes_by_name`
   maps to a *list*, and `submit_jobs` reports `node_status` by `process_id`.

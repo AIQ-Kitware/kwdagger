@@ -205,3 +205,53 @@ Confirmed, reusable lessons only. See `AGENTS.md` for the format and the bar.
   the repository the first time you rely on it, not the sixth.
   - **Evidence / MWE:** `dev/ta1_fingerprint.py`, named in `AGENTS.md`.
   - **Applies when:** a check earns a place in your routine.
+
+- **Lesson:** Submitting a description of work must not edit the description.
+  `skip_existing` wrote its per-call decision back as `node.enabled = False`,
+  so a compiled pipeline stopped describing what was requested: a later
+  submission with `skip_existing=False` still reported the node disabled, and
+  resubmitting to the same queue compared the mutated node against the first
+  snapshot and raised a conflict the user never created. Per-call decisions
+  belong in per-call state. The invariant was stated in six commit messages
+  and never asserted.
+  - **Evidence / MWE:** `tests/test_compiled_pipeline_is_static.py`.
+  - **Applies when:** an object is returned to a caller and also consumed by
+    the operation that produced it.
+
+- **Lesson:** Derived-once is not derived. Two lookup views were
+  `cached_property` over the authoritative graph, which satisfied "no second
+  container" on paper -- but the mapping they return is independently mutable,
+  so a caller's edit survived in the cache while the graph the submitter walks
+  knew nothing about it. If a derived view hands back a mutable object, either
+  rebuild it on access or make it read-only; do not memoize it.
+  - **Evidence / MWE:** `tests/test_compiled_pipeline_is_static.py`
+    `test_mutating_a_returned_lookup_does_not_stick`.
+  - **Applies when:** replacing a stored collection with a derived one.
+
+- **Lesson:** Deep-copying one node of a connected graph copies the graph.
+  Ports hold their peers and every port holds its `parent`, so cloning a wired
+  node materialized every other node in the pipeline and then discarded them --
+  quadratic once compilation clones per node per matrix row, and a latent
+  failure whenever anything non-copyable was attached anywhere in the
+  component. Detach the outward references, copy, restore: the copy is born
+  disconnected. Measure before deciding it does not matter; per-clone cost
+  grew 0.69 ms to 4.23 ms between a two-node and a thirty-two-node pipeline.
+  - **Evidence / MWE:** `tests/test_compiled_pipeline_is_static.py`, the
+    cloning section, including a per-clone cost guard.
+  - **Applies when:** copying one member of a bidirectionally linked structure.
+
+- **Lesson:** A memoization cache is part of the object graph. After detaching
+  every obvious link -- ports, gather connections, dependency-only
+  predecessors -- cloning still copied the whole pipeline, and the remaining
+  route was `_configured_cache`, which holds a computed list of *other nodes*
+  under the predecessor query. Reading attribute lists would not have found
+  it; walking references from one object to another did, in about a minute.
+  - **Evidence / MWE:** the `_configured_cache` entry in `_OUTWARD_LINKS`.
+  - **Applies when:** isolating, pickling, or copying an object that memoizes
+    graph queries.
+
+- **Lesson:** `git checkout <file>` is not an undo for uncommitted work. Used
+  to revert a deliberate one-line break while verifying a test was
+  load-bearing, it silently discarded two other uncommitted fixes in the same
+  file. Copy the file aside and copy it back.
+  - **Applies when:** temporarily breaking code to prove a test fails.

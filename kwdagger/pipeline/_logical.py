@@ -519,6 +519,11 @@ class Pipeline:
                 node._configured_cache.clear()  # hack, make more elegant
 
         assert isinstance(self.proc_graph, nx.DiGraph)
+        # Applies to either branch below, so it is remembered before them. The
+        # cache-only branch changes the flag without changing the row, and
+        # recording it only alongside a row meant a later ``submit_jobs``
+        # recompiled with whatever the previous call had asked for.
+        self._configured_cache = cache
         if config is not None:
             # The row crosses the boundary once, here, and *before* anything
             # reads a reserved key out of it -- full-matrix compilation
@@ -530,7 +535,6 @@ class Pipeline:
             # Remembered before any reserved key is popped: submission
             # compiles this row, so it must be the row as given.
             self._configured_row = dict(config)
-            self._configured_cache = cache
             # The two outer layers, which belong to the pipeline rather than
             # to any node. Kept for inspection; the request a job is actually
             # submitted with is resolved from all four layers during
@@ -551,11 +555,34 @@ class Pipeline:
                 node = self.config_graph.nodes[node_name]['node']
                 node_config = dict(dotconfig.prefix_get(node.name, {}))
                 node.configure(node_config, cache=cache)
+                self._resolve_node_slurm_options(node)
         else:
             # Hack: if config is not given, update the cache state only.
             for node_name in nx.topological_sort(self.config_graph):
                 node = self.config_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
+                self._resolve_node_slurm_options(node)
+
+    def _resolve_node_slurm_options(self, node: ProcessNode) -> None:
+        """
+        Give a configured template node its complete Slurm request.
+
+        ``ProcessNode.configure`` resolves only the two layers a node knows --
+        its declared default and this row's override of it -- because a node
+        configured on its own has no others. A pipeline knows the other two,
+        so it finishes the job, and the same resolver does the combining.
+        Compilation does exactly this for each clone.
+
+        Without it, ``pipeline.node_dict['train'].effective_slurm_options``
+        reported an incomplete request to anyone inspecting a configured
+        pipeline, while the submitted job used the complete one.
+        """
+        node.effective_slurm_options = resolve_slurm_options(
+            pipeline_base=self._base_slurm_options,
+            row_global=self._row_slurm_options,
+            node_default=node._base_slurm_options,
+            node_override=node._row_slurm_options,
+        )
 
     def compile_configurations(
         self,

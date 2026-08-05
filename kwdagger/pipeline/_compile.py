@@ -26,7 +26,6 @@ from collections import defaultdict
 # inside the isinstance branch and every `key['src']` looks like an error. The
 # typing aliases have been deprecated since 3.9 in any case.
 from collections.abc import Mapping, Sequence
-from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import networkx as nx
@@ -72,23 +71,27 @@ class CompiledPipeline:
         # copy of one layer alongside would be a second answer to a question
         # that now has one.
 
-    @cached_property
+    @property
     def nodes(self) -> dict[str, ProcessNode]:
         """
         The concrete nodes, keyed by ``process_id``.
 
         Note the key: a compiled pipeline may hold several instances of one
         template, so a name does not identify a node here as it does on
-        :class:`~kwdagger.pipeline.Pipeline`. Derived from ``proc_graph``
-        rather than stored beside it -- it was a snapshot taken at
-        construction, which is the shape that goes stale the first time
-        someone adds a mutation.
+        :class:`~kwdagger.pipeline.Pipeline`.
+
+        Built from ``proc_graph`` on every access rather than cached. A cached
+        mapping is a second container the moment anything touches it: the
+        returned ``dict`` is independently mutable, and a cached one would
+        keep that edit while ``proc_graph`` -- which submission actually walks
+        -- disagreed. Rebuilding is a dict comprehension over the graph, and
+        the graph stays the one container.
         """
         return {
             key: data['node'] for key, data in self.proc_graph.nodes(data=True)
         }
 
-    @cached_property
+    @property
     def nodes_by_name(self) -> dict[str, list[ProcessNode]]:
         """
         The concrete instances of each template node, keyed by name.
@@ -98,7 +101,7 @@ class CompiledPipeline:
         matrix expands it into many processes. So this maps to a list, and the
         list is in compilation order.
 
-        Derived from ``proc_graph`` for the same reason :attr:`nodes` is.
+        Derived on access, for the same reason :attr:`nodes` is.
         """
         grouped: dict[str, list[ProcessNode]] = {}
         for node in self.nodes.values():
@@ -346,28 +349,85 @@ class CompiledPipeline:
     make_queue = submit_jobs
 
 
+#: Every attribute of a process node or its ports that refers to a *different*
+#: node. Detaching exactly these, and nothing else, is what keeps a clone's
+#: deep copy inside one node -- see :func:`_clone_unconnected_process_node`.
+#: A port's ``parent`` is not among them: it points back at the node being
+#: copied, so ``deepcopy`` remaps it through its own memo.
+_OUTWARD_LINKS: dict[str, tuple[tuple[str, Any], ...]] = {
+    'node': (
+        ('_pred_nodes_without_io_connection', list),
+        # The memoization cache is the non-obvious one: it holds computed
+        # results, and ``_predecessor_process_nodes`` among them is a list of
+        # other nodes. A clone starts with an empty cache regardless, so
+        # detaching it costs nothing and closes the last route out.
+        ('_configured_cache', dict),
+    ),
+    'inputs': (
+        ('pred', list),
+        ('succ', list),
+        ('_gather_connection', type(None)),
+        ('_gather_members', type(None)),
+    ),
+    'outputs': (('pred', list), ('succ', list), ('_gather_connections', list)),
+    'param_ports': (('pred', list), ('succ', list)),
+}
+
+
+def _detach_outward_links(
+    template: 'ProcessNode',
+) -> list[tuple[Any, str, Any]]:
+    """
+    Strip a node's references to other nodes, returning them for restoration.
+
+    Temporary, and reversed by the caller in a ``finally``. Compilation is
+    single-threaded and nothing reads the template between the two, so the
+    window is not observable.
+    """
+    saved: list[tuple[Any, str, Any]] = []
+    owners: list[tuple[Any, tuple[tuple[str, Any], ...]]] = [
+        (template, _OUTWARD_LINKS['node'])
+    ]
+    for group in ('inputs', 'outputs', 'param_ports'):
+        spec = _OUTWARD_LINKS[group]
+        owners.extend(
+            (port, spec) for port in getattr(template, group).values()
+        )
+    for owner, spec in owners:
+        for attr, empty in spec:
+            saved.append((owner, attr, getattr(owner, attr)))
+            setattr(owner, attr, empty())
+    return saved
+
+
 def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
-    """Deep-copy a node while removing all template graph connections."""
-    node = copy.deepcopy(template)
-    node._pred_nodes_without_io_connection = []
-    for input_node in node.inputs.values():
-        input_node.parent = node
-        input_node.pred = []
-        input_node.succ = []
-        input_node._gather_connection = None
-        input_node._gather_members = None
-        input_node._final_value = _UNSET
+    """
+    Copy one node's own state, without its connections.
+
+    The copy is born disconnected rather than copied connected and then
+    stripped. A port holds its peers in ``pred``/``succ`` and every port holds
+    its ``parent``, so deep-copying a wired node walks the whole connected
+    component -- materializing every other node in the pipeline, per clone,
+    only to discard them a few lines later. Compilation makes one clone per
+    node per matrix row, so that was quadratic in the pipeline, and it became
+    every pipeline's cost once compilation stopped being gather-only.
+
+    It also made an unrelated node's contents a scheduling hazard: anything
+    not deep-copyable -- a lock, an open file, a client -- attached anywhere
+    in the connected component would fail the copy of a node that never
+    touches it.
+    """
+    saved = _detach_outward_links(template)
+    try:
+        node = copy.deepcopy(template)
+    finally:
+        for owner, attr, value in saved:
+            setattr(owner, attr, value)
+    for port in (*node.inputs.values(), *node.param_ports.values()):
+        port.parent = node
+        port._final_value = _UNSET
     for output_node in node.outputs.values():
         output_node.parent = node
-        output_node.pred = []
-        output_node.succ = []
-        output_node._gather_connections = []
-    for param_port in node.param_ports.values():
-        param_port.parent = node
-        param_port.pred = []
-        param_port.succ = []
-        param_port._final_value = _UNSET
-    node._configured_cache.clear()
     return node
 
 

@@ -225,3 +225,24 @@ def test_submitted_nodes_still_describe_their_row_afterwards(tmp_path):
     assert str(dag.node_dict['producer'].final_in_paths['src_fpath']) == (
         '/data/b'
     )
+
+
+def test_the_cache_flag_is_remembered_across_a_cache_only_reconfigure(
+    tmp_path,
+):
+    """
+    ``configure(config=None)`` changes the cache flag without changing the
+    row. Recording the flag only alongside a row meant a later ``submit_jobs``
+    recompiled with whatever the previous call had asked for.
+    """
+    dag = _linear_pipeline()
+    dag.configure(
+        {'producer.src_fpath': '/data/a'}, root_dpath=tmp_path, cache=True
+    )
+    assert dag._configured_cache is True
+    dag.configure(config=None, cache=False)
+    assert dag._configured_cache is False
+    # The row itself is deliberately kept: only the cache flag was restated.
+    assert dag._configured_row == {'producer.src_fpath': '/data/a'}
+    compiled = dag.compile_current_configuration()
+    assert [n.name for n in compiled.nodes.values()].count('producer') == 1
