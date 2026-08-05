@@ -141,13 +141,14 @@ def submit_jobs(
     node_status = summary['node_status']
 
     assert isinstance(proc_graph, nx.DiGraph)
-    # Identity says two requests with one process_id are one job, so anything
-    # identity cannot arbitrate has to agree between them or whichever arrived
-    # first silently decides what runs. The gather compiler checks this over
-    # the whole matrix; this is where an ordinary pipeline gets the same
-    # arbitration, because it configures and submits a row at a time. The
-    # registry hangs off the queue since that is what survives between rows,
-    # whoever is driving the loop.
+    # A defensive backstop, not the arbitration itself. Compilation is the
+    # authority: it holds the whole matrix, so it catches a conflict before a
+    # queue exists, and within one compiled graph a process_id appears exactly
+    # once -- this can never fire on the graph it was handed. What it does
+    # cover is a caller submitting several separately compiled graphs to one
+    # shared queue, where no single compilation saw both requests. The
+    # registry hangs off the queue for that reason: the queue is what survives
+    # between submissions, whoever is driving them.
     registry: dict[str, Any] | None = getattr(
         queue, '__kwdagger_requests__', None
     )

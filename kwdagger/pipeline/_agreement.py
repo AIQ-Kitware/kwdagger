@@ -16,12 +16,22 @@ prerequisite and delivery comparisons above it are kept because they name the
 two common conflicts precisely; the record comparison is what makes the check
 complete.
 
-This lives in its own leaf because *both* scheduling paths need it and they
-sit at opposite ends of the package: gather pipelines compile the whole matrix
-up front, while ordinary pipelines configure and submit a row at a time. It
-works on snapshots rather than nodes for the same reason -- the row-at-a-time
-path reconfigures one ``ProcessNode`` in place, so by the time a duplicate is
-seen the original request's state is gone unless it was captured.
+**Compilation is the authority.** It sees the whole matrix at once, so it is
+the only place that can arbitrate a conflict before anything is submitted, and
+it does: two rows that compile to one process are compared there, and a
+disagreement is reported before a queue exists.
+
+Submission keeps a defensive check for what compilation cannot see. Within one
+compiled graph every process appears once by construction, so the check there
+never fires on that graph's own nodes; it fires when a caller submits several
+separately compiled graphs to one shared queue, where no single compilation
+held both requests. It also covers the bookkeeping flags, which are arguments
+to submission and therefore not known at compile time at all.
+
+This lives in its own leaf so that both can reach it without either depending
+on the other. It works on snapshots rather than nodes because a duplicate must
+be compared against what the earlier request actually asked for, which is gone
+by the time a node has been reconfigured or a job disabled.
 """
 
 from __future__ import annotations
