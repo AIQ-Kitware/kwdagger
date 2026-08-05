@@ -8,13 +8,19 @@ the graph in topological order, writes the ``invoke.sh`` and
 creates the ``.pred`` / ``.succ`` links that make the result directory
 navigable.
 
+The compiled graph is the sole authority for what must run first. Every
+dependency question -- queue ordering, whether an ancestor will exist, which
+``.pred``/``.succ`` links to write, what a duplicate request's prerequisites
+were -- is answered by walking the edges of the graph passed in. Nothing here
+re-derives ancestry from node state; a second derivation of the edges this
+function is already walking would be free to disagree with them.
+
 It deliberately knows nothing about :class:`~kwdagger.pipeline.Pipeline` or
 :class:`~kwdagger.pipeline.CompiledPipeline`, and imports the leaf modules
-directly rather than the package facade. Both of those own a
-``proc_graph`` and both submit the same way; the only thing this function
-needs is that graph. Preconditions that belong to one of them -- a logical
-pipeline refusing to submit an uncompiled gather, for instance -- stay with
-the class that owns the precondition.
+directly rather than the package facade. The only thing this function needs is
+the graph. Preconditions that belong to a caller -- a logical pipeline refusing
+to submit an uncompiled gather, for instance -- stay with the class that owns
+the precondition.
 """
 
 from __future__ import annotations
@@ -182,7 +188,18 @@ def submit_jobs(
         # Snapshot before anything below can disable the node or rewrite its
         # state, so what is compared is what the user asked for.
         _procid = node.process_id
-        _snapshot = execution_snapshot(node, submission_state)
+        # The compiled graph is the authority on what must run first. Asking
+        # the node again would be a second derivation of the edges this
+        # function is walking, free to drift from them.
+        pred_nodes = [
+            proc_graph.nodes[name]['node']
+            for name in proc_graph.predecessors(node_name)
+        ]
+        _snapshot = execution_snapshot(
+            node,
+            submission_state,
+            prerequisites=[pred.process_id for pred in pred_nodes],
+        )
         _previous = requests.get(_procid)
         if _previous is None:
             requests[_procid] = {
@@ -207,9 +224,6 @@ def submit_jobs(
             continue
 
         assert isinstance(proc_graph, nx.DiGraph)
-        pred_node_names = list(proc_graph.predecessors(node_name))
-        pred_nodes = [proc_graph.nodes[n]['node'] for n in pred_node_names]
-
         ancestors_will_exist = all(n.will_exist for n in pred_nodes)
         if skip_existing and node.enabled != 'redo' and node.does_exist:
             node.enabled = False

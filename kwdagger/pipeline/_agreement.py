@@ -36,7 +36,7 @@ by the time a node has been reconfigured or a job disabled.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 if TYPE_CHECKING:
@@ -94,14 +94,17 @@ _FINALIZED_EXECUTION_STATE: list[tuple[str, str]] = [
 
 
 def execution_snapshot(
-    node: ProcessNode, submission: Mapping[str, Any] | None = None
+    node: ProcessNode,
+    submission: Mapping[str, Any] | None = None,
+    *,
+    prerequisites: Sequence[str] | None = None,
 ) -> Snapshot:
     """
     Capture everything a duplicate request must be compared against.
 
-    Taken eagerly, because the row-at-a-time scheduler reuses one node object
-    across matrix rows: read these lazily and you would compare a request
-    against itself.
+    Taken eagerly, because a duplicate has to be compared against what the
+    earlier request actually asked for: read these lazily and the node may
+    since have been reconfigured or disabled.
 
     Args:
         node (ProcessNode): the configured process node.
@@ -111,8 +114,20 @@ def execution_snapshot(
             duplicate request returns before any of it is applied, so none of
             it is visible in node state. ``None`` at compile time, where
             nothing has been submitted yet.
+
+        prerequisites (Sequence[str] | None): the ``process_id`` of every job
+            that must finish first. Supplied by whoever owns the concrete
+            execution graph -- submission reads it off the compiled graph,
+            which is the authority once one exists. Left ``None`` during
+            compilation, which is deriving those edges rather than reading
+            them, and by a caller holding only a node.
     """
     submission = dict(submission or {})
+    if prerequisites is None:
+        prerequisites = [
+            pred.process_id
+            for pred in node.effective_predecessor_process_nodes()
+        ]
     snapshot: Snapshot = {
         'enabled': node.enabled,
         # The resolved request, read rather than recombined. Comparing the
@@ -128,10 +143,7 @@ def execution_snapshot(
         'node_dpath': str(node.final_node_dpath),
         'setup': getattr(node, 'setup', None),
         'teardown': getattr(node, 'teardown', None),
-        'prerequisites': sorted(
-            pred.process_id
-            for pred in node.effective_predecessor_process_nodes()
-        ),
+        'prerequisites': sorted(prerequisites),
         # Finer than the prerequisite union: two requests can need the same
         # jobs while disagreeing about which inputs those jobs supply.
         'delivery': dict(node.delivery_signature()),
