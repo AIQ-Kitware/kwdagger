@@ -95,7 +95,11 @@ from kwdagger.pipeline._process import (  # NOQA: F401
     memoize_configured_property,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
-from kwdagger.pipeline._slurm import coerce_slurm_options
+from kwdagger.pipeline._slurm import (
+    coerce_slurm_options,
+    layer_slurm_options,
+    resolve_slurm_options,
+)
 
 __all__ = [
     'Collection',
@@ -118,8 +122,10 @@ __all__ = [
     'coerce_slurm_options',
     'demo_pipeline_run',
     'demodata_pipeline',
+    'layer_slurm_options',
     'memoize_configured_method',
     'memoize_configured_property',
+    'resolve_slurm_options',
 ]
 
 

@@ -30,7 +30,6 @@ from kwdagger.pipeline._agreement import (
     execution_snapshot,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
-from kwdagger.pipeline._slurm import SlurmOptions, layer_slurm_options
 
 if TYPE_CHECKING:
     import cmd_queue
@@ -47,7 +46,6 @@ def _has_jq() -> str | list[str] | None:
 
 def submit_jobs(
     proc_graph: nx.DiGraph,
-    slurm_options: SlurmOptions = None,
     queue: QueueSpec = None,
     skip_existing: bool = False,
     enable_links: bool = True,
@@ -65,10 +63,6 @@ def submit_jobs(
         proc_graph (nx.DiGraph):
             the configured process graph. Each node carries the concrete
             :class:`ProcessNode` under its ``'node'`` attribute.
-
-        slurm_options (SlurmOptions):
-            pipeline-wide Slurm options applied to every job, before any
-            per-node override. Ignored on non-Slurm backends.
 
         queue (QueueSpec):
             an existing cmd_queue queue, or a dict of keyword arguments used
@@ -168,15 +162,14 @@ def submit_jobs(
     requests: dict[str, Any] = registry['by_process_id']
     submission_label = f'request {registry["submissions"]}'
 
-    # State this call carries that no node does. An ordinary pipeline keeps
-    # ``__slurm_options__`` on the Pipeline rather than on its nodes, and the
-    # bookkeeping flags are arguments here; a duplicate request returns before
-    # any of them is applied, so a disagreement is silently first-call-wins.
+    # State this call carries that no node does: the bookkeeping flags are
+    # arguments here, and a duplicate request returns before any of them is
+    # applied, so a disagreement is silently first-call-wins. Slurm options
+    # are no longer among them -- every layer is resolved onto the node.
     # ``skip_existing`` is deliberately absent: it selects which requests are
     # made rather than what a request asks for, and reversing two calls that
     # differ in it leaves the same queue.
     submission_state: dict[str, Any] = {
-        'slurm_options': slurm_options,
         'log': log,
         'enable_links': enable_links,
         'write_invocations': write_invocations,
@@ -289,13 +282,11 @@ def submit_jobs(
                 if node_teardown:
                     extra_submitkw['teardown'] = node_teardown
                 if is_slurm:
-                    # Pipeline-wide first, then everything the node resolved:
-                    # its declared default and this row's override, already
-                    # layered by ``ProcessNode.configure``.
+                    # Read, not computed. Compilation already resolved all
+                    # four layers; layering a subset of them again here is
+                    # how the runtime became a second Slurm authority.
                     extra_submitkw.update(
-                        layer_slurm_options(
-                            slurm_options, getattr(node, 'slurm_options', None)
-                        )
+                        getattr(node, 'effective_slurm_options', None) or {}
                     )
                     # Set the slurm output file to be in the node directory
                     # to make debugging somewhat easier.  Need to see if

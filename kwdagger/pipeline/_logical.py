@@ -37,7 +37,10 @@ from kwdagger.pipeline._connections import (
 )
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._runtime import QueueSpec
-from kwdagger.pipeline._slurm import layer_slurm_options
+from kwdagger.pipeline._slurm import (
+    coerce_slurm_options,
+    resolve_slurm_options,
+)
 from kwdagger.utils import util_dotdict
 
 
@@ -117,11 +120,13 @@ class Pipeline:
         #: asks for something else. Set by the CLI or a Python caller, never
         #: by a matrix row.
         self._base_slurm_options: dict[str, Any] = {}
-        #: The options the *current* row requested, base included. Reset from
-        #: the base on every ``configure`` -- a row that omits them is asking
-        #: for the default, not for whatever the previous row happened to ask
-        #: for, and arbitration compares this to decide whether two rows want
-        #: the same resources.
+        #: The current row's top-level ``__slurm_options__``, on its own. Reset
+        #: on every ``configure`` -- a row that omits them is asking for the
+        #: default, not for whatever the previous row happened to ask for.
+        self._row_slurm_options: dict[str, Any] = {}
+        #: The two pipeline-level layers combined, for inspection. Not what a
+        #: job is submitted with: that is resolved from all four layers during
+        #: compilation and stored on each node.
         self.__slurm_options__: dict[str, Any] = {}
         #: The last row ``configure`` was given, normalized and complete --
         #: reserved keys included, unlike :attr:`config`, which has had them
@@ -526,9 +531,16 @@ class Pipeline:
             # compiles this row, so it must be the row as given.
             self._configured_row = dict(config)
             self._configured_cache = cache
-            self.__slurm_options__ = layer_slurm_options(
-                self._base_slurm_options,
-                config.pop('__slurm_options__', None),
+            # The two outer layers, which belong to the pipeline rather than
+            # to any node. Kept for inspection; the request a job is actually
+            # submitted with is resolved from all four layers during
+            # compilation and stored as ``node.effective_slurm_options``.
+            self._row_slurm_options = coerce_slurm_options(
+                config.pop('__slurm_options__', None)
+            )
+            self.__slurm_options__ = resolve_slurm_options(
+                pipeline_base=self._base_slurm_options,
+                row_global=self._row_slurm_options,
             )
             self.config = config
             # print('CONFIGURE config = {}'.format(ub.urepr(config, nl=1)))

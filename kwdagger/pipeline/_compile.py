@@ -46,7 +46,7 @@ from kwdagger.pipeline._connections import (
 )
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._runtime import QueueSpec
-from kwdagger.pipeline._slurm import layer_slurm_options
+from kwdagger.pipeline._slurm import resolve_slurm_options
 
 if TYPE_CHECKING:
     from kwdagger.pipeline._logical import Pipeline
@@ -60,7 +60,6 @@ class CompiledPipeline:
         *,
         proc_graph: nx.DiGraph,
         root_dpath: PathSpec,
-        slurm_options: Mapping[str, Any] | None = None,
         compile_summary: Mapping[str, Any] | None = None,
     ) -> None:
         #: The one container. Everything else about this pipeline's nodes is
@@ -68,9 +67,10 @@ class CompiledPipeline:
         self.proc_graph = proc_graph
         self.root_dpath = ub.Path(root_dpath)
         self.compile_summary = dict(compile_summary or {})
-        # Pipeline-wide options, handed to the shared runtime submitter
-        # alongside the process graph.
-        self.__slurm_options__ = dict(slurm_options or {})
+        # No pipeline-wide Slurm options here. Compilation resolved all four
+        # layers onto each node's ``effective_slurm_options``, so carrying a
+        # copy of one layer alongside would be a second answer to a question
+        # that now has one.
 
     @cached_property
     def nodes(self) -> dict[str, ProcessNode]:
@@ -335,7 +335,6 @@ class CompiledPipeline:
 
         return _runtime.submit_jobs(
             self.proc_graph,
-            slurm_options=self.__slurm_options__,
             queue=queue,
             skip_existing=skip_existing,
             enable_links=enable_links,
@@ -625,6 +624,10 @@ def _compile_pipeline_configurations(
     # whether a mapping key is accepted must not depend on whether the
     # pipeline happens to contain a gather.
     rows = [normalize_config(config) for config in configs]
+    # The persistent pipeline-wide default, the outermost Slurm layer. Read
+    # once here rather than passed down to submission, so that every layer is
+    # combined in one place.
+    pipeline_base = getattr(template, '_base_slurm_options', None)
     if root_dpath is None:
         template_nodes = list(template.node_dict.values())
         root_dpath = (
@@ -671,23 +674,15 @@ def _compile_pipeline_configurations(
         for row_idx, row_config in enumerate(rows):
             dotconfig = util_dotdict.DotDict(row_config)
             node_config = dict(dotconfig.prefix_get(template_name, {}))
-            # A row-global mapping is a *layer* under the node's own, not a
-            # stand-in for it. Substituting one for the other meant a node
-            # with any local option silently dropped every row-global key,
-            # and a node with none took the row-global mapping at node
-            # precedence -- so an otherwise identical node asked for
-            # different resources depending on whether the pipeline had a
-            # gather. The node's declared default is restated between them
-            # because it outranks a row-global one, exactly as it does on the
-            # row-at-a-time path.
+            # The row-global mapping is one of the four layers, and it is not
+            # written into the node's own configuration on the way past. The
+            # compiler used to substitute it for the node's, which meant a
+            # node with any local option silently dropped every row-global key
+            # while a node with none took the row-global mapping at node
+            # precedence -- and left ``node.slurm_options`` meaning something
+            # different here than everywhere else. Resolution now happens
+            # once, below, from all four layers at their own precedence.
             row_slurm_options = row_config.get('__slurm_options__')
-            node_slurm_options = node_config.get('__slurm_options__')
-            if row_slurm_options is not None or node_slurm_options is not None:
-                node_config['__slurm_options__'] = layer_slurm_options(
-                    row_slurm_options,
-                    template_node._base_slurm_options,
-                    node_slurm_options,
-                )
             node = _clone_unconnected_process_node(template_node)
             node.root_dpath = root_dpath
 
@@ -775,6 +770,19 @@ def _compile_pipeline_configurations(
             if gather_inputs:
                 node.configure(node_config, cache=cache)
 
+            # After the last ``configure``, which resets the node's own two
+            # layers. Every layer is known here and nowhere else: the node
+            # resolved its own during configuration, and this is the only
+            # scope that also holds the pipeline base and the row-global
+            # mapping. Resolved once, stored on the node, and then read
+            # verbatim by the runtime and by arbitration.
+            node.effective_slurm_options = resolve_slurm_options(
+                pipeline_base=pipeline_base,
+                row_global=row_slurm_options,
+                node_default=node._base_slurm_options,
+                node_override=node._row_slurm_options,
+            )
+
             process_id = node.process_id
             canonical = concrete_by_process_id.get(process_id)
             if canonical is None:
@@ -834,6 +842,5 @@ def _compile_pipeline_configurations(
     return CompiledPipeline(
         proc_graph=proc_graph,
         root_dpath=root_dpath,
-        slurm_options=getattr(template, '__slurm_options__', {}),
         compile_summary=compile_summary,
     )

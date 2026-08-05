@@ -384,33 +384,33 @@ def test_cache_root_relocation_changes_no_identity(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# A divergence this refactor is meant to remove
+# The divergence this refactor removed
 # ---------------------------------------------------------------------------
 
 
-def test_node_slurm_options_is_an_intermediate_the_paths_fill_differently(
-    tmp_path,
-):
+def test_node_slurm_options_means_the_same_thing_on_both_paths(tmp_path):
     """
-    Characterizing, not endorsing. The two paths agree on the *effective*
-    options a job is submitted with -- every other test in this file asserts
-    that -- but they get there differently: the compiler copies a row-global
-    mapping into node-local configuration, while the row-at-a-time path leaves
-    it on the ``Pipeline`` and layers it at submission.
+    This test used to record a *difference*, deliberately.
 
-    So ``node.slurm_options`` means "node-level options" on one path and
-    "node-level plus row-global" on the other. That is the duplicated Slurm
-    authority, visible in one attribute.
+    ``node.slurm_options`` meant "node-level options" on one path and
+    "node-level plus row-global" on the other: the compiler copied a row-global
+    mapping into node-local configuration, while the row-at-a-time path left it
+    on the ``Pipeline`` and layered it at submission. The two agreed on the
+    effective request -- every other test in this file asserts that -- but the
+    intermediate they agreed *through* did not exist. That was the duplicated
+    Slurm authority, visible in one attribute.
 
-    Phase 4 of the single-path refactor replaces this with one resolver and one
-    inspectable ``effective_slurm_options``; when it does, this test should
-    become an equality rather than a difference.
+    Phase 4 replaced it with one resolver, so the assertion flips: the
+    attribute means node-level on both paths, and the complete request is
+    ``effective_slurm_options``, resolved once from all four layers.
     """
     row = {
         'producer.src_fpath': '/data/a',
         '__slurm_options__': {'partition': 'row'},
+        'producer.__slurm_options__': {'gres': 'gpu:1'},
     }
-    seen = {}
+    node_level = {}
+    effective = {}
     for with_gather in (False, True):
         root = tmp_path / ('gather' if with_gather else 'plain')
         dag = _build(with_gather)
@@ -419,17 +419,21 @@ def test_node_slurm_options_is_an_intermediate_the_paths_fill_differently(
             compiled = dag.compile_configurations(
                 rows, root_dpath=root, cache=False
             )
-            node = [n for n in compiled.nodes.values() if n.name == 'producer'][
-                0
-            ]
         else:
             dag.configure(config=rows[0], root_dpath=root, cache=False)
-            node = dag.node_dict['producer']
-        seen[with_gather] = dict(node.slurm_options or {})
+            compiled = dag.compile_current_configuration()
+        (node,) = compiled.nodes_by_name['producer']
+        node_level[with_gather] = dict(node.slurm_options or {})
+        effective[with_gather] = dict(node.effective_slurm_options or {})
 
-    assert seen[False] == {}, (
-        'the row path keeps the row-global on the Pipeline'
+    assert node_level[False] == node_level[True] == {'gres': 'gpu:1'}, (
+        'the attribute means the node-level layers, on either path'
     )
-    assert seen[True] == {'partition': 'row'}, (
-        'the compiler copies it into node-local configuration'
-    )
+    assert (
+        effective[False]
+        == effective[True]
+        == {
+            'partition': 'row',
+            'gres': 'gpu:1',
+        }
+    ), 'and the complete request is resolved once, the same way'

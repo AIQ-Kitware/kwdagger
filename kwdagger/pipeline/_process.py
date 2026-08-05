@@ -42,7 +42,7 @@ from kwdagger.pipeline._connections import (
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import (
     coerce_slurm_options,
-    layer_slurm_options,
+    resolve_slurm_options,
 )
 
 
@@ -506,6 +506,14 @@ class ProcessNode(Node):
         # from the class / instance defaults.
         self._base_slurm_options = coerce_slurm_options(self.slurm_options)
         self.slurm_options = dict(self._base_slurm_options)
+        #: This row's ``<node>.__slurm_options__``, kept apart from the
+        #: declared default so the resolver can layer them in order.
+        self._row_slurm_options: dict[str, Any] = {}
+        #: The complete request this process will be submitted with: pipeline
+        #: base, row-global, declared default, row override. The one thing
+        #: the runtime reads -- see
+        #: :func:`kwdagger.pipeline.resolve_slurm_options`.
+        self.effective_slurm_options: dict[str, Any] = dict(self.slurm_options)
 
         if self.params is not None:
             derived = self._derive_groups_from_params_spec(self.params)
@@ -861,12 +869,23 @@ class ProcessNode(Node):
         # print(f'config = {ub.urepr(config, nl=1)}')
         config = normalize_config(config)
         self.enabled = config.pop('__enabled__', enabled)
-        # Special case for process specific slurm options
-        _raw_slurm_opts = config.pop('__slurm_options__', None)
-        self.slurm_options = layer_slurm_options(
-            self._base_slurm_options, _raw_slurm_opts
+        # Special case for process specific slurm options. A node knows two of
+        # the four layers -- its own declared default and this row's override
+        # of it -- so it resolves those and records the override for whoever
+        # knows the other two. Compilation, which knows the pipeline base and
+        # the row-global mapping, then sets ``effective_slurm_options``.
+        self._row_slurm_options = coerce_slurm_options(
+            config.pop('__slurm_options__', None)
+        )
+        self.slurm_options = resolve_slurm_options(
+            node_default=self._base_slurm_options,
+            node_override=self._row_slurm_options,
         )
         self.__slurm_options__ = dict(self.slurm_options)
+        # A default that is right for a node configured on its own. Anything
+        # that compiles this node overwrites it with the full resolution; a
+        # node never silently reports a request with layers missing.
+        self.effective_slurm_options = dict(self.slurm_options)
         self.config = ub.udict(config)
 
         # self.algo_params = set(self.config) - non_algo_keys

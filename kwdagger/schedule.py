@@ -171,7 +171,7 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     import rich
     from kwutil import slugify_ext
 
-    from kwdagger.pipeline import coerce_pipeline
+    from kwdagger.pipeline import coerce_pipeline, normalize_config
     from kwdagger.utils.result_analysis import varied_values
     from kwdagger.utils.util_param_grid import expand_param_grid
 
@@ -183,6 +183,13 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
     if config['params'] is not None:
         param_arg = kwutil.Yaml.coerce(config['params']) or {}
         if isinstance(param_arg, dict):
+            # The configuration boundary, crossed once and here: before the
+            # matrix is expanded, before ``slurm_options`` is read out of it,
+            # and before anything downstream sees a key. Expanding first would
+            # let ``Path('/a')`` and ``'/a'`` count as two points on an axis
+            # and then compile to one process, so the grid would report a
+            # cardinality the compiled graph contradicts.
+            param_arg = normalize_config(param_arg)
             param_slurm_options = pipeline_coerce_slurm_options(
                 param_arg.pop('slurm_options', None)
             )

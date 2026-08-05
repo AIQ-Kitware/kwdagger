@@ -29,8 +29,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-from kwdagger.pipeline._slurm import layer_slurm_options
-
 if TYPE_CHECKING:
     # Annotation only: ``_process`` sits above this leaf, and the layering
     # test in ``tests/test_import_compat.py`` allows an upward reference that
@@ -98,22 +96,21 @@ def execution_snapshot(
     Args:
         node (ProcessNode): the configured process node.
 
-        submission (Mapping | None): request state not on the node.
-            ``'slurm_options'`` are the pipeline-wide options, which an
-            ordinary pipeline keeps on the :class:`Pipeline` and never copies
-            onto a node; every other key is a bookkeeping choice made by the
-            caller of ``submit_jobs``. A duplicate request returns before any
-            of it is applied, so none of it is visible in node state.
-            ``None`` at compile time, where nothing has been submitted yet.
+        submission (Mapping | None): request state not on the node -- the
+            bookkeeping choices made by the caller of ``submit_jobs``. A
+            duplicate request returns before any of it is applied, so none of
+            it is visible in node state. ``None`` at compile time, where
+            nothing has been submitted yet.
     """
     submission = dict(submission or {})
     snapshot: Snapshot = {
         'enabled': node.enabled,
-        # Effective, because neither half is the whole answer: the submitter
-        # applies pipeline-wide options first and the node's own on top.
-        'slurm_options': layer_slurm_options(
-            submission.pop('slurm_options', None),
-            getattr(node, 'slurm_options', None),
+        # The resolved request, read rather than recombined. Comparing the
+        # node's own layers against a separately supplied pipeline-wide one
+        # made this a third place that knew the precedence, and only a
+        # subset of the layers.
+        'slurm_options': dict(
+            getattr(node, 'effective_slurm_options', None) or {}
         ),
         'submission': submission,
         'perf_config': node.final_perf_config,
