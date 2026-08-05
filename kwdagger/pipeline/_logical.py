@@ -589,6 +589,7 @@ class Pipeline:
         configs: Sequence[Mapping[str, Any]],
         root_dpath: PathSpec | None = None,
         cache: bool = True,
+        duplicate_policy: Any = None,
     ) -> 'CompiledPipeline':
         """
         Compile matrix rows into one concrete, static process graph.
@@ -605,6 +606,23 @@ class Pipeline:
         instance inspectable afterwards, where the historical row-at-a-time
         loop reused one mutable node and left only the last row's state
         behind.
+
+        Rows that compile to one ``process_id`` are one job, and the first
+        one encountered is the representative -- see ``duplicate_policy``.
+
+        Args:
+            configs (Sequence[Mapping]): the expanded matrix rows, in order.
+
+            root_dpath (PathSpec | None): where results are rooted.
+
+            cache (bool): whether each command guards itself against
+                recomputing an existing output.
+
+            duplicate_policy (str | None): what to do when two rows compile to
+                one ``process_id`` and differ in state identity excludes.
+                ``'first'`` (the default) keeps the first and reports nothing;
+                ``'warn'`` also describes the difference; ``'error'`` refuses
+                the compilation. Execution is identical under the first two.
         """
         self._ensure_clean()
         return _compile_pipeline_configurations(
@@ -612,9 +630,12 @@ class Pipeline:
             configs=configs,
             root_dpath=root_dpath,
             cache=cache,
+            duplicate_policy=duplicate_policy,
         )
 
-    def compile_current_configuration(self) -> 'CompiledPipeline':
+    def compile_current_configuration(
+        self, duplicate_policy: Any = None
+    ) -> 'CompiledPipeline':
         """
         Compile the row this pipeline is configured with, as a one-row matrix.
 
@@ -631,6 +652,7 @@ class Pipeline:
             [self._configured_row],
             root_dpath=self.root_dpath,
             cache=self._configured_cache,
+            duplicate_policy=duplicate_policy,
         )
 
     def _process_display_graph(

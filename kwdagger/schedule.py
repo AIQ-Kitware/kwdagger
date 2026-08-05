@@ -116,6 +116,20 @@ class ScheduleEvaluationConfig(CmdQueueConfigMixin):
         'auto', isflag=True, help='print the varied parameters'
     )
 
+    duplicate_policy = kw.Value(
+        'first',
+        help=ub.paragraph(
+            """
+            What to do when two matrix rows compile to one process. They are
+            one job either way -- whatever they disagree about is something
+            outside process_id, by construction. 'first' (the default) keeps
+            the first row encountered and says nothing; 'warn' also describes
+            what the later row differed about; 'error' refuses to compile.
+            Execution is identical under 'first' and 'warn'.
+            """
+        ),
+    )
+
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.queue_name is None:
@@ -263,6 +277,7 @@ def build_schedule(config: Any) -> tuple[Any, Any]:
         all_param_grid,
         root_dpath=root_dpath,
         cache=config['cache'],
+        duplicate_policy=config['duplicate_policy'],
     )
     # Print the concrete cardinality diagnostics before queue submission so
     # users can audit fan-in and fan-out before any execution is possible.

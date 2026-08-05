@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import os
+import warnings
 from collections import defaultdict
 
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
@@ -31,9 +32,10 @@ from typing import TYPE_CHECKING, Any
 import networkx as nx
 import ubelt as ub
 
-from kwdagger.pipeline._agreement import (
-    check_execution_agreement,
-    execution_snapshot,
+from kwdagger.pipeline._duplicates import (
+    DuplicatePolicy,
+    coerce_duplicate_policy,
+    compare_duplicate_requests,
 )
 from kwdagger.pipeline._config_values import PathSpec, normalize_config
 from kwdagger.pipeline._connections import (
@@ -675,16 +677,49 @@ def _sort_gather_members(
         )
 
 
+def _report_duplicate(
+    canonical: ProcessNode,
+    duplicate: ProcessNode,
+    *,
+    policy: DuplicatePolicy,
+    template_name: str,
+    process_id: str,
+    canonical_label: str,
+    duplicate_label: str,
+) -> None:
+    """
+    Describe a later equal-identity request, if the user asked to be told.
+
+    Never reached under the default policy, which is why the comparison and
+    its provenance snapshots cost nothing there.
+    """
+    comparison = compare_duplicate_requests(
+        canonical,
+        duplicate,
+        template_name=template_name,
+        process_id=process_id,
+        canonical_label=canonical_label,
+        duplicate_label=duplicate_label,
+    )
+    if not comparison:
+        return
+    if policy == 'error':
+        raise comparison.to_error()
+    warnings.warn(comparison.format_message(), UserWarning, stacklevel=2)
+
+
 def _compile_pipeline_configurations(
     template: Pipeline,
     *,
     configs: Sequence[Mapping[str, Any]],
     root_dpath: PathSpec | None,
     cache: bool,
+    duplicate_policy: Any = None,
 ) -> CompiledPipeline:
     """Compile a matrix-expanded template into a concrete static DAG."""
     from kwdagger.utils import util_dotdict
 
+    duplicate_policy = coerce_duplicate_policy(duplicate_policy)
     template._ensure_clean()
     # The same boundary an ordinary ``Pipeline.configure`` applies, and
     # before anything reads a reserved key or routes a value to a node:
@@ -706,7 +741,6 @@ def _compile_pipeline_configurations(
     instances_by_template: dict[str, dict[str, ProcessNode]] = defaultdict(dict)
     concrete_by_process_id: dict[str, ProcessNode] = {}
     canonical_row_idx: dict[str, int] = {}
-    canonical_snapshots: dict[str, dict[str, Any]] = {}
 
     for template_name in template_order:
         template_node = template.node_dict[template_name]
@@ -850,6 +884,12 @@ def _compile_pipeline_configurations(
                 node_override=node._row_slurm_options,
             )
 
+            # First request wins. Everything two equal-identity rows can
+            # disagree about is something the user put outside ``process_id``,
+            # so a later row is a duplicate rather than a problem, and matrix
+            # order picks the representative. Under the default policy that is
+            # the whole of it -- no comparison is built and nothing is
+            # reported.
             process_id = node.process_id
             canonical = concrete_by_process_id.get(process_id)
             if canonical is None:
@@ -857,16 +897,11 @@ def _compile_pipeline_configurations(
                 concrete_by_process_id[process_id] = canonical
                 instances_by_template[template_name][process_id] = canonical
                 canonical_row_idx[process_id] = row_idx
-                canonical_snapshots[process_id] = execution_snapshot(node)
-            else:
-                # Execution state is popped off the config by ``configure``, so
-                # it does not participate in process identity. Rows that agree
-                # on identity but disagree on execution state would otherwise
-                # be resolved by whichever row happened to come first, making
-                # compilation row-order dependent.
-                check_execution_agreement(
-                    canonical_snapshots[process_id],
-                    execution_snapshot(node),
+            elif duplicate_policy != 'first':
+                _report_duplicate(
+                    canonical,
+                    node,
+                    policy=duplicate_policy,
                     template_name=template_name,
                     process_id=process_id,
                     canonical_label=f'row {canonical_row_idx[process_id]}',
