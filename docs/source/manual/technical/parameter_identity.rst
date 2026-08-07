@@ -82,9 +82,16 @@ It is useful to distinguish several views of a process configuration.
 
 Requested values
     Values explicitly supplied by the matrix, ``include`` rules, or another
-    scheduling configuration.  ``job_config.json`` primarily records this
-    requested experiment description and its dotted parameter lineage; omitted
-    defaults need not appear as explicitly specified values.
+    scheduling configuration.  ``job_config.json`` records **the canonical
+    request kwdagger actually selected and submitted for that result
+    identity** -- its requested experiment description and dotted parameter
+    lineage.  Omitted defaults need not appear as explicitly specified values.
+
+    It is *not* an exhaustive history of every matrix row that mapped to the
+    identity, a transaction log across submissions, proof that the artifact is
+    current, or a record of every way the computation was requested.  When
+    duplicate rows differ, it describes the first one -- see
+    :ref:`duplicate_policy`.
 
 Effective command values
     Values used by ``ProcessNode`` to construct the command after declared
@@ -161,9 +168,7 @@ value or specify the same value.  Contradictory values should be rejected rather
 than silently selecting one side.
 
 Configuration resolution must also be independent of node insertion order and
-of values left over from a previously configured matrix row.  This is especially
-important because the established non-gather scheduler repeatedly mutates and
-reconfigures the same node objects.
+of values left over from a previously configured matrix row.
 
 Gather edges
 ~~~~~~~~~~~~
@@ -173,12 +178,14 @@ selects a known collection of concrete source outputs, writes a path manifest,
 and passes that manifest to an ordinary consumer input.
 
 Gather is intentionally not runtime directory discovery.  The membership must
-be fixed before the consumer runs.  The current implementation obtains that
-knowledge by compiling the complete matrix before submission, which is a newer
-and more expensive path than the historical row-at-a-time scheduler.  Gather is
-still a relatively new feature, so changes should be validated against the
-established command, identity, and result-graph behavior rather than treating
-its current implementation as settled architecture.
+be fixed before the consumer runs, and it is obtained by compiling the complete
+matrix before submission.  Every pipeline is compiled that way now, whether or
+not it gathers; a gather-free matrix simply has no collections to resolve.
+Gather needing whole-matrix knowledge is what made compilation necessary, but
+it is a feature *of* a compiled matrix rather than a second way to schedule
+one.  Gather is still a relatively new feature, so changes should be validated
+against the established command, identity, and result-graph behavior rather
+than treating its current implementation as settled architecture.
 
 For grouping keys, prefer fully qualified ``node.parameter`` names.  An
 unqualified name is convenient shorthand but can become ambiguous when a
@@ -214,6 +221,113 @@ program is deterministic.
 When repeated stochastic realizations are desired, the user must include an
 explicit seed, repetition, or enumeration parameter that changes identity, or
 choose a different root directory.
+
+.. _duplicate_policy:
+
+Duplicate requests: the first one wins
+--------------------------------------
+
+Two matrix rows can produce the same ``process_id``.  They are one job, in one
+result directory, and **the first row encountered is the one that runs**.
+Later rows with that identity are duplicates.
+
+This is normal, supported behavior rather than a fallback.  Anything two
+equal-identity rows can disagree about is, by construction, something excluded
+from identity -- ``perf_params``, Slurm options, ``__enabled__``, output-path
+overrides, or how a value was delivered.  You chose that when you chose which
+fields reach the hash.  Kwdagger runs your grid and records what it ran; it
+does not try to protect you from a collision you allowed.
+
+Matrix order selects the representative.  Compilation is deterministic for a
+fixed ordered input, but reordering your matrix may select a different
+representative, and that is intended.
+
+If two requests must stay distinct, put the distinction into
+identity-bearing configuration, or give them different output identities.
+
+``duplicate_policy``
+~~~~~~~~~~~~~~~~~~~~
+
+Some users want to be told when duplicates differ.  One compile-time option
+controls that, and *only* that -- execution is identical under the first two:
+
+``first``
+    The default.  The first request wins, silently.  Nothing is compared, so
+    this costs nothing.
+
+``warn``
+    Identical execution, plus a warning naming the differing fields.
+
+``error``
+    Refuses the compilation, before any queue or result directory exists.  An
+    extra constraint you asked for, not a stricter notion of correctness.
+
+.. code-block:: bash
+
+    kwdagger schedule --duplicate_policy=warn --params ...
+
+.. code-block:: python
+
+    compiled = pipeline.compile_configurations(rows, duplicate_policy='warn')
+
+Worked example: differing performance parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``perf_params`` reach the command but not identity, so these two rows are one
+process::
+
+    row 1:  predict.workers = 4
+    row 2:  predict.workers = 16
+
+Under the default policy one job runs with ``--workers=4``, ``job_config.json``
+records ``workers: 4``, and nothing is reported.  Under ``warn`` the same job
+runs and a warning names ``perf_params``.  Under ``error`` compilation stops.
+
+To run both, sweep something identity-bearing instead, or move ``workers`` out
+of ``perf_params``.
+
+Worked example: a produced and a manual path that are equal
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+::
+
+    row 1:  producer.output -> consumer.input     (resolves to /data/model.pt)
+    row 2:  consumer.input  =  /data/model.pt     (typed directly)
+
+The same configured path is the same effective data -- that is the governing
+convention -- so both rows are one consumer identity.  The first row wins, and
+it is kept whole: its provenance *and* its effective predecessors.
+
+Identity does not distinguish the two rows.  Scheduling does.  An explicitly
+configured value outranks the producer, so row 2's consumer requires nothing
+upstream, while row 1's must wait for the producer.  Whichever row comes first
+therefore decides whether the producer is a prerequisite of the consumer::
+
+    rows [1, 2]:  one consumer, waits for the producer
+    rows [2, 1]:  one consumer, waits for nothing
+
+That is the intended consequence of keeping the first request intact rather
+than merging two of them.  If the distinction matters to you, put it into
+identity-bearing configuration so the two rows become two results.
+
+Worked example: separate partial submissions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+::
+
+    call 1:  skip the producer, whose output exists; queue the consumer
+    call 2:  rerun the producer
+
+These are two independent operational requests, not one transaction.  The
+consumer queued by call 1 is not retroactively made dependent on the producer
+queued by call 2, and kwdagger does not reject either call for disagreeing
+with the other.  ``skip_existing`` is per-submission state and never edits the
+compiled request.
+
+Kwdagger makes no guarantee about result data flow when individual nodes are
+reinvoked and produce different outputs.  The design is to let a computation
+run end to end, and then let you tweak things in the middle if you want.  If
+you need data integrity, implement it; kwdagger is running your parameter grid.
 
 The result directory graph
 --------------------------
@@ -307,8 +421,10 @@ priorities:
    relationships.
 #. Keep dotted requested lineage understandable without inventing process
    dependencies for values that did not require materialization.
-#. Maintain the established row-at-a-time configuration path unless a feature
-   explicitly requires whole-matrix knowledge.
+#. Keep one path from a matrix to submitted work.  A batch and an interactive
+   single row differ in how many rows are compiled and in nothing else; a
+   second implementation of scheduling is how the two used to disagree about
+   Slurm layering, normalization, and arbitration.
 #. Treat aggregation as an important consumer, but do not let one historical
    reporting workflow define the entire execution model.
 #. Prefer compatibility and concrete exhibitions over broad taxonomy redesigns.

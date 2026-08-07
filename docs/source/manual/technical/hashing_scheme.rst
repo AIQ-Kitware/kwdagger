@@ -187,25 +187,25 @@ deliberately unhashed.**
 
 The deliberate exceptions are ``perf_params``, ``__enabled__``, Slurm options,
 and output-path overrides.  All of them change how a process runs without
-changing what it computes, which is why they are excluded from identity -- and
-precisely because identity cannot tell such rows apart, matrix rows that
-collapse onto one process must *agree* on them.  Compilation reports a
-disagreement as a user-facing ``ValueError``.
+changing what it computes, which is why they are excluded from identity.  Two
+matrix rows that collapse onto one process may therefore differ in them, and
+that is not an error: **the first row encountered wins.**  It is the request
+that runs and the one recorded in ``job_config.json``.  Matrix order selects
+it.  See :ref:`duplicate_policy` for the optional ``warn`` and ``error``
+diagnostics.
 
-The requested experiment is the other case identity cannot arbitrate.  Two rows
-may be the same computation and still require different jobs to run first --
-one taking an input from a producer, another supplying the same path directly
--- or ask for that computation in two different ways: through one input alias
-rather than another, through a different parameter port, over a different
-gather membership.  Identity drops all of it, provenance keeps all of it, and
-only one ``job_config.json`` can be written for the result directory the rows
-share.  Compilation compares that record and reports a disagreement as a
-conflict, rather than letting whichever row compiled first decide what is
-persisted.
+The requested experiment behaves the same way.  Two rows may be the same
+computation and still require different jobs to run first -- one taking an
+input from a producer, another supplying the same path directly -- or ask for
+that computation in two different ways: through one input alias rather than
+another, through a different parameter port, over a different gather
+membership.  Identity drops all of it and provenance keeps all of it, and only
+one ``job_config.json`` is written for the result directory the rows share.
+It describes the first row.
 
-Anything *else* that reaches the command or the node directory without
-reaching identity is a defect in the payload, and compilation raises an
-internal-consistency error for it.
+None of this is kwdagger guarding your data.  It is a parameter-grid runner
+recording what it ran; if two rows in your grid describe one computation two
+ways, kwdagger runs it once, the way the first row asked.
 
 Paths inside kwdagger's own root are hashed relative to that root, so moving a
 cache does not change any identity.  Paths outside it are hashed as given: they

@@ -181,7 +181,15 @@ def test_validation_errors():
             {'nodes': {'a': {'executable': 'echo a', 'name': 'a'}}}
         )
 
-    # Unknown top-level key.
+    # ``__doc__`` is descriptive top-level metadata and does not alter the DAG.
+    documented = load_yaml_pipeline(
+        {**base, '__doc__': 'A multiline\npipeline description.\n'}
+    )
+    assert sorted(documented.node_dict) == ['a']
+    with pytest.raises(TypeError, match='__doc__.*string'):
+        load_yaml_pipeline({**base, '__doc__': ['not', 'a', 'string']})
+
+    # Other unknown top-level keys remain errors.
     with pytest.raises(ValueError, match='unknown top-level'):
         load_yaml_pipeline({**base, 'matrix': {}})
 
@@ -404,7 +412,9 @@ def test_schedule_with_inline_yaml_pipeline():
     dag, queue = schedule.build_schedule(config)
     # 2 param1 values x 2 param2 values = 4 configs.
     assert len(queue) >= 4
-    assert sorted(dag.node_dict) == ['step1']
+    # The compiled pipeline holds one concrete instance per row.
+    assert sorted(dag.nodes_by_name) == ['step1']
+    assert len(dag.nodes_by_name['step1']) == 4
 
 
 def _write_eval_script(dpath):
@@ -507,7 +517,7 @@ def test_yaml_eval_node_end_to_end():
     assert len(produced) == 2, f'expected 2 outputs, got {produced}'
 
     # Now aggregate and confirm the generic loader surfaced the metrics.
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=root_dpath,
         pipeline=str(pipeline_fpath),
         output_dpath=(root_dpath / 'aggregate'),
@@ -614,7 +624,7 @@ def test_schedule_aggregate_python_pipeline_round_trip():
         )
 
         # Aggregate with NO --pipeline: reconstructed from the serialized spec.
-        agg_config = aggregate.AggregateEvluationConfig(
+        agg_config = aggregate.AggregateEvaluationConfig(
             target=root_dpath,
             output_dpath=(root_dpath / 'aggregate'),
             io_workers=0,
@@ -678,7 +688,7 @@ def test_aggregate_autodiscovers_inline_pipeline():
     assert meta.exists()
 
     # Aggregate WITHOUT a --pipeline; it must be auto-discovered.
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=root_dpath,
         output_dpath=(root_dpath / 'aggregate'),
         io_workers=0,
@@ -788,7 +798,7 @@ def test_aggregate_autodiscovery_failure_is_clear(tmp_path):
 
     target = ub.Path(tmp_path) / 'not_a_schedule_dir'
     target.ensuredir()
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=target,
         output_dpath=(target / 'aggregate'),
         io_workers=0,

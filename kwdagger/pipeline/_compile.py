@@ -1,11 +1,16 @@
 """
 Full-matrix compilation: the logical template becomes a concrete graph.
 
-A gather cannot be resolved one matrix row at a time -- its membership is only
-known once every row exists -- so this layer expands the whole matrix, clones a
-process node per configuration, resolves grouping keys, selects and orders
-gather members, canonicalizes duplicate processes, and checks that rows which
-compile to one process agree about how it should execute.
+This layer expands the whole matrix, clones a process node per configuration,
+canonicalizes rows that compile to one process -- the first such row is the
+representative, kept whole -- and builds the concrete execution graph. It
+optionally *describes* how a later equal-identity row differed, under
+``duplicate_policy``; it never merges two rows and never rejects one by
+default. Where a gather is present it additionally resolves grouping keys and
+selects and orders collection members -- a gather is why compilation had to
+exist (its membership is only known once every row does), but it is a feature
+*of* the matrix, not a second way to schedule one. A gather-free pipeline
+compiles by the same algorithm with no collections to resolve.
 
 Imports the connection and process layers. It refers to
 :class:`~kwdagger.pipeline._logical.Pipeline` only as a type annotation, which
@@ -16,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import os
+import warnings
 from collections import defaultdict
 
 # From collections.abc, not typing: `isinstance(x, typing.Mapping)` gives a
@@ -23,16 +29,11 @@ from collections import defaultdict
 # inside the isinstance branch and every `key['src']` looks like an error. The
 # typing aliases have been deprecated since 3.9 in any case.
 from collections.abc import Mapping, Sequence
-from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import networkx as nx
 import ubelt as ub
 
-from kwdagger.pipeline._agreement import (
-    check_execution_agreement,
-    execution_snapshot,
-)
 from kwdagger.pipeline._config_values import PathSpec, normalize_config
 from kwdagger.pipeline._connections import (
     _UNSET,
@@ -41,9 +42,14 @@ from kwdagger.pipeline._connections import (
     InputNode,
     OutputNode,
 )
+from kwdagger.pipeline._duplicates import (
+    DuplicatePolicy,
+    coerce_duplicate_policy,
+    compare_duplicate_requests,
+)
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._runtime import QueueSpec
-from kwdagger.pipeline._slurm import layer_slurm_options
+from kwdagger.pipeline._slurm import resolve_slurm_options
 
 if TYPE_CHECKING:
     from kwdagger.pipeline._logical import Pipeline
@@ -57,7 +63,6 @@ class CompiledPipeline:
         *,
         proc_graph: nx.DiGraph,
         root_dpath: PathSpec,
-        slurm_options: Mapping[str, Any] | None = None,
         compile_summary: Mapping[str, Any] | None = None,
     ) -> None:
         #: The one container. Everything else about this pipeline's nodes is
@@ -65,25 +70,48 @@ class CompiledPipeline:
         self.proc_graph = proc_graph
         self.root_dpath = ub.Path(root_dpath)
         self.compile_summary = dict(compile_summary or {})
-        # Pipeline-wide options, handed to the shared runtime submitter
-        # alongside the process graph.
-        self.__slurm_options__ = dict(slurm_options or {})
+        # No pipeline-wide Slurm options here. Compilation resolved all four
+        # layers onto each node's ``effective_slurm_options``, so carrying a
+        # copy of one layer alongside would be a second answer to a question
+        # that now has one.
 
-    @cached_property
+    @property
     def nodes(self) -> dict[str, ProcessNode]:
         """
         The concrete nodes, keyed by ``process_id``.
 
         Note the key: a compiled pipeline may hold several instances of one
         template, so a name does not identify a node here as it does on
-        :class:`~kwdagger.pipeline.Pipeline`. Derived from ``proc_graph``
-        rather than stored beside it -- it was a snapshot taken at
-        construction, which is the shape that goes stale the first time
-        someone adds a mutation.
+        :class:`~kwdagger.pipeline.Pipeline`.
+
+        Built from ``proc_graph`` on every access rather than cached. A cached
+        mapping is a second container the moment anything touches it: the
+        returned ``dict`` is independently mutable, and a cached one would
+        keep that edit while ``proc_graph`` -- which submission actually walks
+        -- disagreed. Rebuilding is a dict comprehension over the graph, and
+        the graph stays the one container.
         """
         return {
             key: data['node'] for key, data in self.proc_graph.nodes(data=True)
         }
+
+    @property
+    def nodes_by_name(self) -> dict[str, list[ProcessNode]]:
+        """
+        The concrete instances of each template node, keyed by name.
+
+        The name lookup :attr:`Pipeline.node_dict` provides, adjusted for the
+        one thing compilation changes: a name identifies a *template*, and a
+        matrix expands it into many processes. So this maps to a list, and the
+        list is in compilation order.
+
+        Derived on access, for the same reason :attr:`nodes` is.
+        """
+        grouped: dict[str, list[ProcessNode]] = {}
+        for node in self.nodes.values():
+            assert isinstance(node.name, str)
+            grouped.setdefault(node.name, []).append(node)
+        return grouped
 
     def _edge_cardinality_records(self) -> list[dict[str, Any]]:
         """Summarize concrete edge multiplicity by logical port binding."""
@@ -314,7 +342,6 @@ class CompiledPipeline:
 
         return _runtime.submit_jobs(
             self.proc_graph,
-            slurm_options=self.__slurm_options__,
             queue=queue,
             skip_existing=skip_existing,
             enable_links=enable_links,
@@ -326,28 +353,92 @@ class CompiledPipeline:
     make_queue = submit_jobs
 
 
+#: Every attribute of a process node or its ports that refers to a *different*
+#: node. Detaching exactly these, and nothing else, is what keeps a clone's
+#: deep copy inside one node -- see :func:`_clone_unconnected_process_node`.
+#: A port's ``parent`` is not among them: it points back at the node being
+#: copied, so ``deepcopy`` remaps it through its own memo.
+_OUTWARD_LINKS: dict[str, tuple[tuple[str, Any], ...]] = {
+    'node': (
+        ('_pred_nodes_without_io_connection', list),
+        # The memoization cache is the non-obvious one: it holds computed
+        # results, and ``_predecessor_process_nodes`` among them is a list of
+        # other nodes. A clone starts with an empty cache regardless, so
+        # detaching it costs nothing and closes the last route out.
+        ('_configured_cache', dict),
+    ),
+    'inputs': (
+        ('pred', list),
+        ('succ', list),
+        ('_gather_connection', type(None)),
+        ('_gather_members', type(None)),
+    ),
+    'outputs': (('pred', list), ('succ', list), ('_gather_connections', list)),
+    'param_ports': (('pred', list), ('succ', list)),
+}
+
+
+def _detach_outward_links(
+    template: 'ProcessNode',
+) -> list[tuple[Any, str, Any]]:
+    """
+    Strip a node's references to other nodes, returning them for restoration.
+
+    Temporary, and reversed by the caller in a ``finally`` so a failed copy
+    cannot leave a template detached.
+
+    **This assumes one pipeline is not compiled from two threads at once.**
+    Between the detach and the restore the template is briefly disconnected,
+    and a concurrent reader would see it that way. kwdagger makes no
+    thread-safety promise and compilation is a single pass, so that is the
+    existing contract rather than a new constraint -- but it is the reason
+    this is a detach rather than, say, a shared memo, and it is what would
+    have to change first if compilation were ever parallelized.
+    """
+    saved: list[tuple[Any, str, Any]] = []
+    owners: list[tuple[Any, tuple[tuple[str, Any], ...]]] = [
+        (template, _OUTWARD_LINKS['node'])
+    ]
+    for group in ('inputs', 'outputs', 'param_ports'):
+        spec = _OUTWARD_LINKS[group]
+        owners.extend(
+            (port, spec) for port in getattr(template, group).values()
+        )
+    for owner, spec in owners:
+        for attr, empty in spec:
+            saved.append((owner, attr, getattr(owner, attr)))
+            setattr(owner, attr, empty())
+    return saved
+
+
 def _clone_unconnected_process_node(template: 'ProcessNode') -> 'ProcessNode':
-    """Deep-copy a node while removing all template graph connections."""
-    node = copy.deepcopy(template)
-    node._pred_nodes_without_io_connection = []
-    for input_node in node.inputs.values():
-        input_node.parent = node
-        input_node.pred = []
-        input_node.succ = []
-        input_node._gather_connection = None
-        input_node._gather_members = None
-        input_node._final_value = _UNSET
+    """
+    Copy one node's own state, without its connections.
+
+    The copy is born disconnected rather than copied connected and then
+    stripped. A port holds its peers in ``pred``/``succ`` and every port holds
+    its ``parent``, so deep-copying a wired node walks the whole connected
+    component -- materializing every other node in the pipeline, per clone,
+    only to discard them a few lines later. Compilation makes one clone per
+    node per matrix row, so that was quadratic in the pipeline, and it became
+    every pipeline's cost once compilation stopped being gather-only.
+
+    It also made an unrelated node's contents a scheduling hazard: anything
+    not deep-copyable -- a lock, an open file, a client -- attached anywhere
+    in the connected component would fail the copy of a node that never
+    touches it.
+    """
+    saved = _detach_outward_links(template)
+    try:
+        node = copy.deepcopy(template)
+    finally:
+        for owner, attr, value in saved:
+            setattr(owner, attr, value)
+    for port in (*node.inputs.values(), *node.param_ports.values()):
+        port.parent = node
+        port._final_value = _UNSET
     for output_node in node.outputs.values():
         output_node.parent = node
-        output_node.pred = []
-        output_node.succ = []
-        output_node._gather_connections = []
-    for param_port in node.param_ports.values():
-        param_port.parent = node
-        param_port.pred = []
-        param_port.succ = []
-        param_port._final_value = _UNSET
-    node._configured_cache.clear()
     return node
 
 
@@ -588,22 +679,59 @@ def _sort_gather_members(
         )
 
 
+def _report_duplicate(
+    canonical: ProcessNode,
+    duplicate: ProcessNode,
+    *,
+    policy: DuplicatePolicy,
+    template_name: str,
+    process_id: str,
+    canonical_label: str,
+    duplicate_label: str,
+) -> None:
+    """
+    Describe a later equal-identity request, if the user asked to be told.
+
+    Never reached under the default policy, which is why the comparison and
+    its provenance snapshots cost nothing there.
+    """
+    comparison = compare_duplicate_requests(
+        canonical,
+        duplicate,
+        template_name=template_name,
+        process_id=process_id,
+        canonical_label=canonical_label,
+        duplicate_label=duplicate_label,
+    )
+    if not comparison:
+        return
+    if policy == 'error':
+        raise comparison.to_error()
+    warnings.warn(comparison.format_message(), UserWarning, stacklevel=2)
+
+
 def _compile_pipeline_configurations(
     template: Pipeline,
     *,
     configs: Sequence[Mapping[str, Any]],
     root_dpath: PathSpec | None,
     cache: bool,
+    duplicate_policy: Any = None,
 ) -> CompiledPipeline:
     """Compile a matrix-expanded template into a concrete static DAG."""
     from kwdagger.utils import util_dotdict
 
+    duplicate_policy = coerce_duplicate_policy(duplicate_policy)
     template._ensure_clean()
     # The same boundary an ordinary ``Pipeline.configure`` applies, and
     # before anything reads a reserved key or routes a value to a node:
     # whether a mapping key is accepted must not depend on whether the
     # pipeline happens to contain a gather.
     rows = [normalize_config(config) for config in configs]
+    # The persistent pipeline-wide default, the outermost Slurm layer. Read
+    # once here rather than passed down to submission, so that every layer is
+    # combined in one place.
+    pipeline_base = getattr(template, '_base_slurm_options', None)
     if root_dpath is None:
         template_nodes = list(template.node_dict.values())
         root_dpath = (
@@ -615,7 +743,6 @@ def _compile_pipeline_configurations(
     instances_by_template: dict[str, dict[str, ProcessNode]] = defaultdict(dict)
     concrete_by_process_id: dict[str, ProcessNode] = {}
     canonical_row_idx: dict[str, int] = {}
-    canonical_snapshots: dict[str, dict[str, Any]] = {}
 
     for template_name in template_order:
         template_node = template.node_dict[template_name]
@@ -650,23 +777,15 @@ def _compile_pipeline_configurations(
         for row_idx, row_config in enumerate(rows):
             dotconfig = util_dotdict.DotDict(row_config)
             node_config = dict(dotconfig.prefix_get(template_name, {}))
-            # A row-global mapping is a *layer* under the node's own, not a
-            # stand-in for it. Substituting one for the other meant a node
-            # with any local option silently dropped every row-global key,
-            # and a node with none took the row-global mapping at node
-            # precedence -- so an otherwise identical node asked for
-            # different resources depending on whether the pipeline had a
-            # gather. The node's declared default is restated between them
-            # because it outranks a row-global one, exactly as it does on the
-            # row-at-a-time path.
+            # The row-global mapping is one of the four layers, and it is not
+            # written into the node's own configuration on the way past. The
+            # compiler used to substitute it for the node's, which meant a
+            # node with any local option silently dropped every row-global key
+            # while a node with none took the row-global mapping at node
+            # precedence -- and left ``node.slurm_options`` meaning something
+            # different here than everywhere else. Resolution now happens
+            # once, below, from all four layers at their own precedence.
             row_slurm_options = row_config.get('__slurm_options__')
-            node_slurm_options = node_config.get('__slurm_options__')
-            if row_slurm_options is not None or node_slurm_options is not None:
-                node_config['__slurm_options__'] = layer_slurm_options(
-                    row_slurm_options,
-                    template_node._base_slurm_options,
-                    node_slurm_options,
-                )
             node = _clone_unconnected_process_node(template_node)
             node.root_dpath = root_dpath
 
@@ -754,6 +873,26 @@ def _compile_pipeline_configurations(
             if gather_inputs:
                 node.configure(node_config, cache=cache)
 
+            # After the last ``configure``, which resets the node's own two
+            # layers. Every layer is known here and nowhere else: the node
+            # resolved its own during configuration, and this is the only
+            # scope that also holds the pipeline base and the row-global
+            # mapping. Resolved once, stored on the node, and then read
+            # verbatim by the runtime and, when a policy asks for it, by the
+            # duplicate comparison.
+            node.effective_slurm_options = resolve_slurm_options(
+                pipeline_base=pipeline_base,
+                row_global=row_slurm_options,
+                node_default=node._base_slurm_options,
+                node_override=node._row_slurm_options,
+            )
+
+            # First request wins. Everything two equal-identity rows can
+            # disagree about is something the user put outside ``process_id``,
+            # so a later row is a duplicate rather than a problem, and matrix
+            # order picks the representative. Under the default policy that is
+            # the whole of it -- no comparison is built and nothing is
+            # reported.
             process_id = node.process_id
             canonical = concrete_by_process_id.get(process_id)
             if canonical is None:
@@ -761,16 +900,11 @@ def _compile_pipeline_configurations(
                 concrete_by_process_id[process_id] = canonical
                 instances_by_template[template_name][process_id] = canonical
                 canonical_row_idx[process_id] = row_idx
-                canonical_snapshots[process_id] = execution_snapshot(node)
-            else:
-                # Execution state is popped off the config by ``configure``, so
-                # it does not participate in process identity. Rows that agree
-                # on identity but disagree on execution state would otherwise
-                # be resolved by whichever row happened to come first, making
-                # compilation row-order dependent.
-                check_execution_agreement(
-                    canonical_snapshots[process_id],
-                    execution_snapshot(node),
+            elif duplicate_policy != 'first':
+                _report_duplicate(
+                    canonical,
+                    node,
+                    policy=duplicate_policy,
                     template_name=template_name,
                     process_id=process_id,
                     canonical_label=f'row {canonical_row_idx[process_id]}',
@@ -785,13 +919,37 @@ def _compile_pipeline_configurations(
     # first would make execution depend on matrix order.
     proc_graph = nx.DiGraph()
     for process_id, node in concrete_by_process_id.items():
+        # An internal invariant, not a policy: a node is filed under the
+        # identity it reported, so if it now reports a different one it
+        # changed its own identity after being canonicalized and the graph
+        # key no longer names what it holds. That is a defect in kwdagger,
+        # distinct from two legitimate requests differing, which is the
+        # user's business and handled by ``duplicate_policy``.
+        if node.process_id != process_id:
+            raise AssertionError(
+                f'Internal consistency error: node {node.name!r} was '
+                f'canonicalized as {process_id!r} but now reports '
+                f'{node.process_id!r}. A concrete node must not change its '
+                'own identity during compilation. Please report this.'
+            )
         proc_graph.add_node(process_id, node=node)
     for process_id, node in concrete_by_process_id.items():
         for pred in node.effective_predecessor_process_nodes():
             proc_graph.add_edge(pred.process_id, process_id)
 
+    missing = [
+        key for key in proc_graph.nodes if key not in concrete_by_process_id
+    ]
+    if missing:
+        raise AssertionError(
+            f'Internal consistency error: the compiled graph references '
+            f'{missing!r}, which no concrete node was built for. An effective '
+            'predecessor resolved to an identity outside the compiled '
+            'matrix. Please report this.'
+        )
+
     if not nx.is_directed_acyclic_graph(proc_graph):
-        raise ValueError('Compiled gather graph is not acyclic')
+        raise ValueError('Compiled process graph is not acyclic')
 
     collection_groups = 0
     collection_memberships = 0
@@ -813,6 +971,5 @@ def _compile_pipeline_configurations(
     return CompiledPipeline(
         proc_graph=proc_graph,
         root_dpath=root_dpath,
-        slurm_options=getattr(template, '__slurm_options__', {}),
         compile_summary=compile_summary,
     )

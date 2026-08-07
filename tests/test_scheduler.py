@@ -197,7 +197,9 @@ def test_slurm_options_from_param_grid(tmp_path):
     assert queue._sbatch_kvargs['partition'] == 'general'
     assert queue._sbatch_kvargs['qos'] == 'debug'
 
-    step1 = dag.node_dict['step1']
+    # ``build_schedule`` returns the compiled pipeline, whose nodes are the
+    # concrete instances: one row here, so one ``step1``.
+    (step1,) = dag.nodes_by_name['step1']
     step1_job = queue.named_jobs[step1.process_id]
     assert step1_job._sbatch_kvargs['time'] == '00:01:00'
 
@@ -279,7 +281,7 @@ def test_simple_but_real_custom_pipeline():
         command = invoke_fpath.read_text()
         command
 
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=root_dpath,
         pipeline=f'{pipeline_fpath}::build_pipeline()',
         output_dpath=(root_dpath / 'aggregate'),

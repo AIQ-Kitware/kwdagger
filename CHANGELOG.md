@@ -2,7 +2,148 @@
 We [keep a changelog](https://keepachangelog.com/en/1.0.0/).
 We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## Version 0.3.0 - Unreleased
+## Version 0.4.0 - Unreleased
+
+### Duplicate requests: first wins, by default
+
+Compilation used to **reject** two matrix rows that produced one `process_id`
+while differing in `perf_params`, Slurm options, `__enabled__`, output
+overrides, delivery mechanism, or provenance. That was wrong for what kwdagger
+is. Anything two equal-identity rows can disagree about is, by construction,
+something the user excluded from identity; refusing to run their grid over it
+protects them from a collision they chose.
+
+The default is now first-request-wins: the first request encountered for a
+`process_id` is the representative, it runs, and `job_config.json` records it.
+Matrix order selects it, deliberately. This is normal supported behavior, not
+a compatibility mode.
+
+`duplicate_policy` is a new compile-time option -- `'first'` (default),
+`'warn'` (same execution, plus a message naming what differed), `'error'` (the
+old rejection, now opt-in). Available on
+`Pipeline.compile_configurations`, `build_schedule`, and as
+`--duplicate_policy` on the CLI. Under `'first'` no comparison is built at all,
+so the default path costs nothing.
+
+Cross-call arbitration is gone entirely. Two submissions sharing a queue are
+two independent operational requests: if a job is already in the queue it has
+been submitted, and that is the whole rule. Partial reruns and differing
+`skip_existing`, bookkeeping flags, or enabled state between calls are no
+longer refused. `kwdagger.pipeline._agreement` is removed; the surviving
+comparison lives in `_duplicates` and only runs when a user asked for it.
+
+`AGENTS.md` gains an "Execution, identity, and duplicate-request policy"
+section stating the scope explicitly, because this was implemented by review
+processes reasoning about workflow engines rather than about a grid runner,
+and would otherwise come back.
+
+This is a minor bump rather than a patch because the single-scheduling-path
+refactor changes what several public calls return. No *identity* changes --
+the TA1 card pipelines compile to byte-identical process ids, node
+directories, and commands -- so no result directory moves and no cache is
+invalidated. What breaks is code that reads the shape of a return value; see
+the four entries marked **breaking** below.
+
+### Changed
+
+* **There is one scheduling path.** kwdagger used to schedule a batch two ways:
+  a pipeline with a gather compiled the whole matrix and submitted a
+  `CompiledPipeline`, while a pipeline without one configured and submitted a
+  row at a time. Whether a pipeline contained a gather -- a *compilation*
+  feature -- decided which execution architecture ran.
+
+  This is removed. `build_schedule` compiles the matrix and submits the
+  compiled graph, for every pipeline, and `Pipeline.submit_jobs` compiles the
+  row it was configured with and submits that, so an interactive submission is
+  a matrix of one rather than a second implementation.
+
+  It is worth being explicit about why, because the individual symptoms were
+  each fixed once already during 0.3.x and the list kept growing. Stale row
+  state, divergent Slurm layering, and divergent normalization boundaries were
+  one defect: **two authorities for one question, with nothing forcing them to
+  agree.** Neither path was wrong; having two was.
+
+* **Breaking:** `build_schedule` now returns a `CompiledPipeline` for every
+  pipeline, where it previously returned the template `Pipeline` unless a
+  gather was present. A compiled pipeline holds the concrete processes, so
+  `nodes` is keyed by `process_id` rather than by name.
+  `CompiledPipeline.nodes_by_name` is added for the name lookup
+  `Pipeline.node_dict` used to serve; it maps to a *list*, because a matrix
+  expands one template into many processes.
+
+* **Breaking:** `submit_jobs` reports `node_status` keyed by `process_id`
+  rather than by node name, and a batch now returns one matrix-wide summary
+  instead of one summary per row. A name cannot key a compiled matrix without
+  silently overwriting siblings, and `process_id` is the key
+  `queue.named_jobs` and `CompiledPipeline.nodes` already use --
+  `compiled.nodes[pid].name` recovers the name.
+
+* **Breaking:** the effective Slurm request has one resolver,
+  `kwdagger.pipeline.resolve_slurm_options`, and one home,
+  `node.effective_slurm_options`. It was previously computed in three places
+  from three different subsets of its four layers, which is why
+  `node.slurm_options` meant "node-level options" on one scheduling path and
+  "node-level plus row-global" on the other. That attribute now means the
+  node's own layers on both. `kwdagger.pipeline._runtime.submit_jobs` no
+  longer takes a `slurm_options` argument, and `CompiledPipeline` no longer
+  carries a pipeline-wide copy.
+
+* The scheduler crosses the configuration normalization boundary once, before
+  the parameter matrix is expanded rather than after. Expanding first let
+  `Path('/a')` and `'/a'` count as two points on an axis and then compile to
+  one process, so the reported cardinality contradicted the compiled graph.
+
+* Compiling a pipeline without gather connections is allowed;
+  `compile_configurations` used to reject it. This is what forced the second
+  scheduling path to exist, and nothing in the compiler was ever
+  gather-specific.
+
+### Removed
+
+* **Breaking:** `ProcessNode.__slurm_options__`. It was an unread copy of
+  `slurm_options`, rewritten on every `configure`. Ask for `slurm_options`
+  (the node's own two layers) or `effective_slurm_options` (the complete
+  resolved request), depending on which you meant.
+
+### Fixed
+
+* Configuring a batch and then inspecting the pipeline reported only the last
+  row, because the row-at-a-time path reused one mutable node per name. A
+  compiled pipeline clones per row, so every row is still described afterwards.
+
+* `skip_existing` no longer edits the pipeline it is submitting. It wrote its
+  per-call decision back as `node.enabled = False`, so a compiled pipeline
+  stopped describing what was requested: submitting it again with
+  `skip_existing=False` still reported the node disabled. The decision is now
+  per-submission state, held beside the graph rather than written into it.
+
+* A configured pipeline's nodes report the complete Slurm request.
+  `ProcessNode.configure` resolves only the two layers a node knows, and the
+  pipeline base and row-global layers were added only when a clone was
+  compiled -- so submission was correct while
+  `pipeline.node_dict['train'].effective_slurm_options` showed an incomplete
+  request to anyone inspecting the template. `Pipeline.configure` now finishes
+  the resolution, through the same resolver.
+
+* `Pipeline.configure(config=None, cache=...)` records the cache flag. It
+  changes the flag without changing the row, and the flag was only remembered
+  alongside a row, so a later `submit_jobs` recompiled with whatever the
+  previous call had asked for.
+
+* Cloning a node during compilation no longer deep-copies the rest of the
+  pipeline. Ports hold their peers and every port holds its parent, so copying
+  a wired node walked the whole connected component -- materializing every
+  other node, once per clone, only to discard them. Compilation makes one
+  clone per node per matrix row, so the cost was quadratic in the pipeline,
+  and it became every pipeline's cost once compilation stopped being
+  gather-only. A 32-node chain over four rows compiles about 7x faster, and
+  per-clone cost no longer grows with the pipeline at all. It also removes a
+  failure mode: something not deep-copyable attached to one node -- a lock, an
+  open file, a client -- used to break compilation of every node connected to
+  it.
+
+
+## Version 0.3.0 - Released 2026-08-04
 
 ### Added
 

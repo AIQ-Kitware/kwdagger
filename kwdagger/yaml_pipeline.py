@@ -3,8 +3,9 @@
 Declarative (pure-YAML) pipeline specification.
 
 This module lets a :class:`kwdagger.Pipeline` be described as data -- a mapping
-of ``nodes`` and a list of ``edges`` -- instead of as Python code. The resulting
-object is identical to one built via the Python API, so every downstream feature
+of ``nodes`` and a list of ``edges`` -- with optional top-level ``__doc__``
+metadata -- instead of as Python code. The resulting object is identical to
+one built via the Python API, so every downstream feature
 (matrix expansion, hashing, scheduling, aggregation) works unchanged.
 
 Unlike the ``"module.func()"`` pipeline form (see
@@ -404,9 +405,10 @@ def load_yaml_pipeline(
 
     Args:
         spec (dict | str | PathLike):
-            Either an in-memory mapping with ``nodes`` / ``edges`` keys, an
-            inline YAML/JSON string, or a path to a ``.yaml`` / ``.yml`` /
-            ``.json`` file containing such a mapping.
+            Either an in-memory mapping with ``nodes`` / ``edges`` keys and
+            optional string ``__doc__`` metadata, an inline YAML/JSON string,
+            or a path to a ``.yaml`` / ``.yml`` / ``.json`` file containing
+            such a mapping.
 
         root_dpath (str | PathLike | None):
             Optional output root passed through to the constructed pipeline.
@@ -445,13 +447,17 @@ def load_yaml_pipeline(
             f'got {type(data).__name__}'
         )
 
-    unknown_top = set(data) - {'nodes', 'edges'}
+    allowed_top = {'__doc__', 'nodes', 'edges'}
+    unknown_top = set(data) - allowed_top
     if unknown_top:
         raise ValueError(
             f'unknown top-level pipeline key(s) '
             f'{sorted(unknown_top, key=repr)}; '
-            'expected "nodes" and optionally "edges"'
+            'expected "nodes", optionally "edges", and optionally "__doc__"'
         )
+
+    if '__doc__' in data and not isinstance(data['__doc__'], str):
+        raise TypeError('YAML pipeline "__doc__" must be a string')
 
     nodes_spec = data.get('nodes')
     if not isinstance(nodes_spec, dict) or not nodes_spec:

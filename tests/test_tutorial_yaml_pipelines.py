@@ -80,6 +80,20 @@ CASES = [
             'evaluate.test_set': 'clean',
         },
     ),
+    (
+        'gather_mapreduce_corpus',
+        'pipelines',
+        'build_pipeline',
+        'pipeline.yaml',
+        {
+            'analyze_chunk.corpus_dpath': 'data',
+            'analyze_chunk.document': 'alpha',
+            'analyze_chunk.collection': 'red',
+            'analyze_chunk.chunk_index': 0,
+            'analyze_chunk.method': 'words',
+            'corpus_metric.metric': 'words',
+        },
+    ),
 ]
 
 # Runs inside the subprocess; compares the Python and YAML pipelines.

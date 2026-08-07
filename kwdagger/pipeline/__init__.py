@@ -83,6 +83,10 @@ from kwdagger.pipeline._connections import (  # NOQA: F401
     _effective_origins,
     _produced_origins,
 )
+from kwdagger.pipeline._duplicates import (
+    DUPLICATE_POLICIES,
+    coerce_duplicate_policy,
+)
 from kwdagger.pipeline._logical import (  # NOQA: F401
     Pipeline,
     _resolve_pipeline,
@@ -95,9 +99,14 @@ from kwdagger.pipeline._process import (  # NOQA: F401
     memoize_configured_property,
 )
 from kwdagger.pipeline._shell import bash_heredoc_write_command
-from kwdagger.pipeline._slurm import coerce_slurm_options
+from kwdagger.pipeline._slurm import (
+    coerce_slurm_options,
+    layer_slurm_options,
+    resolve_slurm_options,
+)
 
 __all__ = [
+    'DUPLICATE_POLICIES',
     'Collection',
     'CompiledPipeline',
     'Configurable',
@@ -115,11 +124,14 @@ __all__ = [
     'StoredGroupByKey',
     'bash_heredoc_write_command',
     'coerce_pipeline',
+    'coerce_duplicate_policy',
     'coerce_slurm_options',
     'demo_pipeline_run',
     'demodata_pipeline',
+    'layer_slurm_options',
     'memoize_configured_method',
     'memoize_configured_property',
+    'resolve_slurm_options',
 ]
 
 

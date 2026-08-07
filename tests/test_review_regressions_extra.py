@@ -1140,16 +1140,38 @@ def test_a_read_producer_is_not_marked_unsupplied(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 10. The runtime gate is effective, on both scheduling paths
+# 10. The runtime gate is effective, for a single compiled row
 # ---------------------------------------------------------------------------
 #
 # The gate is not merely an ordering hint. A disabled or missing predecessor
 # suppresses its successor, so gating a command on a producer it never reads
-# can silently skip valid work. There are two execution paths and they used to
-# answer this question differently, which is worth testing separately: a
-# gather-free pipeline is scheduled a row at a time, while a pipeline
-# containing *any* gather is compiled across the whole matrix first. The same
-# consumer must not run in one pipeline shape and be skipped in the other.
+# can silently skip valid work. This used to be answered differently by the
+# two execution paths -- a gather-free pipeline was scheduled a row at a time,
+# while a pipeline containing *any* gather was compiled across the whole
+# matrix first -- so a consumer could run in one pipeline shape and be skipped
+# in the other. Both shapes are compiled now; these cover the one-row case.
+
+
+def _status_by_name(dag, **submit_kw):
+    """
+    Submit the configured row and report each node's status by name.
+
+    ``node_status`` is keyed by ``process_id``, because a compiled matrix can
+    hold several instances of one name. These pipelines have one instance per
+    name, and it is the name that carries the meaning here.
+    """
+    summary = dag.submit_jobs(
+        queue={'backend': 'serial'},
+        enable_links=False,
+        write_invocations=False,
+        write_configs=False,
+        **submit_kw,
+    )
+    name_of = {n.process_id: n.name for n in dag.node_dict.values()}
+    return {
+        name_of.get(process_id, process_id): status
+        for process_id, status in summary['node_status'].items()
+    }
 
 
 def test_single_row_gate_ignores_a_producer_the_command_does_not_read(
@@ -1191,12 +1213,7 @@ def test_single_row_gate_ignores_a_producer_the_command_does_not_read(
     execution = dag.effective_execution_graph()
     assert not execution.has_edge('producer', 'consumer')
 
-    status = dag.submit_jobs(
-        queue={'backend': 'serial'},
-        enable_links=False,
-        write_invocations=False,
-        write_configs=False,
-    )['node_status']
+    status = _status_by_name(dag)
     assert status['producer'] == 'disabled'
     assert status['consumer'] == 'new_submission', (
         'a disabled producer the consumer never reads must not suppress it'
@@ -1222,12 +1239,7 @@ def test_single_row_gate_still_respects_a_producer_that_is_read(tmp_path):
         {'producer.__enabled__': False}, root_dpath=tmp_path, cache=False
     )
     assert dag.effective_execution_graph().has_edge('producer', 'consumer')
-    status = dag.submit_jobs(
-        queue={'backend': 'serial'},
-        enable_links=False,
-        write_invocations=False,
-        write_configs=False,
-    )['node_status']
+    status = _status_by_name(dag)
     assert status['consumer'] == 'skipped'
 
 
@@ -1235,11 +1247,13 @@ def _dedup_pipeline():
     """
     A consumer whose input is overridden, plus an unrelated gather.
 
-    The gather earns its place: ``compile_configurations`` refuses a pipeline
-    without one, and ``build_schedule`` only takes the full-matrix path when a
-    gather exists. So the deduplication this exercises is reachable only in a
-    pipeline that gathers *somewhere* -- which is exactly why the two
-    scheduling paths could disagree unnoticed.
+    The gather is here for history: when this regression was found,
+    ``compile_configurations`` refused a pipeline without one and
+    ``build_schedule`` only took the full-matrix path when a gather existed,
+    so the deduplication exercised here was reachable only in a pipeline that
+    gathered *somewhere* -- which is exactly why the two scheduling paths
+    could disagree unnoticed. Compilation is now unconditional; the gather is
+    kept so this keeps reproducing the original shape.
     """
     shard = ProcessNode(
         name='shard',

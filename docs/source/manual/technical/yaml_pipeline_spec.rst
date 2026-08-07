@@ -93,6 +93,13 @@ Top-level schema
 
 A pipeline document is a mapping with the following keys:
 
+``__doc__`` (optional, string)
+    Human-readable documentation for the pipeline. A YAML block scalar is a
+    convenient way to keep a multiline description next to the declarative
+    graph. The loader validates that it is a string and otherwise treats it as
+    descriptive metadata; it does not affect graph construction or process
+    identity.
+
 ``nodes`` (required, mapping)
     Maps each node name to a *node spec* (see below). The key is the node's
     ``name``; do not also set ``name`` inside the spec.
@@ -412,10 +419,12 @@ A gather edge connects many configured instances of one source output to one
 collection-valued target input. Membership is resolved when the entire parameter
 matrix is compiled; no jobs are discovered or created at runtime.
 
-Gather is a newer feature than the historical row-at-a-time scheduler. Its
-whole-matrix compilation path should be treated as an implementation cost to
-validate against established command generation, result reuse, and lineage
-behavior, not as a reason to redefine ordinary scheduling around gather.
+Whole-matrix compilation is how every pipeline is scheduled, not a path gather
+switches on. Declaring a gather adds collection resolution to that compilation;
+it does not change how the pipeline's other nodes are configured, identified,
+or submitted. Gather is still a newer feature than the rest of the model, so
+its behavior should be validated against established command generation, result
+reuse, and lineage behavior.
 
 The mapping edge form accepts a ``gather`` specification::
 

@@ -1189,3 +1189,314 @@ sibling checkout. Until it is published, `cmd_queue >= 0.3.2` makes kwdagger
 installed the local checkout editable.
 
 377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-05 10:32:49 -0400
+
+Closing out a long session. 0.3.0 is released, the dependents are moved onto
+it, and the single-scheduling-path refactor has its characterization baseline
+committed but nothing else. Wrote `dev/planning/authority-refactor-handoff.md`
+rather than leaving that state in my head.
+
+The thing I most want the next person to read is the authority table in that
+document. Every defect this review sequence found -- stale row state, divergent
+Slurm layering, divergent normalization boundaries -- was the same defect:
+two owners for one question, with nothing forcing agreement. I fixed each one
+individually as it was reported, which was right for a release but is why the
+list kept growing. The refactor is the actual fix.
+
+Phase 1 is deliberately only tests. Two of them record current *disagreements*
+rather than asserting agreement, which felt wrong to write and is I think
+correct: `node.slurm_options` genuinely means different things on the two
+paths, and pinning that as a difference now is what lets Phase 4 flip it to an
+equality and prove something changed. A characterization test that quietly
+compares only the fields that already match is a test that will pass through
+the refactor without noticing anything.
+
+Also worth recording: writing the parity harness taught me something about the
+row-at-a-time path I had not appreciated. Reading node state after the loop
+shows only the last row, because that path reuses one mutable node while the
+compiler clones. That is not just an implementation detail -- it means
+"configure a batch, then inspect the pipeline" is misleading today, and the
+refactor incidentally fixes an interactive-inspection wart, not only an
+architectural one.
+
+Two things I could not close and flagged in the handoff: I never found the TA1
+fingerprint fixture the brief asks to run, and the version target is ambiguous
+(the brief says 0.4.0, the maintainer said keep 0.3.1) in a way that matters
+because `build_schedule()` consistently returning a `CompiledPipeline` is a
+visible behavior change.
+
+Baseline at `346ac18`: 391 passed / 18 skipped, 92 doctests, ruff/ty/flake8
+clean.
+
+## 2026-08-05 12:21:47 -0400
+
+Picked the authority refactor back up in the same day I handed it off and ran
+it to the end: phases 2 through 7, one commit each, on `dev/0.3.1`.
+
+The thing I got wrong in the handoff, and it is worth writing down because it
+changed how the whole job felt: I described Phase 2 as "remove the restriction
+at `_logical.py:549`" and expected to then make the compiler handle ordinary
+nodes. It already did. Nothing in `_compile_pipeline_configurations` was
+gather-specific -- with no gather connections the collection resolution simply
+has nothing to select -- so the guard *was* the entire barrier. A five-line
+diff. Which means the second scheduling path had been kept alive for months by
+a precondition nobody had tested the falsity of. I wrote a probe script before
+touching anything, ran the compiler on a gather-free pipeline with the guard
+bypassed, and it produced exactly the right graph on the first try. That probe
+is the single highest-value thing I did all session: it turned a phase I had
+budgeted a day of care for into an afternoon, and it would have been just as
+valuable had it failed.
+
+Phase 3 was where the real work was, and where I found a seventh divergence
+the authority table had missed. `submit_jobs` keyed `node_status` by whatever
+the graph key was -- node *names* on the row path, `process_id` on the
+compiled one. The parity harness filtered statuses by name, which on the
+compiled side yielded an empty dict, so it had been silently comparing nothing
+for that field the entire time. Two lessons in one: the table I was so pleased
+with was incomplete, and a characterization test can pass through a refactor
+while asserting less than it appears to. I made the key `process_id`
+everywhere, since a name cannot key a compiled matrix without dropping
+siblings, and updated the tests that read it by name to translate explicitly
+rather than quietly.
+
+The delegation in Phase 3 is the decision I went back and forth on most.
+`Pipeline.submit_jobs` had to stop being a second scheduler, and the shape the
+handoff suggested -- a one-row compiled representation -- was right. What I
+nearly got wrong was where the row comes from. My first design reconstructed
+it from node state after the fact, walking `node.config` back into dotted
+keys. I had it half-written before noticing I was building a second answer to
+"what was this row" inside a refactor whose entire purpose is removing second
+answers. It would also have silently lost the row-global `__slurm_options__`,
+which `configure` pops. Having `configure` *remember* the row before popping
+is four lines and has no second authority in it. When the fix for a
+duplicate-authority problem introduces a duplicate authority, stop typing.
+
+Phase 4 was the satisfying one. Three sites each computed the effective Slurm
+request from a different subset of four layers, and the fix is a single
+keyword-only pure function plus one attribute on the node. Making it
+keyword-only mattered more than it looks: the order of those layers *is* the
+semantics, and a positional call site is one refactor away from silently
+reordering them. The characterization test that recorded the disagreement
+flipped to an equality, which is the moment the whole Phase 1 investment paid
+off -- I did not have to argue that something changed, the test that was
+written to fail failed, and then passed for the right reason.
+
+Phase 5 turned out to be mostly proof rather than code, which surprised me
+until I understood why: once Phase 3 made compilation universal, the runtime
+registry structurally *cannot* fire on the graph it was handed, because a
+`process_id` is a key there. It was already only a cross-submission backstop.
+So the phase became writing that down and then proving the compiler catches
+every conflict class in either row order -- seven classes, parameterized, plus
+the fingerprint-of-the-whole-compilation check that reversing a matrix changes
+nothing. I would rather have that table than another paragraph of reasoning
+about why order cannot matter.
+
+Phase 6's test is the one I am least sure earns its place and most glad I
+wrote. To show the graph outranks node state I had to *provoke* a
+disagreement -- remove an edge from a compiled graph whose nodes still
+describe it -- because normal use cannot produce one; the compiler builds
+those edges from that node state. A test asserting a claim about which of two
+sources wins is worth nothing if the two never differ. It looks artificial and
+it is exactly what the claim means.
+
+And the TA1 fingerprint: found it. It was never a fixture, which is why I
+could not locate it in the previous session -- the procedure existed only as
+prose in my own journal entries ("`lift` and `lomo` fingerprints unchanged").
+It is the two `*_kwdagger.yaml` cards in incubilate, compiled and dumped. I
+wrote `dev/ta1_fingerprint.py`, ran it at `84cbb01` and at HEAD, and the two
+are byte-identical: 53 concrete processes per card, same ids, same directories,
+same commands. Nothing anybody has on disk moves. First run leaked
+`build_schedule`'s own stdout into the comparison and showed a spurious diff,
+which was a useful thirty seconds of alarm.
+
+What I am confident about: no identity changed, the suite went 391 -> 454, and
+every removal was checked against the dependents in the superproject first.
+`aiq-magnet` already read `dag.nodes.values()` with a comment saying
+`build_schedule` returns instances keyed by process id -- it was written
+against the compiled shape and had been quietly relying on its cards
+gathering. This fixes it rather than breaking it.
+
+What I am not confident about, and left open on purpose: the version. The
+brief says 0.4.0, the maintainer said 0.3.1, and the changes genuinely are
+breaking for anyone reading `node_status` by name. Nothing in the refactor
+decides it, so I recorded the evidence in the handoff and left the number
+where the maintainer put it. Bumping is one line. I would rather hand back a
+visible decision than a quiet one.
+
+The other risk worth naming: the branches still are not pushed, in any of
+these repos. Same as it has been all week.
+
+## 2026-08-05 14:02:11 -0400
+
+Acted on a GPT-5.6 review of the finished refactor. It found one real runtime
+bug and three places where the authority model was not actually closed, and it
+was right about all four. I reproduced every one before touching anything,
+which is worth doing: a review that is right about four things can still be
+right for the wrong reason about one of them, and the probes are what turn
+"plausible" into "confirmed".
+
+The `skip_existing` bug is the one I should have caught myself, and the reason
+I did not is instructive. It predates this work — the line has been there for
+ages — but the refactor is what made it matter, because `build_schedule` now
+*returns* the compiled pipeline and callers hold on to it. Writing a per-call
+decision back as `node.enabled = False` meant the object stopped describing
+what was asked for: a second submission with `skip_existing=False` still
+reported the node disabled, and resubmitting to the same queue compared the
+mutated node against the first snapshot and raised an `__enabled__` conflict
+the user never created. I spent six phases arguing that a compiled pipeline is
+a static description of requested work and never checked whether submitting it
+left it unchanged. The invariant I was most confident about is the one I
+never tested.
+
+The two `cached_property` lookups are a subtler version of the same thing, and
+I would have defended them if asked. They *are* derived from `proc_graph` —
+that was the Phase 6 requirement and I ticked it. But the mapping they hand
+back is independently mutable, so the moment anything edits it, a cached one
+keeps the edit while the graph submission actually walks knows nothing about
+it. Derived-once is not the same as derived. Plain properties, and the cost is
+a dict comprehension.
+
+The interactive Slurm gap is the one that stings, because completing that
+surface was an explicit goal of Phase 4 and I half-did it. `ProcessNode.configure`
+resolves the two layers a node knows, compilation adds the other two — which
+is right, and means a *template* node reported an incomplete request to anyone
+inspecting a configured pipeline while the submitted job used the complete
+one. `Pipeline.configure` knows all four; it now finishes the job through the
+same resolver, so there is still one place that knows the precedence.
+
+The cloning finding is the one I nearly under-fixed. The reviewer flagged it
+as a scalability concern to track rather than block on, and my instinct was to
+add a benchmark and move on. I measured first: per-clone cost went 0.69 ms at
+two nodes to 4.23 ms at thirty-two, so compiling a matrix was quadratic in the
+pipeline — and universal compilation is exactly what made that everyone's
+problem rather than gather users'. That reframed it from "future work" to
+"something my change caused". The fix is to detach the node's outward
+references, copy, and restore, so the copy is born disconnected instead of
+copied connected and then stripped. Flat 0.55 ms/clone at every size; the
+32-node case went 0.541 s to 0.071 s.
+
+Finding the last escape route took a graph walk rather than reading. I
+detached the obvious ones — `pred`, `succ`, gather links,
+`_pred_nodes_without_io_connection` — re-benchmarked, and nothing changed at
+all. The remaining route was `_configured_cache`, the memoization dict, which
+holds a computed list of *other nodes* under the predecessor query. That is
+the second time this session a memo has quietly been part of the object graph,
+and I would not have guessed it; `gc`-style reachability from one node to
+another is a much better tool than staring at attribute lists.
+
+One self-inflicted wound worth recording: I verified the new tests were
+load-bearing by breaking a fix and re-running, then "restored" with
+`git checkout kwdagger/pipeline/_compile.py` — which reverted the file to the
+last *commit*, silently throwing away two of the fixes I had just made in it.
+I noticed because a grep returned 0. Copy the file to a scratch path and copy
+it back; `git checkout` is not an undo for uncommitted work.
+
+TA1 fingerprint byte-identical again after all of this, which is the check
+that matters most: none of these fixes moved an identity. 470 passed / 18
+skipped, up from 454.
+
+## 2026-08-05 15:07:40 -0400
+
+Second review round on the same work, and it found a real one I had walked
+straight past: the `skip_existing` fix was incomplete in a way I had actually
+written a comment *asserting* was fine.
+
+The first round made `skip_existing` stop mutating `node.enabled`, which was
+the bug. But arbitration still compared only the compiled predecessor set --
+what the computation requires -- while the queue job got the active-filtered
+set, which is what this call actually queued. Those are different questions
+and I had just spent a phase insisting that conflating two questions is the
+whole defect class here. Two submissions to one queue with different
+`skip_existing` therefore agreed about the request, the second was recorded as
+a duplicate, and the job kept whichever call's dependencies came first. In one
+order that leaves a consumer with no dependency on a producer the queue is
+about to rerun. It can run first and read the stale output.
+
+What stings is that `_runtime.py` said, in a comment I wrote, that reversing
+two calls differing in `skip_existing` leaves the same queue -- and `AGENTS.md`
+repeated it. Neither was tested. I wrote the justification for excluding
+`skip_existing` from the comparison and then never checked the justification.
+A design note that states a property is a claim; either test it in the same
+commit or phrase it as an intention.
+
+The fix is to carry `queued_prerequisites` beside `prerequisites` in the
+snapshot, so the registry describes queue jobs as well as computations. Both
+orders now report the same conflict. The reviewer also suggested not
+registering disabled or skipped nodes at all; I did not take that part,
+because it would drop the existing cross-call `__enabled__` arbitration in
+exchange for solving a problem the added field already solves. Worth naming
+that I disagreed with one step of a review whose other four points I took
+wholesale -- the useful thing was reproducing each claim first, which is what
+made it obvious which parts were load-bearing.
+
+Also corrected two documentation statements that my own previous commit made
+stale: `AGENTS.md` said compilation is the *only* caller of
+`resolve_slurm_options`, which stopped being true the moment I made
+`Pipeline.configure` call it to complete interactive inspection. The rule
+should have been "the resolver is the sole precedence authority; whoever holds
+four layers calls it", not "there is one call site". I stated the weaker,
+more brittle version and then broke it myself within one commit.
+
+TA1 fingerprint byte-identical. 475 passed / 18 skipped.
+
+## 2026-08-05 16:44:02 -0400
+
+The maintainer read the finished refactor and stopped it. The duplicate
+arbitration I built -- and that two review rounds pushed me to make stricter --
+encodes a policy opinion that is not this project's. Rejecting two matrix rows
+because they differ in `perf_params` is not a safeguard here; it is refusing
+to run somebody's grid over a distinction they deliberately kept out of the
+hash. The phrase that landed: grad-student research grade, not enterprise
+grade. We record what the thing was run with. We don't have to reject.
+
+I want to be honest about how I got here, because "the reviewers pushed me" is
+only half of it. The other half is that I found the strictness *satisfying*.
+Every rejection I added made a crisper invariant, produced a better error
+message, and closed a case in a table. The authority table in the handoff was
+genuinely good work and it made rejection feel like the natural conclusion of
+it. What I never did was ask whether the guarantee being protected was one
+kwdagger offers. Two external reviews didn't ask either -- they were reasoning
+about workflow engines, correctly, about a project that isn't one.
+
+The tell was there and I wrote it myself. `AssertionError: Internal
+consistency error` for two requests that finalize different commands under one
+identity. That is two legitimate requests differing, which is policy, but
+calling it an internal consistency error made it look like a defect nobody
+could argue with. I picked that wording, it survived several reviews
+unquestioned, and it is the single thing that most made the rules look
+unremovable. Reserve internal errors for contradictions inside one request.
+
+The rework itself was smaller than I expected, which is its own signal: the
+authority refactor survives intact. One compilation path, one normalization
+boundary, one Slurm resolver, the compiled graph owning execution
+dependencies, disconnected cloning, derived containers -- all of it stays and
+none of it depended on rejecting anything. What came out was the arbitration
+built on top: 372 lines of `_agreement.py`, the cross-call queue registry, and
+`queued_prerequisites`, which I had added *one commit earlier* to make the
+cross-call check more thorough. That is the clearest evidence I was
+accelerating in the wrong direction right up to the moment I was stopped.
+
+`_duplicates.py` is 210 lines and does not decide anything. It compares and
+formats; the compiler picks `first`, `warn`, or `error`. The comparison table
+is the one piece of the old framework worth keeping, and it now only runs when
+a user asks. Naming mattered here: not `permissive`/`strict`, because that
+would say the strict one is correct and the default is a concession. `error`
+is an extra constraint someone requested.
+
+One thing I decided rather than deferred: matrix order selecting the
+representative is documented as intended, and the tests assert per-order
+behavior rather than order independence. My earlier tests asserted the
+opposite, and asserting order independence is what turned a diagnostic into a
+rule -- once you have promised order cannot matter, every difference has to be
+rejected to keep the promise.
+
+What I am less sure about: whether the `error` policy should eventually be
+per-field rather than all-or-nothing. I kept the implementation private and
+compact so that can be added without committing to it now. Also unsure whether
+`warn` should default to once-per-process-id or once-per-difference-class in a
+large matrix; right now a pathological grid could emit a lot of warnings. It
+is opt-in, so I left it.
+
+TA1 fingerprint byte-identical, which is the right outcome: this changed
+duplicate-handling policy, not identity. 500 passed / 18 skipped, up from 475.

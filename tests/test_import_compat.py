@@ -73,7 +73,7 @@ LAYERS = [
     '_config_values',
     '_shell',
     '_slurm',
-    '_agreement',
+    '_duplicates',
     '_runtime',
     '_connections',
     '_process',

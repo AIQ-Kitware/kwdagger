@@ -1020,8 +1020,8 @@ def _slurm_conflict_rows(*, gpu1_first, key='train.__slurm_options__'):
     """Two rows with one identity and two Slurm resource requests.
 
     ``__slurm_options__`` is stripped from the hashed config just like
-    ``__enabled__``, so the surviving row silently decides the partition,
-    GPU count, memory, time limit, and account for every duplicate.
+    ``__enabled__``, so the two rows are one job and the first one supplies
+    the partition, GPU count, memory, time limit, and account.
     """
 
     def row(fold, gres=None):
@@ -1045,12 +1045,36 @@ def _slurm_conflict_rows(*, gpu1_first, key='train.__slurm_options__'):
 @pytest.mark.parametrize(
     'key', ['train.__slurm_options__', '__slurm_options__']
 )
-def test_gather_rejects_conflicting_slurm_options(gpu1_first, key):
-    """Node-specific and row-global Slurm options both must agree."""
+def test_gather_takes_slurm_options_from_the_first_row(gpu1_first, key):
+    """
+    Node-specific and row-global options alike: the first row supplies them.
+    A gather pipeline is compiled by the same algorithm as any other, so the
+    duplicate policy reaches it unchanged.
+    """
+    rows = _slurm_conflict_rows(gpu1_first=gpu1_first, key=key)
+    expected = 'gpu:1' if gpu1_first else 'gpu:4'
+    dag = _demo_gather_pipeline()
+    compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
+    trains = [n for n in compiled.nodes.values() if n.name == 'train']
+    fold0 = [n for n in trains if n.final_algo_config['fold'] == 0]
+    assert len(fold0) == 1
+    assert fold0[0].effective_slurm_options['gres'] == expected
+
+
+@pytest.mark.parametrize('gpu1_first', [True, False])
+@pytest.mark.parametrize(
+    'key', ['train.__slurm_options__', '__slurm_options__']
+)
+def test_gather_can_be_asked_to_reject_conflicting_slurm_options(
+    gpu1_first, key
+):
+    """The same rows under the opt-in ``error`` policy."""
     rows = _slurm_conflict_rows(gpu1_first=gpu1_first, key=key)
     dag = _demo_gather_pipeline()
     with pytest.raises(ValueError) as excinfo:
-        dag.compile_configurations(rows, root_dpath='runs', cache=False)
+        dag.compile_configurations(
+            rows, root_dpath='runs', cache=False, duplicate_policy='error'
+        )
     message = str(excinfo.value)
     assert '__slurm_options__' in message
     assert "'train'" in message
@@ -1094,35 +1118,38 @@ def _enabled_conflict_rows(*, enabled_first, target='train'):
 
 
 @pytest.mark.parametrize('enabled_first', [True, False])
-def test_gather_rejects_conflicting_enabled_on_source(enabled_first):
-    """A gather source cannot be both enabled and disabled.
-
-    ``__enabled__`` is popped before process identity is computed, so without
-    an explicit check the winner is whichever row compiled first. A disabled
-    source would stay in the consumer's manifest membership while its output
-    is never produced.
+@pytest.mark.parametrize('target', ['train', 'ensemble'])
+def test_gather_takes_enabled_state_from_the_first_row(enabled_first, target):
     """
-    rows = _enabled_conflict_rows(enabled_first=enabled_first, target='train')
+    ``__enabled__`` is popped before identity is computed, so two rows that
+    differ only in it are one job and the first row decides. A gather source
+    disabled this way stays in the consumer's manifest while its output is
+    never produced -- which is the user's business, and exactly the kind of
+    partial run kwdagger is for.
+    """
+    rows = _enabled_conflict_rows(enabled_first=enabled_first, target=target)
     dag = _demo_gather_pipeline()
-    with pytest.raises(ValueError) as excinfo:
-        dag.compile_configurations(rows, root_dpath='runs', cache=False)
-    message = str(excinfo.value)
-    assert '__enabled__' in message
-    assert "'train'" in message
+    compiled = dag.compile_configurations(rows, root_dpath='runs', cache=False)
+    nodes = [n for n in compiled.nodes.values() if n.name == target]
+    first_row_state = enabled_first
+    assert any(node.enabled is first_row_state for node in nodes)
 
 
 @pytest.mark.parametrize('enabled_first', [True, False])
-def test_gather_rejects_conflicting_enabled_on_consumer(enabled_first):
-    """The same guard applies to the gather consumer, not just the source."""
-    rows = _enabled_conflict_rows(
-        enabled_first=enabled_first, target='ensemble'
-    )
+@pytest.mark.parametrize('target', ['train', 'ensemble'])
+def test_gather_can_be_asked_to_reject_conflicting_enabled(
+    enabled_first, target
+):
+    """The same rows under the opt-in ``error`` policy."""
+    rows = _enabled_conflict_rows(enabled_first=enabled_first, target=target)
     dag = _demo_gather_pipeline()
     with pytest.raises(ValueError) as excinfo:
-        dag.compile_configurations(rows, root_dpath='runs', cache=False)
+        dag.compile_configurations(
+            rows, root_dpath='runs', cache=False, duplicate_policy='error'
+        )
     message = str(excinfo.value)
     assert '__enabled__' in message
-    assert "'ensemble'" in message
+    assert f"'{target}'" in message
 
 
 @pytest.mark.parametrize('enabled_first', [True, False])

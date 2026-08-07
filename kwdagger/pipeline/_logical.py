@@ -37,7 +37,10 @@ from kwdagger.pipeline._connections import (
 )
 from kwdagger.pipeline._process import ProcessNode
 from kwdagger.pipeline._runtime import QueueSpec
-from kwdagger.pipeline._slurm import layer_slurm_options
+from kwdagger.pipeline._slurm import (
+    coerce_slurm_options,
+    resolve_slurm_options,
+)
 from kwdagger.utils import util_dotdict
 
 
@@ -98,15 +101,22 @@ class Pipeline:
         #: subclasses is how pipelines are normally written and Python's
         #: containers are invariant.
         if isinstance(nodes, Mapping):
-            # ``list(mapping)`` would silently yield the *keys*, and the
-            # failure would surface much later as a string with no ``.name``.
-            raise TypeError(
-                'Pipeline takes a sequence of nodes, not a mapping. A node '
-                'knows its own name, so the {name: node} form was a second '
-                'place for that name to live and a second place for it to '
-                'disagree; ask Pipeline.node_dict for a name lookup. Pass '
-                'list(nodes.values()) instead.'
+            ub.schedule_deprecation(
+                name='mapping-valued nodes',
+                type='argument to Pipeline',
+                migration=(
+                    'Pipeline takes a sequence of nodes, not a mapping. A node '
+                    'knows its own name, so the {name: node} form was a second '
+                    'place for that name to live and a second place for it to '
+                    'disagree; ask Pipeline.node_dict for a name lookup. Pass '
+                    'list(nodes.values()) instead.'
+                ),
+                deprecate='0.3.0',
+                error='0.5.0',
+                remove='0.6.0',
             )
+            nodes = list(nodes.values())
+
         self.nodes: list[Any] = list(nodes or [])
         self.config: Any = None
         #: Where results are rooted, once ``configure`` has been told. Declared
@@ -117,12 +127,23 @@ class Pipeline:
         #: asks for something else. Set by the CLI or a Python caller, never
         #: by a matrix row.
         self._base_slurm_options: dict[str, Any] = {}
-        #: The options the *current* row requested, base included. Reset from
-        #: the base on every ``configure`` -- a row that omits them is asking
-        #: for the default, not for whatever the previous row happened to ask
-        #: for, and arbitration compares this to decide whether two rows want
-        #: the same resources.
+        #: The current row's top-level ``__slurm_options__``, on its own. Reset
+        #: on every ``configure`` -- a row that omits them is asking for the
+        #: default, not for whatever the previous row happened to ask for.
+        self._row_slurm_options: dict[str, Any] = {}
+        #: The two pipeline-level layers combined, for inspection. Not what a
+        #: job is submitted with: that is resolved from all four layers during
+        #: compilation and stored on each node.
         self.__slurm_options__: dict[str, Any] = {}
+        #: The last row ``configure`` was given, normalized and complete --
+        #: reserved keys included, unlike :attr:`config`, which has had them
+        #: popped. Submission compiles this as a one-row matrix, so it is the
+        #: same input the batch path receives rather than a reconstruction of
+        #: one from node state.
+        self._configured_row: dict[str, Any] = {}
+        #: The ``cache`` flag that row was configured with, remembered for the
+        #: same reason.
+        self._configured_cache: bool = True
 
         self._dirty = True
         self._unique_hanes: set[str] = set()
@@ -505,6 +526,11 @@ class Pipeline:
                 node._configured_cache.clear()  # hack, make more elegant
 
         assert isinstance(self.proc_graph, nx.DiGraph)
+        # Applies to either branch below, so it is remembered before them. The
+        # cache-only branch changes the flag without changing the row, and
+        # recording it only alongside a row meant a later ``submit_jobs``
+        # recompiled with whatever the previous call had asked for.
+        self._configured_cache = cache
         if config is not None:
             # The row crosses the boundary once, here, and *before* anything
             # reads a reserved key out of it -- full-matrix compilation
@@ -513,9 +539,19 @@ class Pipeline:
             # ``Pipeline.config`` then sees the shape the nodes were
             # configured with.
             config = normalize_config(config)
-            self.__slurm_options__ = layer_slurm_options(
-                self._base_slurm_options,
-                config.pop('__slurm_options__', None),
+            # Remembered before any reserved key is popped: submission
+            # compiles this row, so it must be the row as given.
+            self._configured_row = dict(config)
+            # The two outer layers, which belong to the pipeline rather than
+            # to any node. Kept for inspection; the request a job is actually
+            # submitted with is resolved from all four layers during
+            # compilation and stored as ``node.effective_slurm_options``.
+            self._row_slurm_options = coerce_slurm_options(
+                config.pop('__slurm_options__', None)
+            )
+            self.__slurm_options__ = resolve_slurm_options(
+                pipeline_base=self._base_slurm_options,
+                row_global=self._row_slurm_options,
             )
             self.config = config
             # print('CONFIGURE config = {}'.format(ub.urepr(config, nl=1)))
@@ -526,36 +562,104 @@ class Pipeline:
                 node = self.config_graph.nodes[node_name]['node']
                 node_config = dict(dotconfig.prefix_get(node.name, {}))
                 node.configure(node_config, cache=cache)
+                self._resolve_node_slurm_options(node)
         else:
             # Hack: if config is not given, update the cache state only.
             for node_name in nx.topological_sort(self.config_graph):
                 node = self.config_graph.nodes[node_name]['node']
                 node.configure(config=node.config, cache=cache)
+                self._resolve_node_slurm_options(node)
+
+    def _resolve_node_slurm_options(self, node: ProcessNode) -> None:
+        """
+        Give a configured template node its complete Slurm request.
+
+        ``ProcessNode.configure`` resolves only the two layers a node knows --
+        its declared default and this row's override of it -- because a node
+        configured on its own has no others. A pipeline knows the other two,
+        so it finishes the job, and the same resolver does the combining.
+        Compilation does exactly this for each clone.
+
+        Without it, ``pipeline.node_dict['train'].effective_slurm_options``
+        reported an incomplete request to anyone inspecting a configured
+        pipeline, while the submitted job used the complete one.
+        """
+        node.effective_slurm_options = resolve_slurm_options(
+            pipeline_base=self._base_slurm_options,
+            row_global=self._row_slurm_options,
+            node_default=node._base_slurm_options,
+            node_override=node._row_slurm_options,
+        )
 
     def compile_configurations(
         self,
         configs: Sequence[Mapping[str, Any]],
         root_dpath: PathSpec | None = None,
         cache: bool = True,
+        duplicate_policy: Any = None,
     ) -> 'CompiledPipeline':
         """
         Compile matrix rows into one concrete, static process graph.
 
-        This is required for gather edges because a target instance needs to
-        see source instances configured by multiple matrix rows before its
-        input manifest and process identity can be finalized.
+        This is how kwdagger turns a matrix into work, for every pipeline.
+        A gather *requires* it -- a target instance has to see source
+        instances configured by several rows before its manifest and process
+        identity can be finalized -- but nothing about compilation is specific
+        to gathers, and a pipeline without one is compiled by the same
+        algorithm with no collections to resolve.
+
+        Compiling a gather-free pipeline is not merely permitted, it is what
+        the scheduler does: cloning a node per row is what makes a compiled
+        instance inspectable afterwards, where the historical row-at-a-time
+        loop reused one mutable node and left only the last row's state
+        behind.
+
+        Rows that compile to one ``process_id`` are one job, and the first
+        one encountered is the representative -- see ``duplicate_policy``.
+
+        Args:
+            configs (Sequence[Mapping]): the expanded matrix rows, in order.
+
+            root_dpath (PathSpec | None): where results are rooted.
+
+            cache (bool): whether each command guards itself against
+                recomputing an existing output.
+
+            duplicate_policy (str | None): what to do when two rows compile to
+                one ``process_id`` and differ in state identity excludes.
+                ``'first'`` (the default) keeps the first and reports nothing;
+                ``'warn'`` also describes the difference; ``'error'`` refuses
+                the compilation. Execution is identical under the first two.
         """
         self._ensure_clean()
-        if not self.has_gather_connections:
-            raise ValueError(
-                'compile_configurations is currently intended for pipelines '
-                'with gather connections'
-            )
         return _compile_pipeline_configurations(
             self,
             configs=configs,
             root_dpath=root_dpath,
             cache=cache,
+            duplicate_policy=duplicate_policy,
+        )
+
+    def compile_current_configuration(
+        self, duplicate_policy: Any = None
+    ) -> 'CompiledPipeline':
+        """
+        Compile the row this pipeline is configured with, as a one-row matrix.
+
+        The interactive counterpart to :func:`compile_configurations`, and the
+        reason :func:`submit_jobs` is not a second scheduler: one row is a
+        matrix of one, so it goes through the same compiler with the same
+        arguments and gets the same treatment. What differs is only how many
+        rows there are.
+
+        Returns:
+            CompiledPipeline: the concrete graph for the current row.
+        """
+        return self.compile_configurations(
+            [self._configured_row],
+            root_dpath=self.root_dpath,
+            cache=self._configured_cache,
+            duplicate_policy=duplicate_policy,
         )
 
     def _process_display_graph(
@@ -744,26 +848,33 @@ class Pipeline:
         """
         Submits the jobs to an existing command queue or creates a new one.
 
+        Compiles the current row and submits *that*, so an interactive
+        one-row submission and a batch differ only in how many rows were
+        compiled. This used to build its own execution graph and call the
+        runtime directly, which is how the two paths came to disagree about
+        Slurm layering, normalization, and arbitration.
+
+        The nodes that reach the queue are therefore the compiled clones, not
+        this pipeline's own. That is the point -- they are what the scheduler
+        acts on, and unlike the template they still describe this row after
+        the next one is configured.
+
         See :func:`kwdagger.pipeline._runtime.submit_jobs` for the arguments
         and for what gets written to the result directories.
         """
-        from kwdagger.pipeline import _runtime
-
         if self.has_gather_connections:
-            # A gather's membership is only known once the whole matrix has
-            # been compiled, so a logical pipeline cannot answer what a
-            # consumer's collection contains. This precondition belongs to
-            # the logical layer, not to submission.
+            # Not a limit of the compiler -- a one-row gather compiles
+            # perfectly well -- but of the request. A collection's membership
+            # is whatever the matrix contains, so gathering one row at a time
+            # quietly builds a manifest of one row's sources and calls it the
+            # collection. That is a matrix mistake rather than a scheduling
+            # one, so it is refused here rather than being made to work.
             raise RuntimeError(
                 'Gather pipelines must be compiled across all matrix rows '
                 'before submission. Use Pipeline.compile_configurations(...) '
                 'or kwdagger schedule.'
             )
-        return _runtime.submit_jobs(
-            # The execution graph, not the template one: submission has to
-            # ask what each configured command actually requires.
-            self.effective_execution_graph(),
-            slurm_options=self.__slurm_options__,
+        return self.compile_current_configuration().submit_jobs(
             queue=queue,
             skip_existing=skip_existing,
             enable_links=enable_links,

@@ -42,7 +42,7 @@ from kwdagger.pipeline._connections import (
 from kwdagger.pipeline._shell import bash_heredoc_write_command
 from kwdagger.pipeline._slurm import (
     coerce_slurm_options,
-    layer_slurm_options,
+    resolve_slurm_options,
 )
 
 
@@ -506,6 +506,14 @@ class ProcessNode(Node):
         # from the class / instance defaults.
         self._base_slurm_options = coerce_slurm_options(self.slurm_options)
         self.slurm_options = dict(self._base_slurm_options)
+        #: This row's ``<node>.__slurm_options__``, kept apart from the
+        #: declared default so the resolver can layer them in order.
+        self._row_slurm_options: dict[str, Any] = {}
+        #: The complete request this process will be submitted with: pipeline
+        #: base, row-global, declared default, row override. The one thing
+        #: the runtime reads -- see
+        #: :func:`kwdagger.pipeline.resolve_slurm_options`.
+        self.effective_slurm_options: dict[str, Any] = dict(self.slurm_options)
 
         if self.params is not None:
             derived = self._derive_groups_from_params_spec(self.params)
@@ -839,13 +847,6 @@ class ProcessNode(Node):
 
         This rebuilds the templates and formats them so the "final" variables
         take on directory names based on the given configuration. This a
-
-        FIXME:
-            Gotcha: Calling this twice with a new config will reset the
-            configuration. These nodes are stateful, so we should maintain and
-            update state, not reset it. If we need to reset to defaults, there
-            should be a method for that. Can work around by passing self.config
-            as the first argument.
         """
         self.cache = cache
         self._configured_cache.clear()  # Reset memoization caches
@@ -861,12 +862,22 @@ class ProcessNode(Node):
         # print(f'config = {ub.urepr(config, nl=1)}')
         config = normalize_config(config)
         self.enabled = config.pop('__enabled__', enabled)
-        # Special case for process specific slurm options
-        _raw_slurm_opts = config.pop('__slurm_options__', None)
-        self.slurm_options = layer_slurm_options(
-            self._base_slurm_options, _raw_slurm_opts
+        # Special case for process specific slurm options. A node knows two of
+        # the four layers -- its own declared default and this row's override
+        # of it -- so it resolves those and records the override for whoever
+        # knows the other two. Compilation, which knows the pipeline base and
+        # the row-global mapping, then sets ``effective_slurm_options``.
+        self._row_slurm_options = coerce_slurm_options(
+            config.pop('__slurm_options__', None)
         )
-        self.__slurm_options__ = dict(self.slurm_options)
+        self.slurm_options = resolve_slurm_options(
+            node_default=self._base_slurm_options,
+            node_override=self._row_slurm_options,
+        )
+        # A default that is right for a node configured on its own. Anything
+        # that compiles this node overwrites it with the full resolution; a
+        # node never silently reports a request with layers missing.
+        self.effective_slurm_options = dict(self.slurm_options)
         self.config = ub.udict(config)
 
         # self.algo_params = set(self.config) - non_algo_keys
@@ -1416,26 +1427,26 @@ class ProcessNode(Node):
         """
         Answers: *what would this request write to ``job_config.json``?*
 
-        This is what arbitration between requests sharing an identity compares.
-        Only one requested-experiment record can be written for a result
-        directory, so the thing that has to agree is the record itself, not a
-        summary of it: any distinction the record keeps -- which alias supplied
-        a value and which was outranked, a parameter forwarded from a different
-        port, a gather membership, a default versus an equal explicit
-        request -- is a distinction that would otherwise be settled by whichever
-        request happened to arrive first. Two requests that serialize
-        identically have nothing left to arbitrate, by construction.
+        The serializable requested record: the whole record, not a summary of
+        it, because any distinction it keeps -- which alias supplied a value
+        and which was outranked, a parameter forwarded from a different port,
+        a gather membership, a default versus an equal explicit request -- is
+        a distinction a summary would flatten.
 
-        Keyed by dotted config key with each value serialized, so a
-        disagreement can be reported as the keys that differ rather than as two
-        opaque blobs. The serialization is the one
+        Under ``duplicate_policy='warn'`` or ``'error'`` this is what the
+        comparison names when two rows sharing an identity differ. Under the
+        default ``'first'`` nothing is compared: only one record can be written
+        for a result directory, and it is the first request's. This method
+        describes a request; it does not decide between requests.
+
+        Keyed by dotted config key with each value serialized, so a difference
+        can be reported as the keys that differ rather than as two opaque
+        blobs. The serialization is the one
         :func:`kwdagger.pipeline.submit_jobs` writes with, so what is compared
         is what lands on disk.
 
         Deliberately **not** identity material. Two requests whose provenance
-        differs still describe the same computation and still hash the same;
-        they simply cannot share one result directory while demanding different
-        records of what was asked for.
+        differs still describe the same computation and still hash the same.
         """
         # No ``default=`` fallback: the writer at submission time has none
         # either, and a serializer that quietly stringifies what the other
@@ -1445,40 +1456,6 @@ class ProcessNode(Node):
             key: json.dumps(value, sort_keys=True)
             for key, value in self._depends_config().items()
         }
-
-    @memoize_configured_method
-    def delivery_signature(self) -> dict[str, Any]:
-        """
-        Answers: *where does each input's value come from, port by port?*
-
-        A refinement of the prerequisite union, which is too coarse on its own:
-        a consumer reading two outputs of one producer keeps that producer as a
-        prerequisite even when one of the two inputs is supplied by hand
-        instead. Both requests would then agree on prerequisites while
-        disagreeing about what ``job_config.json`` should say.
-
-        This exists for the *message* it lets arbitration give for the common
-        produced-versus-manual case, and covers only produced origins. The
-        guarantee is :meth:`requested_provenance_record`, which is complete
-        because it is the record itself.
-
-        Deliberately **not** identity material. Two requests whose delivery
-        differs still describe the same computation and still hash the same;
-        they simply cannot share one canonical request while demanding
-        different provenance records.
-        """
-        signature: dict[str, Any] = {}
-        for name, input_node in self.inputs.items():
-            if input_node._gather_members is not None:
-                signature[name] = 'gather'
-                continue
-            signature[name] = tuple(
-                sorted(
-                    f'{port.parent.process_id}:{port.name}'
-                    for port in _effective_origins(input_node)
-                )
-            )
-        return signature
 
     @memoize_configured_method
     def effective_predecessor_process_nodes(self) -> list['ProcessNode']:

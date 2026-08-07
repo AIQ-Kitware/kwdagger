@@ -49,7 +49,7 @@ Repository layout
 * ``kwdagger/schedule.py`` – ``ScheduleEvaluationConfig`` CLI for expanding
   parameter grids into runnable jobs and dispatching them through cmd_queue
   backends.
-* ``kwdagger/aggregate.py`` – ``AggregateEvluationConfig`` CLI for loading job
+* ``kwdagger/aggregate.py`` – ``AggregateEvaluationConfig`` CLI for loading job
   outputs, computing parameter hash IDs, and generating text/plot reports.
 * ``kwdagger/demo/demodata.py`` – end-to-end demo pipeline with prediction and
   evaluation stages plus CLI entry points for each node.
@@ -118,7 +118,7 @@ Command line entry points
   pipeline over a parameter matrix (see ``kwdagger.schedule.ScheduleEvaluationConfig``).
 * ``python -m kwdagger.aggregate`` or ``kwdagger aggregate`` – load completed
   runs and generate tabular and plotted summaries
-  (``kwdagger.aggregate.AggregateEvluationConfig``).
+  (``kwdagger.aggregate.AggregateEvaluationConfig``).
 * ``python -m kwdagger`` – modal CLI that exposes the ``schedule`` and
   ``aggregate`` commands via ``kwdagger.__main__.KWDaggerModal``.
 
