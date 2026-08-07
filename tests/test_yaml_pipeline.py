@@ -509,7 +509,7 @@ def test_yaml_eval_node_end_to_end():
     assert len(produced) == 2, f'expected 2 outputs, got {produced}'
 
     # Now aggregate and confirm the generic loader surfaced the metrics.
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=root_dpath,
         pipeline=str(pipeline_fpath),
         output_dpath=(root_dpath / 'aggregate'),
@@ -616,7 +616,7 @@ def test_schedule_aggregate_python_pipeline_round_trip():
         )
 
         # Aggregate with NO --pipeline: reconstructed from the serialized spec.
-        agg_config = aggregate.AggregateEvluationConfig(
+        agg_config = aggregate.AggregateEvaluationConfig(
             target=root_dpath,
             output_dpath=(root_dpath / 'aggregate'),
             io_workers=0,
@@ -680,7 +680,7 @@ def test_aggregate_autodiscovers_inline_pipeline():
     assert meta.exists()
 
     # Aggregate WITHOUT a --pipeline; it must be auto-discovered.
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=root_dpath,
         output_dpath=(root_dpath / 'aggregate'),
         io_workers=0,
@@ -790,7 +790,7 @@ def test_aggregate_autodiscovery_failure_is_clear(tmp_path):
 
     target = ub.Path(tmp_path) / 'not_a_schedule_dir'
     target.ensuredir()
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=target,
         output_dpath=(target / 'aggregate'),
         io_workers=0,

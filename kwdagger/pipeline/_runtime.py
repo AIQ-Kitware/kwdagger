@@ -302,7 +302,6 @@ def submit_jobs(
                 if has_gather and not is_slurm:
                     extra_submitkw['allow_indent'] = False
 
-                # TODO: we need to be able to pass per-job slurm options
                 node_job = queue.submit(
                     command=node_command,
                     depends=pred_node_procids,

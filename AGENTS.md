@@ -11,7 +11,7 @@ common workflows, and testing/documentation practices.
   preserving inspectable `invoke.sh` files and a navigable result graph.
 - **Primary CLIs:**
   - `python -m kwdagger.schedule` / `kwdagger schedule` – schedule a pipeline via `ScheduleEvaluationConfig`.
-  - `python -m kwdagger.aggregate` / `kwdagger aggregate` – aggregate completed runs via `AggregateEvluationConfig` and generate text/plot reports.
+  - `python -m kwdagger.aggregate` / `kwdagger aggregate` – aggregate completed runs via `AggregateEvaluationConfig` and generate text/plot reports.
   - `python -m kwdagger` – modal CLI defined in `kwdagger/__main__.py` that exposes the above commands.
 - **Demo:** `kwdagger/demo/demodata.py` defines a runnable pipeline with
   per-stage CLIs and end-to-end commands used by CI and onboarding.
@@ -20,7 +20,7 @@ common workflows, and testing/documentation practices.
 - `kwdagger/`
   - `pipeline/` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`. Import everything from `kwdagger.pipeline`; the submodules are private and layered one-way (`_config_values`/`_shell`/`_slurm` → `_duplicates` → `_runtime` → `_connections` → `_process` → `_compile` → `_logical`). `tests/test_import_compat.py` enforces both the import surface and that direction.
   - `schedule.py` – `ScheduleEvaluationConfig` and supporting helpers that expand YAML/JSON parameter matrices, prepare job directories, and dispatch to cmd_queue backends.
-  - `aggregate.py` – `AggregateEvluationConfig` CLI that loads completed runs, computes parameter hash IDs, aggregates metrics, and writes reports.
+  - `aggregate.py` – `AggregateEvaluationConfig` CLI that loads completed runs, computes parameter hash IDs, aggregates metrics, and writes reports.
   - `aggregate_loader.py` / `aggregate_plots.py` – helpers for loading pipeline outputs and producing tabular or plotted summaries.
   - `demo/` – demo nodes and `demodata.py` pipeline used for examples/tests.
   - `query_plan.py` – parses and applies YAML/raw query expressions to filter aggregated pandas DataFrames (used by the aggregation CLI for post-processing results).
@@ -479,7 +479,7 @@ not the general conceptual definition of kwdagger:
   they can be embedded in schedule matrices. Preserve `job_config.json` and
   `invoke.sh` generation semantics so aggregation remains compatible.
 - **Aggregation:** when adding metrics or report formats, update
-  `aggregate_loader.py`/`aggregate_plots.py` alongside `AggregateEvluationConfig`
+  `aggregate_loader.py`/`aggregate_plots.py` alongside `AggregateEvaluationConfig`
   to keep CLI outputs consistent. Maintain stable parameter hash computation for
   backwards compatibility.
 - **CLI updates:** adjust `kwdagger/__main__.py` if new modal commands are

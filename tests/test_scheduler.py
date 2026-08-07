@@ -281,7 +281,7 @@ def test_simple_but_real_custom_pipeline():
         command = invoke_fpath.read_text()
         command
 
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=root_dpath,
         pipeline=f'{pipeline_fpath}::build_pipeline()',
         output_dpath=(root_dpath / 'aggregate'),

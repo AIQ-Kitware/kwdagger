@@ -73,6 +73,8 @@ def prevalidate_param_grid(arg: Any) -> None:
 
     # TODO: this doesn't belong in a utils folder.
     # Do we want to inject prevalidation into this process?
+    # TODO: we need a robust way to codify if a parameter is supposed to be a
+    # pre-existing pathlike object if we want to use this.
     src_pathlike_keys = [
         'trk.pxl.model',
         'trk.pxl.data.test_dataset',

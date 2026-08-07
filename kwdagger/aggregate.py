@@ -76,7 +76,7 @@ from kwconf import Config, Value
 
 class AggregateLoader(Config):
     """
-    Base config that will be mixed in to the :class:`AggregateEvluationConfig`.
+    Base config that will be mixed in to the :class:`AggregateEvaluationConfig`.
     This config just defines parts related to constructing the
     :class:`Aggregator` objects (i.e. loading the tables).
     """
@@ -255,7 +255,7 @@ class AggregateLoader(Config):
         return eval_type_to_aggregator
 
 
-class AggregateEvluationConfig(AggregateLoader):
+class AggregateEvaluationConfig(AggregateLoader):
     """
     Aggregates results from multiple DAG evaluations.
     """
@@ -397,7 +397,7 @@ class AggregateEvluationConfig(AggregateLoader):
         macro-averaging, reporting, plotting, etc...
 
         CommandLine:
-            xdoctest -m kwdagger.aggregate AggregateEvluationConfig.main
+            xdoctest -m kwdagger.aggregate AggregateEvaluationConfig.main
 
         Example:
             >>> from kwdagger.demo.demodata import run_demo_schedule
@@ -429,10 +429,10 @@ class AggregateEvluationConfig(AggregateLoader):
             >>> kwargs['target'] = info['eval_dpath']
             >>> kwargs['output_dpath'] = info['eval_dpath'] / 'full_aggregate'
             >>> # Test the standard case
-            >>> AggregateEvluationConfig.main(argv=False, **kwargs)
+            >>> AggregateEvaluationConfig.main(argv=False, **kwargs)
             >>> # Test the display 1 case
             >>> kwargs['stdout_report']['top_k'] = 1
-            >>> AggregateEvluationConfig.main(argv=False, **kwargs)
+            >>> AggregateEvaluationConfig.main(argv=False, **kwargs)
 
         """
         config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
@@ -3577,7 +3577,7 @@ def pandas_condense_paths(colvals: Any) -> tuple[Any, dict[Any, Any]]:
     return condensed, mapper
 
 
-__cli__ = AggregateEvluationConfig
+__cli__ = AggregateEvaluationConfig
 
 
 if __name__ == '__main__':

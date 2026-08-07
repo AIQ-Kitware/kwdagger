@@ -16,7 +16,7 @@ class KWDaggerModal(kw.ModalCLI):
     completed runs and report on parameter/metric relationships.
     """
 
-    from kwdagger.aggregate import AggregateEvluationConfig as aggregate
+    from kwdagger.aggregate import AggregateEvaluationConfig as aggregate
     from kwdagger.schedule import ScheduleEvaluationConfig as schedule
     # Either add other kwconf clis as class variables here
     # from module.cli.script import ScriptCLI as script
