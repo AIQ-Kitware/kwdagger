@@ -132,7 +132,7 @@ def parse_version(fpath):
         def visit_Assign(self, node):
             for target in node.targets:
                 if getattr(target, 'id', None) == '__version__':
-                    self.version = node.value.s
+                    self.version = node.value.value
 
     visitor = VersionVisitor()
     visitor.visit(pt)
@@ -235,6 +235,7 @@ intersphinx_mapping = {
     'ubelt': ('https://ubelt.readthedocs.io/en/latest/', None),
     'xdoctest': ('https://xdoctest.readthedocs.io/en/latest/', None),
     'networkx': ('https://networkx.org/documentation/stable/', None),
+    'scriptconfig': ('https://scriptconfig.readthedocs.io/en/latest/', None),
     'kwconf': ('https://kwconf.readthedocs.io/en/latest/', None),
     'rich': ('https://rich.readthedocs.io/en/latest/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
