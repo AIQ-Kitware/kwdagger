@@ -1,0 +1,131 @@
+__doc__: |
+  Advanced Mini MapReduce corpus tutorial pipeline.
+
+  This declarative YAML file and pipelines.py are two alternative definitions
+  of the same pipeline. Neither requires the other: pass this file to
+  ``kwdagger schedule --pipeline=./pipeline.yaml`` for the code-free form, or
+  pass ``pipelines.py::build_pipeline()`` to exercise the equivalent Python API.
+
+  The graph intentionally alternates fan-out and differently keyed gathers:
+  chunks -> document/method reductions -> document reports -> collection corpus
+  reports -> metric fan-out -> cross-collection metric reports -> final report.
+
+nodes:
+  analyze_chunk:
+    executable: "python mapreduce_demo.py map"
+    in_paths: [corpus_dpath]
+    out_paths:
+      partial_fpath: partial.json
+    algo_params:
+      document: alpha
+      collection: red
+      chunk_index: 0
+      method: words
+
+  reduce_document:
+    executable: "python mapreduce_demo.py reduce"
+    in_paths: [partials_fpath]
+    out_paths:
+      analysis_fpath: analysis.json
+    algo_params:
+      document: alpha
+      collection: red
+      method: words
+
+  document_report:
+    executable: "python mapreduce_demo.py document-report"
+    in_paths: [analyses_fpath]
+    out_paths:
+      report_fpath: report.json
+    algo_params:
+      document: alpha
+      collection: red
+
+  corpus_report:
+    executable: "python mapreduce_demo.py corpus-report"
+    in_paths: [reports_fpath]
+    out_paths:
+      corpus_report_fpath: corpus_report.json
+    algo_params:
+      collection: red
+
+  corpus_metric:
+    executable: "python mapreduce_demo.py corpus-metric"
+    in_paths: [corpus_report_fpath]
+    out_paths:
+      metric_fpath: metric.json
+    algo_params:
+      collection: red
+      metric: words
+
+  metric_report:
+    executable: "python mapreduce_demo.py metric-report"
+    in_paths: [metrics_fpath]
+    out_paths:
+      metric_report_fpath: metric_report.json
+    algo_params:
+      metric: words
+
+  final_report:
+    executable: "python mapreduce_demo.py final-report"
+    in_paths: [metric_reports_fpath]
+    out_paths:
+      final_report_fpath: final_report.json
+
+edges:
+  # Shared known-value edges let analyze_chunk own document/collection/method
+  # while downstream reductions reuse those values without new matrix axes.
+  - analyze_chunk.document -> reduce_document.document
+  - analyze_chunk.collection -> reduce_document.collection
+  - analyze_chunk.method -> reduce_document.method
+  - analyze_chunk.document -> document_report.document
+  - analyze_chunk.collection -> document_report.collection
+  - document_report.collection -> corpus_report.collection
+  - corpus_report.collection -> corpus_metric.collection
+  - corpus_metric.metric -> metric_report.metric
+
+  - src: analyze_chunk.partial_fpath
+    dst: reduce_document.partials_fpath
+    gather:
+      group_by:
+        - {src: analyze_chunk.document, dst: reduce_document.document}
+        - {src: analyze_chunk.collection, dst: reduce_document.collection}
+        - {src: analyze_chunk.method, dst: reduce_document.method}
+      order_by: [analyze_chunk.chunk_index]
+      require: all_success
+
+  - src: reduce_document.analysis_fpath
+    dst: document_report.analyses_fpath
+    gather:
+      group_by:
+        - {src: reduce_document.document, dst: document_report.document}
+        - {src: reduce_document.collection, dst: document_report.collection}
+      order_by: [reduce_document.method]
+      require: all_success
+
+  - src: document_report.report_fpath
+    dst: corpus_report.reports_fpath
+    gather:
+      group_by:
+        - {src: document_report.collection, dst: corpus_report.collection}
+      order_by: [document_report.document]
+      require: all_success
+
+  # A gathered corpus is an ordinary output again, so it can fan out over a new
+  # metric axis before the graph changes grouping keys a second time.
+  - corpus_report.corpus_report_fpath -> corpus_metric.corpus_report_fpath
+
+  - src: corpus_metric.metric_fpath
+    dst: metric_report.metrics_fpath
+    gather:
+      group_by:
+        - {src: corpus_metric.metric, dst: metric_report.metric}
+      order_by: [corpus_metric.collection]
+      require: all_success
+
+  - src: metric_report.metric_report_fpath
+    dst: final_report.metric_reports_fpath
+    gather:
+      group_by: []
+      order_by: [metric_report.metric]
+      require: all_success

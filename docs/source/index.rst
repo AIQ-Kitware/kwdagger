@@ -34,6 +34,7 @@ Welcome to kwdagger's documentation!
    :caption: Tutorials
 
    manual/tutorials/gather_cross_validation/README
+   manual/tutorials/gather_mapreduce_corpus/README
 
 
 Indices and tables

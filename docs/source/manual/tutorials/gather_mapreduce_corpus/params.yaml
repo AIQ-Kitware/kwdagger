@@ -1,0 +1,48 @@
+# This file contains only the parameter matrix. The pipeline definition is
+# selected separately, so these exact params work with either pipeline.yaml or
+# pipelines.py::build_pipeline(). See run_pipeline.sh and README.rst.
+#
+# Each matrix is one logical document. Documents deliberately have different
+# numbers of chunks, and collections deliberately have different numbers of
+# documents. The downstream metric axis repeats authored rows but should not
+# duplicate upstream concrete processes.
+matrices:
+  - matrix:
+      analyze_chunk.corpus_dpath: [data]
+      analyze_chunk.document: [alpha]
+      analyze_chunk.collection: [red]
+      analyze_chunk.chunk_index: [0, 1]
+      analyze_chunk.method: [words, letters]
+      corpus_metric.metric: [words, letters, balance]
+
+  - matrix:
+      analyze_chunk.corpus_dpath: [data]
+      analyze_chunk.document: [beta]
+      analyze_chunk.collection: [red]
+      analyze_chunk.chunk_index: [0, 1, 2]
+      analyze_chunk.method: [words, letters]
+      corpus_metric.metric: [words, letters, balance]
+
+  - matrix:
+      analyze_chunk.corpus_dpath: [data]
+      analyze_chunk.document: [gamma]
+      analyze_chunk.collection: [blue]
+      analyze_chunk.chunk_index: [0, 1, 2, 3, 4]
+      analyze_chunk.method: [words, letters]
+      corpus_metric.metric: [words, letters, balance]
+
+  - matrix:
+      analyze_chunk.corpus_dpath: [data]
+      analyze_chunk.document: [delta]
+      analyze_chunk.collection: [blue]
+      analyze_chunk.chunk_index: [0, 1, 2, 3]
+      analyze_chunk.method: [words, letters]
+      corpus_metric.metric: [words, letters, balance]
+
+  - matrix:
+      analyze_chunk.corpus_dpath: [data]
+      analyze_chunk.document: [epsilon]
+      analyze_chunk.collection: [blue]
+      analyze_chunk.chunk_index: [0]
+      analyze_chunk.method: [words, letters]
+      corpus_metric.metric: [words, letters, balance]

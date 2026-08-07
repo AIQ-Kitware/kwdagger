@@ -93,6 +93,13 @@ Top-level schema
 
 A pipeline document is a mapping with the following keys:
 
+``__doc__`` (optional, string)
+    Human-readable documentation for the pipeline. A YAML block scalar is a
+    convenient way to keep a multiline description next to the declarative
+    graph. The loader validates that it is a string and otherwise treats it as
+    descriptive metadata; it does not affect graph construction or process
+    identity.
+
 ``nodes`` (required, mapping)
     Maps each node name to a *node spec* (see below). The key is the node's
     ``name``; do not also set ``name`` inside the spec.

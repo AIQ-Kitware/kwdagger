@@ -181,7 +181,15 @@ def test_validation_errors():
             {'nodes': {'a': {'executable': 'echo a', 'name': 'a'}}}
         )
 
-    # Unknown top-level key.
+    # ``__doc__`` is descriptive top-level metadata and does not alter the DAG.
+    documented = load_yaml_pipeline(
+        {**base, '__doc__': 'A multiline\npipeline description.\n'}
+    )
+    assert sorted(documented.node_dict) == ['a']
+    with pytest.raises(TypeError, match='__doc__.*string'):
+        load_yaml_pipeline({**base, '__doc__': ['not', 'a', 'string']})
+
+    # Other unknown top-level keys remain errors.
     with pytest.raises(ValueError, match='unknown top-level'):
         load_yaml_pipeline({**base, 'matrix': {}})
 
