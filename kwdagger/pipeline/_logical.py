@@ -101,15 +101,22 @@ class Pipeline:
         #: subclasses is how pipelines are normally written and Python's
         #: containers are invariant.
         if isinstance(nodes, Mapping):
-            # ``list(mapping)`` would silently yield the *keys*, and the
-            # failure would surface much later as a string with no ``.name``.
-            raise TypeError(
-                'Pipeline takes a sequence of nodes, not a mapping. A node '
-                'knows its own name, so the {name: node} form was a second '
-                'place for that name to live and a second place for it to '
-                'disagree; ask Pipeline.node_dict for a name lookup. Pass '
-                'list(nodes.values()) instead.'
+            ub.schedule_deprecation(
+                name='mapping-valued nodes',
+                type='argument to Pipeline',
+                migration=(
+                    'Pipeline takes a sequence of nodes, not a mapping. A node '
+                    'knows its own name, so the {name: node} form was a second '
+                    'place for that name to live and a second place for it to '
+                    'disagree; ask Pipeline.node_dict for a name lookup. Pass '
+                    'list(nodes.values()) instead.'
+                ),
+                deprecate='0.3.0',
+                error='0.5.0',
+                remove='0.6.0',
             )
+            nodes = list(nodes.values())
+
         self.nodes: list[Any] = list(nodes or [])
         self.config: Any = None
         #: Where results are rooted, once ``configure`` has been told. Declared
