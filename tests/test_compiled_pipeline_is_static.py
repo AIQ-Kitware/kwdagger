@@ -15,8 +15,6 @@ cause: reaching outside the one node the operation is about.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 import ubelt as ub
 
@@ -223,17 +221,20 @@ def _linear_chain(n_nodes):
     return Pipeline(nodes)
 
 
-def test_cloning_does_not_copy_the_rest_of_the_pipeline(monkeypatch):
+@pytest.mark.parametrize('n_nodes', [4, 32])
+def test_cloning_does_not_copy_the_rest_of_the_pipeline(monkeypatch, n_nodes):
     """
-    The direct statement. Copying one node used to materialize every node
-    reachable from it, so a wired node cost the whole connected component.
+    Copying one node must stay local even as its connected component grows.
+
+    This is the deterministic regression guard for the old quadratic cloning
+    bug: a wired node used to deep-copy every ProcessNode reachable from it.
     """
     import copy
 
     from kwdagger.pipeline._compile import _clone_unconnected_process_node
 
-    dag = _linear_chain(4)
-    target = dag.node_dict['step2']
+    dag = _linear_chain(n_nodes)
+    target = dag.node_dict[f'step{n_nodes // 2}']
     # Warm the memoization cache the way ordinary use does. It holds computed
     # results, and the predecessor query among them is a list of *other*
     # nodes -- the last route out after the port links are detached.
@@ -269,10 +270,10 @@ def test_cloning_does_not_copy_the_rest_of_the_pipeline(monkeypatch):
 
     monkeypatch.setattr(copy, 'deepcopy', _tracking_deepcopy)
     clone = _clone_unconnected_process_node(target)
-    assert materialized == ['step2'], (
-        f'cloning step2 reached {sorted(set(materialized))}'
+    assert materialized == [target.name], (
+        f'cloning {target.name} reached {sorted(set(materialized))}'
     )
-    assert clone.name == 'step2'
+    assert clone.name == target.name
 
 
 def test_cloning_leaves_the_template_connected():
@@ -325,26 +326,14 @@ def test_a_node_holding_something_uncopyable_does_not_break_its_neighbours():
 
 
 @pytest.mark.parametrize('n_nodes', [4, 32])
-def test_compilation_cost_does_not_grow_with_the_pipeline(n_nodes, tmp_path):
-    """
-    A guard rather than a benchmark. Per-clone cost was proportional to the
-    pipeline, so compiling a matrix was quadratic in it; this asserts the
-    shape, with a threshold loose enough not to be a flake on a busy machine.
-    """
+def test_compilation_materializes_expected_nodes(n_nodes, tmp_path):
+    """Compilation cardinality is independent of clone implementation cost."""
     rows = [{'step0.src': '/data/a', 'step0.p': idx} for idx in range(4)]
     dag = _linear_chain(n_nodes)
-    start = time.perf_counter()
     compiled = dag.compile_configurations(
         rows, root_dpath=tmp_path, cache=False
     )
-    elapsed = time.perf_counter() - start
-    clones = n_nodes * len(rows)
-    assert len(compiled.nodes) == clones
-    per_clone_ms = elapsed / clones * 1000
-    assert per_clone_ms < 5.0, (
-        f'{per_clone_ms:.2f} ms per clone at {n_nodes} nodes; cloning is '
-        'reaching outside the node again'
-    )
+    assert len(compiled.nodes) == n_nodes * len(rows)
 
 
 # ---------------------------------------------------------------------------
