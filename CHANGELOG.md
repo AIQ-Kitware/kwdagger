@@ -4,6 +4,20 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Version 0.4.1 - Unreleased
 
+### The queue name defaults per-pipeline instead of to a constant
+
+`schedule`'s `queue_name` defaulted to the literal `'schedule-eval'` for every
+pipeline. cmd_queue's tmux backend uses that name to decide which sessions
+belong to this queue, so one namespace was shared by every card on the machine:
+starting one pipeline reported an unrelated pipeline's sessions as conflicts
+and offered to kill them.
+
+It now derives from the pipeline spec -- `a.b.lift_pipeline()` gives
+`schedule-lift_pipeline` -- so different pipelines no longer collide, while two
+runs of the same pipeline still share a name because that is a real conflict
+worth detecting. An explicit `queue_name` still wins, and anything unparseable
+falls back to the old constant.
+
 ### The textual monitor is off by default
 
 `schedule`'s `with_textual` now defaults to `False` instead of inheriting

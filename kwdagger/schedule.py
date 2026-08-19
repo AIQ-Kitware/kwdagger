@@ -27,6 +27,33 @@ from kwdagger.pipeline import (
 from kwdagger.utils import util_pandas
 
 
+def _default_queue_name(pipeline) -> str:
+    """A queue name derived from the pipeline, not shared by every card.
+
+    The name is what cmd_queue's tmux backend uses to decide which sessions
+    belong to "this queue" -- conflict detection matches on it. A constant
+    meant every card on the machine shared one namespace, so starting an
+    Incubilate run reported a Princeton run's sessions as conflicts and offered
+    to kill them. Different pipelines are different work and should not
+    collide; two runs of the SAME pipeline still should, because that is a real
+    conflict worth noticing.
+
+    ``pipeline`` is a spec like ``pkg.mod.lift_pipeline()`` or a registered
+    name, so the trailing identifier is the distinguishing part. Anything
+    unparseable falls back to the historical name rather than failing: a queue
+    name is not worth raising over.
+    """
+    import re
+
+    text = str(pipeline or '').strip()
+    if not text:
+        return 'schedule-eval'
+    text = text.split('(', 1)[0]          # drop call syntax and its arguments
+    ident = text.rsplit('.', 1)[-1]       # keep the final identifier
+    ident = re.sub(r'[^A-Za-z0-9_.-]', '', ident)
+    return f'schedule-{ident}' if ident else 'schedule-eval'
+
+
 class ScheduleEvaluationConfig(CmdQueueConfigMixin):
     """
     Driver for KWDagger scheduling
@@ -153,7 +180,7 @@ class ScheduleEvaluationConfig(CmdQueueConfigMixin):
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.queue_name is None:
-            self.queue_name = 'schedule-eval'
+            self.queue_name = _default_queue_name(self.pipeline)
         if self.queue_size is not None:
             raise Exception(
                 'The queue_size argument to schedule evaluation has been removed. Use the tmux_workers argument instead'
