@@ -39,6 +39,26 @@ class ScheduleEvaluationConfig(CmdQueueConfigMixin):
     # ``CmdQueueConfigMixin``. kwconf does not smartcast, so ``--monitor=none``
     # stays the string 'none' without the type override the old base needed.
 
+    # Textual monitor OFF by default, overriding the mixin's 'auto'.
+    #
+    # 'auto' means "on whenever `textual` imports", so whether a run takes over
+    # the terminal is decided by a transitive dependency being installed rather
+    # than by how the run is being driven. Nearly every kwdagger pipeline here
+    # is driven non-interactively -- `bash scripts/...` with stdout teed to a
+    # log, over ssh, inside docker, under an agent -- and in that setting a
+    # full-screen app is actively harmful: the log fills with escape sequences
+    # and redrawn frames instead of node output, and a prompt can block on a
+    # keypress nobody is there to press.
+    #
+    # This changes only the DEFAULT. ``--with_textual=1`` opts back in, and an
+    # interactive session that wants the dashboard can still ask for it.
+    with_textual: Any = kw.Value(
+        False,
+        isflag=True,
+        help='cmd-queue textual monitor (kwdagger defaults this OFF; pass 1 to enable)',
+        group='cmd-queue',
+    )
+
     params = kw.Value(
         None, parser=str, help='a yaml/json grid/matrix of prediction params'
     )

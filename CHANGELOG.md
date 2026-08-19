@@ -4,6 +4,20 @@ We aim to adhere to [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Version 0.4.1 - Unreleased
 
+### The textual monitor is off by default
+
+`schedule`'s `with_textual` now defaults to `False` instead of inheriting
+cmd_queue's `'auto'`.
+
+`'auto'` means "on whenever `textual` imports", so whether a run takes over the
+terminal was decided by a transitive dependency being installed rather than by
+how the run was being driven. Most scheduling happens non-interactively —
+piped to a log, over ssh, inside docker, under an agent — and there a
+full-screen app fills the log with escape sequences and redrawn frames instead
+of node output, and can block on a keypress nobody is there to press.
+
+Only the default changed. `--with_textual=1` opts back in.
+
 
 ## Version 0.4.0 - Released 2026-08-07
 
