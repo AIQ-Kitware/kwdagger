@@ -1,0 +1,1 @@
+one small chunk still forms a valid gather.

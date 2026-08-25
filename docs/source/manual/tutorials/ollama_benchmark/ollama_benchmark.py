@@ -65,7 +65,7 @@ from typing import Any, Dict, List
 import kwutil
 import requests
 import safer
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 
 
@@ -96,7 +96,7 @@ class TrialResult:
     done_reason: str | None
 
 
-class OllamaBenchmarkCLI(scfg.DataConfig):
+class OllamaBenchmarkCLI(kw.Config):
     """
     CLI config for a single benchmark run.
 
@@ -104,54 +104,54 @@ class OllamaBenchmarkCLI(scfg.DataConfig):
     """
 
     # --- IO paths ---
-    prompt_fpath = scfg.Value(
+    prompt_fpath = kw.Value(
         None,
         help="Path to a YAML prompt file with a top-level 'prompts' list.",
     )
-    dst_fpath = scfg.Value(
+    dst_fpath = kw.Value(
         None,
         help='Path to main JSON output (info + result). '
         'If not given, derived from dst_dpath.',
     )
-    dst_dpath = scfg.Value(
+    dst_dpath = kw.Value(
         '.',
         help='Output directory (used if dst_fpath is not specified).',
     )
-    append_jsonl = scfg.Value(
+    append_jsonl = kw.Value(
         None,
         help='Optional JSONL file to append per-trial rows for long-term analysis.',
     )
 
     # --- Model / server config ---
-    model = scfg.Value('llama3:8b', help='Ollama model name/tag.')
-    ollama_url = scfg.Value(
+    model = kw.Value('llama3:8b', help='Ollama model name/tag.')
+    ollama_url = kw.Value(
         'http://localhost:11434', help='Base URL to Ollama.'
     )
 
     # --- Benchmark behavior ---
-    cold_trials = scfg.Value(
+    cold_trials = kw.Value(
         1,
         type=int,
         help='Number of cold trials (using only the first prompt). '
         'Requires cold_reset_cmd.',
     )
-    warm_trials = scfg.Value(
+    warm_trials = kw.Value(
         1,
         type=int,
         help='Number of warm trials PER prompt.',
     )
-    cold_reset_cmd = scfg.Value(
+    cold_reset_cmd = kw.Value(
         None,
         help='Shell command to execute before EACH cold trial '
         "(e.g. 'docker compose restart ollama && sleep 15').",
     )
-    concurrency = scfg.Value(
+    concurrency = kw.Value(
         0,
         type=int,
         help='Number of concurrent warm requests. '
         '0 and 1 means no concurrency; cold trials are always non-concurrent.',
     )
-    prompt_id = scfg.Value(
+    prompt_id = kw.Value(
         None,
         help=(
             'Optional base label for prompts. If provided, each prompt id will be '
@@ -160,7 +160,7 @@ class OllamaBenchmarkCLI(scfg.DataConfig):
     )
 
     # --- Meta / bookkeeping ---
-    notes = scfg.Value(
+    notes = kw.Value(
         '',
         help='Free-form notes about this run (driver version, experiment tag, etc).',
     )
@@ -178,9 +178,9 @@ class OllamaBenchmarkCLI(scfg.DataConfig):
         return self
 
     @classmethod
-    def main(cls, cmdline=1, **kwargs):
+    def main(cls, argv=True, **kwargs):
         config = cls.cli(
-            cmdline=cmdline, data=kwargs, strict=True, verbose='auto'
+            argv=argv, data=kwargs, strict=True, verbose='auto'
         )
 
         if config.cold_trials and not config.cold_reset_cmd:

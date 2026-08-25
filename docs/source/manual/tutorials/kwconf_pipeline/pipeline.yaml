@@ -1,0 +1,55 @@
+# Declarative (pure-YAML) version of example_user_module/pipelines.py.
+#
+# The Python version of this tutorial *derives* each node's input/output/param
+# groups from a scriptconfig schema (``params = KeywordSentimentPredictCLI``).
+# This file shows the alternative: spell the same groups out directly as data.
+# Neither is more correct -- use the scriptconfig derivation when you already
+# have a schema class, and YAML when you would rather keep everything in one
+# self-describing document beside the matrix.
+#
+# Run with PYTHONPATH=. so example_user_module is importable, e.g.:
+#
+#     PYTHONPATH=. kwdagger schedule --pipeline ./pipeline.yaml --params "
+#         matrix:
+#             keyword_sentiment_predict.src_fpath:
+#                 - data/toy_reviews_movies.jsonl
+#                 - data/toy_reviews_food.jsonl
+#             keyword_sentiment_predict.keyword: [great, boring, love]
+#             sentiment_evaluate.workers: 0
+#     " --root_dpath ./results --backend serial --run 1
+
+nodes:
+  keyword_sentiment_predict:
+    executable: "python -m example_user_module.cli.keyword_sentiment_predict"
+    in_paths: [src_fpath]
+    out_paths:
+      dst_fpath: keyword_predictions.json
+      dst_dpath: "."
+    primary_out_key: dst_fpath
+    algo_params:
+      keyword: great
+      case_sensitive: false
+    perf_params:
+      workers: 0
+
+  sentiment_evaluate:
+    executable: "python -m example_user_module.cli.sentiment_evaluate"
+    in_paths: [true_fpath, pred_fpath]
+    out_paths:
+      out_fpath: sentiment_metrics.json
+    primary_out_key: out_fpath
+    perf_params:
+      workers: 0
+    result:
+      metrics: result.metrics
+    metrics:
+      - {metric: accuracy,           objective: maximize, primary: true, display: true}
+      - {metric: precision_positive, objective: maximize, display: true}
+      - {metric: recall_positive,    objective: maximize, display: true}
+    vantage_points:
+      - metric1: metrics.sentiment_evaluate.accuracy
+        metric2: metrics.sentiment_evaluate.precision_positive
+
+edges:
+  - keyword_sentiment_predict.dst_fpath -> sentiment_evaluate.pred_fpath
+  - keyword_sentiment_predict.src_fpath -> sentiment_evaluate.true_fpath

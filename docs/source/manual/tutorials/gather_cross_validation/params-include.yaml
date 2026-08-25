@@ -1,0 +1,34 @@
+pipeline: ./pipeline.yaml
+
+# An alternate spelling of params.yaml. One matrix declares each axis once, and
+# "include" propagates the shared algorithm/seed values to the downstream nodes
+# so they vary in lockstep instead of forming a Cartesian product.
+matrix:
+  train.data_fpath: [data.txt]
+
+  # Canonical shared axes
+  train.algorithm: [linear, forest]
+  train.seed: [0, 1]
+
+  # Independent fan-out axes
+  train.fold: [0, 1, 2]
+  evaluate.test_set: [clean, shifted]
+
+include:
+  # Propagate the algorithm axis
+  - train.algorithm: linear
+    build_ensemble.algorithm: linear
+    evaluate.algorithm: linear
+
+  - train.algorithm: forest
+    build_ensemble.algorithm: forest
+    evaluate.algorithm: forest
+
+  # Propagate the seed axis
+  - train.seed: 0
+    build_ensemble.seed: 0
+    evaluate.seed: 0
+
+  - train.seed: 1
+    build_ensemble.seed: 1
+    evaluate.seed: 1

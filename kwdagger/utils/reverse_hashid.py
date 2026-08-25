@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import shelve
-from typing import Any, cast
+from typing import Any
 
 import ubelt as ub
 
@@ -154,7 +154,7 @@ def condense_config(
     else:
         human_part = ''
     # This hash convention was modified wrt to the old geowatch version
-    cfgstr_suffix = human_part + ub.hash_data(other_opts, base=36)[0:12]  # type: ignore
+    cfgstr_suffix = human_part + ub.hash_data(other_opts, base=36)[0:12]
     cfgstr = f'{type}_{cfgstr_suffix}'
     if register:
         raise AssertionError(

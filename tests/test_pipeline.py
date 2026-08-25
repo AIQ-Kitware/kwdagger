@@ -123,9 +123,15 @@ def test_slurm_options(tmp_path):
     assert '--time="00:05:00"' in text
     assert '--partition="short"' in text
 
-    job1 = queue.named_jobs[node1.process_id]
-    job2 = queue.named_jobs[node2.process_id]
-    job3 = queue.named_jobs[node3.process_id]
+    # ``named_jobs`` is typed as the base ``Job``; the slurm-specific
+    # ``_sbatch_kvargs`` lives on the concrete ``SlurmJob`` and is not declared
+    # on the base (and its visibility varies by cmd_queue version). Read it via
+    # an ``Any`` handle so this stays decoupled from the installed version.
+    from typing import Any, cast
+
+    job1: Any = cast(Any, queue.named_jobs[node1.process_id])
+    job2: Any = cast(Any, queue.named_jobs[node2.process_id])
+    job3: Any = cast(Any, queue.named_jobs[node3.process_id])
     assert job1._sbatch_kvargs['partition'] == 'debug'
     assert job1._sbatch_kvargs['time'] == '00:20:00'
     assert job2._sbatch_kvargs['gres'] == 'gpu:1'

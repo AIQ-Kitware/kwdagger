@@ -3,7 +3,7 @@ import json
 
 import kwutil
 import rich
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 from rich.markup import escape
 
@@ -18,15 +18,15 @@ def _load_reviews(fpath):
     return records
 
 
-class KeywordSentimentPredictCLI(scfg.DataConfig):
+class KeywordSentimentPredictCLI(kw.Config):
     """Minimal "model" that tags texts containing a keyword."""
 
-    src_fpath = scfg.Value(None, help='path to labeled jsonl review file')
-    dst_fpath = scfg.Value(None, help='path to prediction file')
+    src_fpath = kw.Value(None, help='path to labeled jsonl review file')
+    dst_fpath = kw.Value(None, help='path to prediction file')
 
-    keyword = scfg.Value('great', help='word that marks a review as positive')
-    case_sensitive = scfg.Value(False, help='toggle case sensitivity')
-    workers = scfg.Value(0, help='number of parallel workers (unused)')
+    keyword = kw.Value('great', help='word that marks a review as positive')
+    case_sensitive = kw.Value(False, help='toggle case sensitivity')
+    workers = kw.Value(0, help='number of parallel workers (unused)')
 
     @classmethod
     def main(cls, argv=True, **kwargs):

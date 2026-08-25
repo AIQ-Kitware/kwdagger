@@ -12,12 +12,12 @@ def demodata_pipeline(dpath):
     script_text = ub.codeblock(
         """
         #!/usr/bin/env python3
-        import scriptconfig as scfg
+        import kwconf as kw
         import ubelt as ub
         import json
 
 
-        class ScriptCLI(scfg.DataConfig):
+        class ScriptCLI(kw.Config):
             src = 'input.json'
             dst = 'output.json'
             param1 = None
@@ -25,7 +25,7 @@ def demodata_pipeline(dpath):
             param3 = None
 
             @classmethod
-            def main(cls, argv=1, **kwargs):
+            def main(cls, argv=True, **kwargs):
                 config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
                 src_fpath = ub.Path(config.src)
                 dst_fpath = ub.Path(config.dst)
@@ -81,9 +81,7 @@ def demodata_pipeline(dpath):
                 return flat_resolved
 
         def build_pipeline():
-            nodes = {}
-            nodes['step1'] = Step1()
-            dag = Pipeline(nodes)
+            dag = Pipeline([Step1()])
             dag.build_nx_graphs()
             return dag
         """
@@ -199,7 +197,9 @@ def test_slurm_options_from_param_grid(tmp_path):
     assert queue._sbatch_kvargs['partition'] == 'general'
     assert queue._sbatch_kvargs['qos'] == 'debug'
 
-    step1 = dag.node_dict['step1']
+    # ``build_schedule`` returns the compiled pipeline, whose nodes are the
+    # concrete instances: one row here, so one ``step1``.
+    (step1,) = dag.nodes_by_name['step1']
     step1_job = queue.named_jobs[step1.process_id]
     assert step1_job._sbatch_kvargs['time'] == '00:01:00'
 
@@ -281,7 +281,7 @@ def test_simple_but_real_custom_pipeline():
         command = invoke_fpath.read_text()
         command
 
-    agg_config = aggregate.AggregateEvluationConfig(
+    agg_config = aggregate.AggregateEvaluationConfig(
         target=root_dpath,
         pipeline=f'{pipeline_fpath}::build_pipeline()',
         output_dpath=(root_dpath / 'aggregate'),

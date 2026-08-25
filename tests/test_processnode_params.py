@@ -1,15 +1,15 @@
+import kwconf as kw
 import pytest
-import scriptconfig as scfg
 
 from kwdagger.pipeline import ProcessNode
 
 
-class DemoCfg(scfg.DataConfig):
-    src = scfg.Value('ignored.txt', tags=['in_path'])
-    dst = scfg.Value('schema.txt', tags=['out_path', 'primary'])
-    extra = scfg.Value('', tags=['out_path'])
+class DemoCfg(kw.Config):
+    src = kw.Value('ignored.txt', tags=['in_path'])
+    dst = kw.Value('schema.txt', tags=['out_path', 'primary'])
+    extra = kw.Value('', tags=['out_path'])
     foo = 1
-    workers = scfg.Value(2, tags=['perf_param'])
+    workers = kw.Value(2, tags=['perf_param'])
 
 
 class DemoNode(ProcessNode):
@@ -30,7 +30,7 @@ def test_params_schema_derivation():
 
     derived = ProcessNode._derive_groups_from_params_spec(DemoCfg)
     with pytest.warns(UserWarning, match='in_path "src"'):
-        legacy = ProcessNode._from_scriptconfig(DemoCfg, name='demo')
+        legacy = ProcessNode._from_kwconf(DemoCfg, name='demo')
 
     assert legacy.in_paths == derived[0]
     assert legacy.out_paths == derived[1]
@@ -40,8 +40,8 @@ def test_params_schema_derivation():
 
 
 def test_params_conflicting_tags():
-    class BadCfg(scfg.DataConfig):
-        foo = scfg.Value(1, tags=['in', 'out'])
+    class BadCfg(kw.Config):
+        foo = kw.Value(1, tags=['in', 'out'])
 
     with pytest.raises(ValueError, match='conflicting tags'):
         ProcessNode._derive_groups_from_params_spec(BadCfg)

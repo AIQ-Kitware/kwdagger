@@ -1,0 +1,1502 @@
+# Claude journal
+
+## 2026-08-03 17:50:28 -0400
+
+Worked from a review prompt describing four correctness defects, a dead-code
+sweep, and a full decomposition of `pipeline.py` into five internal modules.
+The prompt claimed `tests/test_review_regressions.py` had already been added by
+a tests-only overlay. It had not — clean tree, no stash, HEAD was `bec0609`.
+So the instruction not to weaken the regression tests had nothing to bind to,
+and I ended up author of both the tests and the fixes. I wrote the tests first
+and confirmed eight of them failed against the unmodified implementation before
+touching anything, which is the closest substitute I could get for the
+independence the prompt assumed.
+
+All four defects were real; I verified each in source rather than trusting the
+description. The two that matter for the TA1 cards are the gather ones. The
+propagation key for a gathered ancestor's membership was the *template* name,
+so when several same-named concrete instances each gathered, the last one
+visited overwrote its siblings. That is exactly the shape
+`operadic_consistency.magnet.pipelines.lift_pipeline` has — shards fan in per
+cell, cells fan in per task — so a card run was silently under-reporting its
+own lineage. The fix reuses the instance-aligned representation that
+`_depends_config` had already built for requested configuration values
+(`__instances__.<node>` plus index-aligned collections) instead of inventing a
+second shape, and a single-instance pipeline still writes exactly what it wrote
+before. I am confident about that one.
+
+The alias-lineage fix is the one I would want a second reader on. An
+`input -> input` edge is documented as configuration, not lineage, and that is
+right — but the value behind it may be one a process *produces*, and then the
+producer still has to run first. Before this, the consumer got the correct path
+and no ordering, no `.pred` links, no lineage: a real race that only shows up
+under a parallel backend. I resolved origins *structurally* — walk alias edges
+back to the output ports they terminate at, resolving nothing along the way —
+specifically because AGENTS.md warns that configuration resolution must not
+depend on insertion order or on a stale value from a previously configured
+matrix row. The tradeoff is that in the pathological case where an alias has
+both a resolving alias predecessor and an output predecessor, I report the
+producer as a dependency where value resolution would have preferred the alias.
+That over-reports ordering, which is the safe direction, but it is a real
+deviation from `_resolved_value`'s precedence and someone should decide whether
+to make them agree.
+
+Digging into that turned up something worth knowing: `ProcessNode` memoizes
+`predecessor_process_nodes` during its own construction, before any connection
+exists, and the cache is only cleared by `configure`. So on a *template*
+pipeline the predecessor query is stale, and `build_nx_graphs` only sees an
+ordinary output-to-input edge because it also walks the successor direction.
+The prompt listed `successor_process_nodes` as a redundancy to delete. It is
+not redundant; deleting it would have broken every template graph in the repo
+in a way the tests would have caught but the reasoning would not have. I kept
+it, documented why in its docstring, and read alias origins from the ports in
+`build_nx_graphs` rather than from the memoized query. The underlying
+staleness is still there and is the thing I would fix next.
+
+Gate I set for myself before touching lineage: the TA1 card pipelines must
+compile to byte-identical process ids, node directories, and commands. They do
+— `lift` and `lomo` fingerprints are unchanged across all four commits. No
+result-directory churn, no cache invalidation. That was the main risk of
+touching identity-adjacent code and it did not materialize, because a pure
+configuration alias has no origins and the cards do not alias inputs at all.
+
+On scope: I did not do the full five-module decomposition. The maintainer and I
+agreed to trim it to the two seams that pay for themselves. The `cast(Pipeline,
+self)` in `CompiledPipeline.submit_jobs` was the one I actually wanted gone —
+it asserted a class relationship that does not exist, and the honest interface
+turned out to be two parameters (the process graph and the pipeline-wide Slurm
+options). The rest of the split — connections, process, compiler — is a large
+mechanical churn against a module whose real coverage comes from tests that
+execute subprocesses, and it buys the cards nothing. I think that was the right
+call, but it does mean `pipeline.py` is still ~4100 lines and still holds
+`ProcessNode`, the compiler, and the graph layer together. If someone picks
+this up, the process layer is the next cleanest seam, and it should happen
+before, not after, anything else changes identity.
+
+Dead code: removed what a repository-wide search proved unreachable. The
+template-output-discovery subsystem is gone including two public methods, noted
+in `CHANGELOG.md` — `aggregate_loader` already carried its own independent
+implementation of the path-matching part, so nothing lost a capability. I was
+more careful than the prompt asked about `successor_process_nodes` (kept, see
+above) and about `template_root_dpath` / `final_root_dpath` (folded, but the
+serialized `templates['root_dpath']` / `final['root_dpath']` records are
+byte-identical, including the `.format(**condensed)` that is a no-op on a path
+with no braces).
+
+Environment note that cost me time: there is no `python` on `PATH` in this
+checkout, only `python3` and `.venv/bin/python`. Generated `invoke.sh` commands
+call `python`, so running the suite without the venv's `bin` on `PATH`
+fails four end-to-end tests for reasons that have nothing to do with the code.
+Anyone reading a red baseline here should check that first.
+
+What I am least sure about: whether `origins` is the right field name and shape
+in `__input__.<port>` provenance, and whether a gathered alias (an alias whose
+source port is itself a gather consumer) should recover the gather members as
+dependencies. I made it terminal — a gathered port resolves to a manifest this
+pipeline writes, not to a single upstream product — and left a comment saying
+so, but I did not test that case and it is currently a hole rather than a
+decision.
+
+## 2026-08-03 18:12:00 -0400
+
+The tests-only overlay I said was missing showed up: the maintainer pulled
+`7924762` and it collided with the file I had written at the same path. Both
+sides "added" `tests/test_review_regressions.py`.
+
+Before resolving anything I ran the incoming tests against my implementation
+unchanged: 4 passed. Against `bec0609`: 4 failed. So the two of us converged on
+the same four defects and on semantics that agree, which is the independent
+confirmation I explicitly said I could not get when I wrote my own tests. That
+is a much better result than I expected -- the incoming test for structured
+group values is *stronger* than mine (it uses a qualified **mapped** group key
+with a nested dict value, where mine used an unmapped qualified key), and my
+recursive canonicalizer handles it without modification.
+
+Resolution: the incoming file stays byte-identical at its path, and mine moved
+to `test_review_regressions_extra.py`. I did not merge them into one file on
+purpose. The incoming file is deliberately shape-agnostic -- it searches the
+provenance record recursively for gather records rather than naming a key, and
+uses `nx.has_path` rather than asserting a specific edge -- which is exactly
+what makes it credible as a specification written without knowledge of the
+implementation. Keeping it untouched preserves that property and makes it
+obvious to a reviewer that it was not bent to fit what I built. My file now
+says up front that it pins the representations the other file leaves open, plus
+the complements (a pure configuration alias must stay configuration-only),
+which is where the real risk of the alias change lives.
+
+One thing worth noting for whoever reviews this: the incoming test asserts
+`nx.has_path(dag.proc_graph, 'producer', 'consumer')`, which the pre-existing
+`producer -> middle` edge alone would satisfy if `middle -> consumer` were also
+an edge. It is not -- an alias must not create that edge -- so the assertion
+does bite. My file asserts the direct `producer -> consumer` edge and the
+absence of `middle -> consumer` explicitly, so between the two the intent is
+fully pinned.
+
+## 2026-08-03 19:05:00 -0400
+
+Did the decomposition after all, as a package rather than as `_pipeline_*.py`
+siblings. `kwdagger/pipeline.py` is now `kwdagger/pipeline/`, which is the
+better shape: the namespace users already import from becomes the facade, and
+the internals get real names instead of a prefix convention.
+
+Layering, bottom up: `_shell` (shell text) and `_slurm` (option coercion) are
+leaves because both the process layer and the runtime submitter need them and
+neither should import the other to get there; `_runtime`; `_connections`
+(ports, edges, gather specs); `_process` (`ProcessNode`); `_compile`;
+`_logical` (`Pipeline`, graph views, coercion). Only one upward reference
+exists — `_compile` names `Pipeline` in a signature — and it stays behind
+`TYPE_CHECKING`, so there is no runtime cycle to work around. No submodule
+imports the facade.
+
+I wanted the split to be *provably* mechanical rather than
+mechanical-looking, so I checked it two ways. First, line coverage: every line
+of the old file lands in exactly one segment, and the only gaps were the three
+lines holding `@dataclass(frozen=True)` and the trailing `__getattr__`. Second,
+an AST comparison of all 48 top-level definitions old versus new — the only
+differences were the two intended import-path renames inside `submit_jobs`.
+
+The first check earned its keep immediately. My initial slice started at
+`class GatherSpec:` and silently dropped the decorator on the line above, so
+`GatherSpec` stopped being a frozen dataclass and lost `__eq__`. Three tests
+caught it, but the failure mode is worth remembering: a line-range split can
+decapitate a decorated definition and the result still imports cleanly.
+
+Star imports in doctests were the other real hazard. `from kwdagger.pipeline
+import *` on a module pulled in `ub`, `nx`, and everything else the module
+imported; on a package `__init__` it does not. Rather than paper over that by
+re-importing `ubelt` in the facade, I replaced each one with the explicit
+imports that doctest actually uses. Doctest counts are unchanged (88 passed,
+14 skipped, plus the pre-existing `util_kwplot` failure), so nothing lost
+coverage.
+
+`tests/test_import_compat.py` now encodes the layering as an ordered list and
+fails if any module imports something at or above it. That is the part I most
+want to survive: boundaries that are not enforced stop being true within a
+release or two. It also asserts the one upward reference is annotation-only, so
+if someone promotes it to a runtime import the test says why that is a problem.
+
+Checked the things a package split can quietly break: setuptools discovery
+(`packages.find.include = ["kwdagger*"]` picks up `kwdagger.pipeline`
+automatically — verified with `find_packages`, not assumed), and the TA1 card
+fingerprints, which are still byte-identical. 156 tests pass.
+
+`_process.py` is still 1750 lines, and that is the honest remaining problem.
+`ProcessNode` does configuration resolution, identity, provenance, path
+templating, command construction, and gather materialization. Splitting it is a
+real design question rather than a relocation, so I left it whole rather than
+guess at a seam.
+
+## 2026-08-03 20:40:00 -0400
+
+GPT-5.6 reviewed the branch and found two P1s. Both are real; I reproduced each
+before changing anything, and the first is a regression I introduced.
+
+**Recovered producers reached scheduling but not identity.** Two producers that
+run the same algorithm over different data have the same `algo_id` and
+different `process_id`. The ancestor payload in `depends` records only
+`algo_id`, and the `__input__` identity binding only accepted
+`source_kind == 'output'`, so a consumer behind an alias had nothing tying it
+to a specific producer instance. Two consumers with visibly different commands
+hashed to one `process_id` and one result directory.
+
+What makes this mine: before my alias change, `final_input_config` still
+contained the aliased input, and a produced path has the producer's
+`process_id` in it, so the consumers were distinguished by accident. My
+`_produced_origins` exclusion removed that anchor and put nothing in its place.
+I checked this rather than assumed it -- ran the same probe against `bec0609`
+in a worktree (having to strip the editable-install finder out of
+`sys.meta_path` to get the right kwdagger imported) and got distinct ids
+there, colliding ids at HEAD.
+
+The lesson I should have applied: when you remove something from an identity
+payload, the question is not "was this the right thing to hash" but "what was
+it doing that nothing else does". A produced path is bad identity material
+because it embeds a cache root, but it was also carrying the producer's
+instance, and only the first half of that was replaced.
+
+Identity bindings are now built from `_produced_origins` directly rather than
+filtered out of the provenance dict, so the same helper answers scheduling,
+provenance, and identity. Direct output-to-input identity is unchanged --
+sorted by the same key as before, and the TA1 fingerprints are still
+byte-identical, which is the check I trust most here.
+
+**Aliasing a gathered input.** I flagged this as an untested hole in the first
+entry and left it. That was the wrong call: it is not an ambiguity, it is a
+race. The borrower gets the path to a manifest that the *lending* job writes as
+part of its own command, with no queue dependency, so under tmux or Slurm it
+can read a file that does not exist. Serial happens to survive because compile
+order usually puts the writer first, which is exactly the kind of accident that
+hides a bug until someone changes backend.
+
+The fix follows the model rather than fighting it. A gathered port is not an
+ordinary alias: the manifest is genuinely produced by the job that owns the
+port, so that port is returned as an origin and its process becomes a real
+dependency. The traversal stops there instead of recursing to the members --
+whatever they are, they are already that job's own ancestors, so depending on
+the writer is both sufficient and minimal. `_origin_kind` distinguishes
+`'output'` from `'gather_manifest'` so identity and provenance do not conflate
+a declared output path with a generated manifest.
+
+Both now have tests. The first varies only an upstream external input and
+asserts the consumers stay distinct, which is the assertion the review asked
+for and the one my original tests were missing: everything I wrote used a
+producer with no inputs of its own, so `algo_id` and `process_id` moved
+together and the gap was invisible. Worth remembering that a fixture too simple
+to distinguish two mechanisms will not test either.
+
+## 2026-08-03 22:15:00 -0400
+
+Third review round. Three findings, all reproduced before I touched anything,
+and this time the interesting part was that two of them were one bug.
+
+**Identity ignored an override on a connected input.** Two rows configuring
+`consumer.data_fpath` to different paths produced different commands, one
+`process_id`, one result directory. Checked provenance before assuming: it
+collides at `bec0609` and does *not* collide at `v0.2.6`, so this arrived with
+the `final_input_config` split earlier on the branch rather than with my work.
+My alias change widened the same hole to forwarded values without creating it.
+
+The review offered "reject the combination" as an option. That one is not
+available -- explicit-beats-produced is documented precedence in
+`_resolved_value`, and pointing a stage at a precomputed artifact is a real
+workflow. So the resolver it is.
+
+**The two bugs are one design gap.** Identity was asking a structural question
+("what could supply this port?") where it needed an effective one ("what does?").
+The template graph had the mirror problem: it asked about `_gather_members`,
+which only exists after compilation, where it needed `_gather_connection`,
+which exists as soon as the edge is drawn. Structural belongs to the template,
+effective belongs to identity, and both were reaching for the wrong one.
+`_produced_origins` and `_effective_origins` now say which is which in their
+names and docstrings, because this is the kind of distinction that erodes
+silently.
+
+The maintainer asked whether an override should also drop the *scheduling*
+edge. I looked rather than guessed: the compiled graph is rebuilt per row from
+`predecessor_process_nodes()` on configured nodes, so dropping it there is one
+call site -- but the single-row `configure()` path takes its queue
+dependencies from `Pipeline.proc_graph`, which is the template graph and is
+never rebuilt after configure. Dropping the edge would make the two execution
+routes disagree about the DAG, and reconciling them means rebuilding the graph
+after configure, which is where the memoization staleness lives. So: keep the
+edge, fix identity. Over-ordering is harmless; the collision is not. That was
+the maintainer's own instinct about structural baking, and it was right --
+just more specifically true than "structural": it is structural *at template
+time*.
+
+**The staleness, finally.** Fixing the template graph left
+`ancestor_process_nodes()` still empty, because that was never about origins --
+it was the construction-time memoization I wrote a lesson about two entries ago
+and deferred. `build_nx_graphs` is the first moment the complete connection
+state exists, so it now clears every node's cache before reading. Three lines.
+I should have done it when I found it rather than documenting it as future
+work; leaving a known-wrong answer in place because it was not the bug I was
+chasing is how the next person inherits it.
+
+That also falsified my own docstring on `successor_process_nodes`, which said
+the two directions in `build_nx_graphs` were not redundant *because* of the
+staleness. With the cache cleared they are redundant. I corrected the docstring
+and superseded the lesson rather than leaving a confident claim that is no
+longer true -- and I am still not removing the method, because it is public API
+and that is a separate decision from whether it is load-bearing.
+
+**Same-node gather alias** now raises a `ValueError` naming both ports at
+pipeline construction, instead of `RecursionError` deep in identity. It had to
+land in this commit rather than after: teaching the template side to recognize
+`_gather_connection` would otherwise have turned the recursion into a
+`merge -> merge` self-edge and a confusing DAG-validation failure. I did not
+try to design what that composition should mean, because nothing asks for it.
+
+The reviewer's last item -- `git diff --check v0.2.6..HEAD` failing on a
+trailing blank line in `_runtime.py` -- does not reproduce. That command exits
+0 here and the file ends with a single newline after `return summary`. Probably
+a checkout from before the package split, when it was
+`kwdagger/_pipeline_runtime.py`.
+
+TA1 fingerprints are still byte-identical, which continues to be the check that
+tells me whether I have moved something I did not mean to.
+
+## 2026-08-04 00:30:00 -0400
+
+Fourth review round. Two findings, both real, both reproduced first.
+
+**My last fix was half a fix.** `_effective_origins` asked the precedence
+question of the consumer's own port and then handed off to `_alias_origins`,
+which is deliberately structural. So an override on the consumer was honoured
+and an override one alias hop upstream was not: `producer -> lender -> consumer`
+with the override on `lender` still collided. Precedence is not a property of
+a port, it is a question you have to ask of every source in the chain, and I
+built the recursive case out of a non-recursive helper. `_supplying_ports`
+now carries the recursion, and the one place that genuinely differs -- a
+gathered port is an origin to a borrower but has no origin of its own -- is
+stated there rather than inferred.
+
+**The identity-ancestry finding was mine to own too.** `depends` folds in every
+ancestor's `algo_id`, and ancestry was structural, so a producer whose output
+was overridden before anyone read it still moved the consumer's `process_id`.
+Same command, different result directory; a producer sweep fans out identical
+consumer jobs. I had fixed the per-input binding last round and stopped there,
+which left ports effective and ancestry structural -- internally inconsistent
+in exactly the way that invites the next bug.
+
+Worth recording how I first read this: as the cost of the maintainer's decision
+to keep the conservative scheduling edge, and therefore as something to defer
+rather than fix. That was wrong, and the review was clearer than I was. The
+edge decision is about *scheduling*, where over-ordering is free. Identity is a
+different question asked at a different time -- always on a configured node,
+where the effective answer is knowable. Applying the structural/effective split
+at ancestry is the same split we already made at the port level, one level up,
+not a workaround for the compromise. The maintainer chose to fix it and was
+right to.
+
+The result is three answers where there was one, and they need to stay
+distinguishable: `predecessor_process_nodes` (structural, scheduling),
+`effective_predecessor_process_nodes` (identity), and the template graph, which
+is structural because it must be -- nothing is configured when it is built. I
+gave each a docstring saying which question it answers and why, because the
+failure mode here is not a wrong line of code, it is someone reaching for
+whichever helper is closest.
+
+One thing I deliberately did not do: `_depends_config` still starts from
+structural ancestry. AGENTS.md calls `job_config.json` the record of the
+*requested* experiment, and a producer that was scheduled is part of what was
+requested even if its output went unread. What was actually wrong there was the
+contradiction -- the record claimed the producer supplied the input while also
+recording the override. The wiring stays, marked `supplied: false`.
+
+TA1 fingerprints byte-identical again, which is what I would expect: the cards
+never override a connected input, so effective and structural coincide for
+them. That is also why none of these four rounds of identity bugs would have
+shown up in the work this branch exists to support -- worth remembering that a
+green fingerprint means "did not change what I care about", not "is correct".
+
+## 2026-08-04 02:10:00 -0400
+
+Fifth round, and the first one I had a genuine back-and-forth with the reviewer
+about rather than just implementing.
+
+The finding: two matrix rows that compile to one consumer can be wired behind
+different producers, and canonicalization kept the first row's structural
+predecessors. Reversing the matrix changed which producer the surviving
+consumer was attached to -- and since a disabled predecessor suppresses its
+successor, that decided whether the consumer ran at all. Same command, same
+process_id, opposite outcome. Reproduced both orders: `skipped` versus
+`new_submission`.
+
+Two things I found while reproducing that the reviewer could not have known
+without running it, and that turned out to matter. Their repro as written
+cannot execute -- `compile_configurations` rejects gather-free pipelines and
+`build_schedule` only takes the full-matrix path when a gather exists -- so a
+gather has to be present somewhere. And the single-row path does not share the
+defect, because it has no canonical instance and re-gates per row. I raised
+both, along with having tested their "cleaner long-term" option: one line, and
+it makes both orders identical *and* correct.
+
+Where the dialog earned its keep was the question I asked at the end. I
+proposed compiled-path-effective plus single-row-path-conservative as an
+acceptable release boundary. The reviewer said no, and the reason was better
+than my reasoning: it would make the same configured consumer run in one
+pipeline shape and be skipped in another, depending on whether an unrelated
+gather elsewhere pushed `build_schedule` onto the full-matrix path. That is a
+semantic split, not conservatism. I had been treating "conservative" as
+self-evidently safe, and it is not, because the gate is not an ordering hint --
+it is a hard existence check that can suppress valid work. Once that is true,
+"conservative" and "wrong" are the same thing.
+
+So the split is now: structural for the template graph, configuration
+diagnostics, and requested wiring provenance; effective for everything a
+configured command actually does -- gating, queue dependencies, `.pred` /
+`.succ` links, and the compiled graph. They asked me to audit every runtime use
+rather than patch the `will_exist` expression, which was right: the links block
+was still calling the structural query directly, and would have written a
+`.pred` entry for a producer the result never read.
+
+One thing the reviewer's spec caught that my first attempt missed. After fixing
+the graph, statuses and process_id matched across row orders but provenance
+still did not: `supplied: false` named whichever producer instance the
+canonical consumer happened to be wired to. The fix is not to union the
+instances but to stop naming one. An unsupplied source is a statement about
+*wiring*, which is a template fact -- so it records the port, `producer.data_fpath`,
+and no `process_id`. Naming a concrete instance there was always meaningless,
+and only stopped being obviously so because nothing had read it.
+
+Also worth writing down: `condensed` still walks structural predecessors, so a
+custom `node_dpath` template that interpolates another node's id could still
+pull an unread producer into a path. I left it, because changing it moves
+result directories and nothing asks for it, but it is the one place the
+structural/effective boundary is still drawn by inertia rather than by
+argument.
+
+TA1 fingerprints identical for the fifth time. That streak is starting to feel
+like evidence of nothing: the cards never override a connected input, so every
+bug this review process has found sits outside what the fingerprint can see.
+
+## 2026-08-04 04:30:00 -0400
+
+The maintainer caught that the reviewer and I had been wrong for three rounds
+in the same direction, and gave an authoritative identity model. Writing down
+what happened, because the failure was mine and it was a reasoning failure
+rather than a coding one.
+
+**The mistake.** Starting from a real bug -- two consumers reading different
+files hashing alike -- I concluded that the consumer's identity had to record
+*which producer* supplied its input. That produced `_origin_identity_bindings`,
+`__input__.<port>` records carrying `source_process_id` / `source_port` /
+`source_kind`, and eventually effective-ancestry `algo_id` folding. Each round
+the reviewer confirmed the direction and asked for more of it, and I supplied
+it.
+
+**Why it seemed right.** The symptom really was under-identification, and
+lineage really does distinguish the colliding cases. It also felt principled:
+"produced artifacts define execution lineage" is in AGENTS.md, and I read that
+as a statement about identity when it is a statement about *scheduling*. The
+thing I never questioned was the premise underneath the original bug --
+`final_input_config` excluded produced inputs, so the effective value was
+missing from the hash and something had to stand in for it. I reached for
+lineage as the substitute instead of asking why the value was absent.
+
+**The actual defect** was that exclusion. Produced paths were being kept out of
+identity because they are cache-rooted, and the fix for a missing *value* was
+to put the value back, not to hash the provenance of the value. Once
+`__inputs__` carries every effective input, a producer reaches its consumer
+through the path it writes -- which contains its own `process_id` -- and every
+collision I was chasing is handled without a single lineage field.
+
+**What that conflated.** Provenance answers "how was this obtained"; identity
+answers "what will this compute". They are different questions and I merged
+them, which is why the fixes kept generating new problems at the seams: a
+producer sweep fanning out identical consumers, row-order-dependent
+canonicalization, path templates disagreeing with identity. Those were not
+separate bugs. They were the same category error surfacing in four places.
+
+**The tradeoff, stated plainly** so nobody re-repairs it: a produced path and
+the same path typed by hand now hash identically. That is *not* an assertion
+that the bytes are equal. kwdagger's data identity is value/path based unless
+the user supplies an explicit content identifier, and the docs now say so in a
+warning rather than leaving it implied.
+
+**Compatibility.** Ancestor-id placeholders in `node_dpath` are gone. They were
+documented in `hashing_scheme.rst` but did not work: a node configures itself
+during construction, before any connection exists, so `{producer_id}` raised
+`KeyError` there first, and setting the template afterwards was ignored. So
+nothing working was removed -- but the mechanism behind them, `condensed`
+walking predecessors, was live and was the last route by which an unread
+producer could change where a node's results land. Removing it also removed the
+construction-time memoization staleness I have written about twice: nothing
+asks a lineage question during `__init__` any more.
+
+**TA1 fingerprints changed**, for the first time in six rounds, and the shape
+is exactly right: `per_question_features` and `extract_model_scores` -- the
+nodes with no produced inputs -- are unchanged, and every node downstream of a
+produced or gathered input moved. Node counts, command shapes, and predecessor
+counts are identical, so the DAG is the same and only the hashes moved. Worth
+saying that the five previous byte-identical fingerprints were not evidence of
+correctness: the cards never override a connected input, so every bug in this
+whole review sequence lived outside what that check can see.
+
+**What I would do differently.** When a reviewer confirms my direction three
+times and the fixes keep spawning adjacent problems, that is the signal to
+re-examine the premise rather than to keep extending. I had the evidence in
+hand -- I wrote in an earlier entry that `condensed` pulling structural
+ancestors into paths was "drawn by inertia rather than by argument" -- and
+treated it as a loose end instead of as the contradiction it was.
+
+The invariant is now in `AGENTS.md` with an explicit "do not add producer ids
+to consumer hashes" instruction, in `hashing_scheme.rst` with a worked example
+and the byte-equality warning, and in the docstrings of every helper that
+answers one of the three questions. `tests/test_identity_model.py` pins the
+matrix: produced vs manual equality, two producers exposing one path, different
+paths, producer-derived path changes, four delivery mechanisms, overridden
+connections, row reversal over the complete record, and a guard that fails if
+anything ever reaches the command without reaching identity.
+
+## 2026-08-04 05:40:00 -0400
+
+Cleaned up after the identity change: `ty`, `ruff check`, `ruff format`, and a
+wider `flake8` selection all pass now.
+
+Two of the three `ty`/`flake8` findings were debris from the package split
+rather than from the identity work. The script that generated each new module's
+import header computed what each segment *used*, which counted names that are
+only imported locally inside functions -- so `_compile` and `_logical` got
+module-level `util_dotdict` and `os` that nothing at module scope wanted, and
+which then shadowed the real local imports (F811). Worth noting as a hazard of
+mechanical splitting: the code ran fine and the tests passed, so only a linter
+was ever going to catch it. `CompiledPipeline` was the mirror image -- declared
+as a return type but never imported, invisible because
+`from __future__ import annotations` makes the annotation a string.
+
+`_origin_kind` was genuinely dead: its only caller was
+`_origin_identity_bindings`, which the identity correction removed. Deleted
+rather than left as a helper with no question to answer.
+
+One finding I did not "fix". Ruff reports F823 in `util_kwplot.build_collections`
+-- a local `import matplotlib.collections` next to attribute access on the
+module-level `mpl` alias. That idiom is correct: importing the submodule is what
+makes `mpl.collections` resolvable. I called the method to confirm it works
+before deciding, then suppressed the rule with the reasoning written down.
+Changing working code to satisfy a linter would have been the worse outcome, and
+the next person deserves to know which it was.
+
+Also resolved a loose end I had been misreporting for several entries: the
+`util_kwplot.py Palette:0` doctest failure is not a code defect, it is
+`ModuleNotFoundError: No module named 'kwimage'` -- an optional dependency
+missing from this environment. I had been carrying it as "pre-existing failure"
+without ever reading the reason.
+
+## 2026-08-04 07:20:00 -0400
+
+Three integration consequences of the identity correction, all confirmed by
+reproduction before fixing, plus a set of docstrings that still described the
+discarded model.
+
+**Absolute cache roots had entered identity.** Putting effective input values
+back into the hash brought the root they sit under with them, so the same
+pipeline under `/cache/a` and `/cache/b` produced different downstream ids. I
+noticed this risk while implementing and decided to "flag it and proceed"; the
+reviewer was right that it contradicts the gather contract in `AGENTS.md`
+outright. Paths under the kwdagger root now hash relative to it, external paths
+hash as given, and a hand-supplied path pointing inside the root canonicalizes
+exactly like a produced one -- so the fix costs nothing of the produced/manual
+equality it might have threatened.
+
+**My collision guard outlawed `perf_params`.** I wrote "equal process_id
+implies equal command" as an invariant and asserted it. But `perf_params` are
+excluded from identity *by design* and do change the command -- so a matrix
+sweeping `workers` would have failed with "Internal consistency error", telling
+a user their configuration was an internal defect. The existing
+`test_perf_params_are_not_identity_bearing` only escaped because it compiles one
+row at a time. That is what an over-strong invariant costs: it does not fail in
+tests, it fails on a real user's matrix.
+
+The correction is that `perf_params` and output-path overrides belong in the
+same family as `__enabled__` and Slurm options -- declared state identity cannot
+arbitrate, so rows sharing an identity must *agree* on it, reported as a
+user-facing `ValueError`. The docs now name the exceptions instead of asserting
+an invariant with holes in it.
+
+**Delivery mechanism is the third thing identity cannot arbitrate.** Now that a
+produced path and the same manual path are one computation, two rows can be the
+same process and still need different jobs first. I rejected rather than
+unioned. Union is defensible -- depending on the producer is conservative, and
+`will_exist` handles the already-exists case -- but I have twice this week
+reached for a clever aggregate and been wrong about a seam, so a clear error is
+the better default. The message names both rows and both prerequisite sets, and
+the aggregation option is written down for whoever wants it.
+
+TA1 ids moved again, only for nodes downstream of a produced or gathered input,
+which is the root-relative canonicalization landing. Structure unchanged.
+
+Two process notes worth keeping. First: this is the fifth review round, and the
+reviewer has now caught three things I saw and set aside. The pattern is not
+that I miss them -- it is that I treat "known and noted" as equivalent to
+"handled". A journal entry is not where a risk goes to be resolved.
+
+Second, a plain mistake: I ran the TA1 fingerprint from the parent repository
+and the shell stayed there, so the previous commit for this work landed in
+`aiq-eval-runner` instead of `kwdagger` -- taking two deliberately-uncommitted
+submodule pointers with it. Reset and redone here. `cd` inside a long-running
+session is state, and I should treat an absolute path as the default rather
+than assuming where I am.
+
+## 2026-08-04 09:05:00 -0400
+
+The reviewer found that every safeguard I had built for identity conflicts
+lived in the gather compiler, and `build_schedule` only compiles the full
+matrix when a gather exists. Ordinary pipelines configure and submit a row at
+a time, dedup by "is this process_id already in the queue", and label the
+second request `duplicate_submission` without comparing anything. So a
+gather-free matrix sweeping `predict.workers` over 4 and 16 queued whichever
+row came first and silently dropped the other -- reproduced in both orders.
+
+That is the second time this week I fixed something in one of two code paths
+and reported it as fixed. The first was the runtime gate. Both times the
+second path was reachable and I had already been told the paths differ; in
+this case I wrote the sentence "a pipeline containing *any* gather is compiled
+across the whole matrix first" in a test comment three commits ago. Knowing the
+split exists is not the same as checking both sides of it, and "where else does
+this decision get made?" is now a question I should be asking before claiming
+a fix, not after a reviewer asks it.
+
+The fix moves arbitration into `_agreement.py`, a leaf both scheduling paths
+can import -- they sit at opposite ends of the layering, so neither could have
+owned it. It works on *snapshots* rather than nodes because the row-at-a-time
+scheduler reconfigures one `ProcessNode` object in place: read the state lazily
+and you compare a request against itself. The registry hangs off the queue,
+which is the object that survives between rows regardless of who drives the
+loop.
+
+One thing that only showed up because the reviewer listed `__enabled__`
+explicitly: my first placement of the check was at the dedup site, which a
+disabled node never reaches -- `submit_jobs` short-circuits it at the top of
+the loop. So enabled/disabled conflicts still passed silently until I moved the
+snapshot to the very top, before anything can disable a node or `skip_existing`
+can rewrite its state. Taking the snapshot early also means what gets compared
+is what the user asked for rather than what the scheduler decided.
+
+Root canonicalization was scalar-only, so a structured input -- a list or
+mapping of produced paths -- kept the absolute cache root in the hash. It is
+now recursive, and containment is decided by path components rather than string
+prefix, so `/cache/a-backup` is no longer treated as living inside `/cache/a`.
+It only rewrites strings that look like paths, so a bare parameter value is
+never captured even when the working directory happens to sit inside the root.
+
+The remaining P2 was documentation still teaching the discarded model in four
+more places -- `parameter_identity.rst`, `yaml_pipeline_spec.rst`, two
+docstrings, and a CHANGELOG entry that flatly contradicted the entry above it
+by saying scheduling stays structural. Those are exactly the sentences a future
+reviewer would cite while putting lineage back, which is the whole reason the
+maintainer asked for the invariant to be written down in the first place. I
+corrected the model in the code and in two documents and then stopped looking;
+"grep for every place that states the old rule" should have been part of the
+original change.
+
+TA1 fingerprints unchanged this round: the cards use absolute roots and scalar
+paths, so neither the recursive canonicalization nor the new arbitration
+touches them.
+
+## 2026-08-04 10:40:00 -0400
+
+One real hole and two cleanups. The hole is instructive because it is a case
+where my fix was correct in shape and too coarse in detail.
+
+Arbitration compared the *union* of effective predecessor process ids. That is
+enough when a consumer reads one producer, but not when it reads two outputs of
+the same producer and only one of them is overridden: the producer stays a
+prerequisite either way, so the sets match, the duplicate is accepted, and
+whichever request arrived first writes `job_config.json` for the directory they
+share. Reversing rows changed the persisted provenance.
+
+The fix is a per-input delivery signature -- for each port, the sorted
+`process_id:port` of whatever effectively supplies it, or empty when the value
+came from configuration. It lives on `ProcessNode` rather than in `_agreement`,
+which stays a dependency-free leaf reading everything duck-typed.
+
+The thing I want to record is *why* the union was tempting. It is derivable
+from the per-input answer, so it looked like the same information cheaply
+summarised. It is not: aggregation destroys exactly the distinction the check
+exists to make. That is the third time in this review sequence I have reached
+for a coarser representation of something I had already computed precisely, and
+the tell each time was that the coarser form was a set or a union.
+
+Worth being explicit that this rejection does **not** put lineage back into
+identity. The two requests still hash identically, and there is a test asserting
+that -- it exists so that a future reader who sees "we reject differing
+delivery" does not conclude that delivery is identity material. It is not; the
+conflict is over which requested-experiment record gets written for a shared
+result directory.
+
+Two smaller ones. `invoke.sh` still listed structural ancestry in its
+`# See Also:` comments, so a consumer whose producer was overridden pointed at
+a directory it never read, and which unread producer got named depended on
+compile order. That artifact is meant to be independently inspectable, so it
+now follows effective ancestry. And the recursive root canonicalization
+rewrote mapping values but not mapping keys, so a dict keyed by produced path
+kept the absolute cache root in the hash.
+
+The remaining documentation with the old model was the twostage tutorial --
+user-facing, and claiming both that the hash includes perf params and that
+`job_config.json` contains exactly the hashed configuration. Both false now, and
+the second in a way that matters: `job_config.json` is deliberately a *superset*
+of the hashed config, because that is where the things identity drops are kept.
+Rewrote it to say so, and grepped the whole tree afterwards for "ancestor
+hashing" and "produced-artifact lineage" -- no hits left. I should have run that
+grep when I first changed the model rather than after being asked twice.
+
+TA1 fingerprints unchanged: the cards do not override connected inputs, use
+scalar absolute paths, and never key a config by a path.
+
+## 2026-08-04 11:35:35 -0400
+
+Maintenance pass rather than a design change: upgraded the pinned dependency
+set (`uv lock --upgrade`, 27 packages moved, notably pandas 3.0.3 -> 3.0.5,
+numpy gaining 2.5.1, wrapt 2.2 -> 2.3, pytest 9.0 -> 9.1) and re-ran the lint
+gate with current tool versions (ruff 0.16.1, ty 0.0.66). The point was to see
+whether the review-driven work of the last few days holds up under newer
+checkers and newer runtime libraries, not to change behavior.
+
+It nearly did. The one new diagnostic was ty rejecting the attribute stash in
+`_runtime.py` -- the per-queue `__kwdagger_requests__` registry that carries
+arbitration state across the row-at-a-time submission loop. That is a
+deliberate stash on a foreign (`cmd_queue.Queue`) object, so there is no
+declaration for a checker to find; silenced with the repo's existing
+`# type: ignore` convention rather than restructuring. I considered `setattr`
+instead and rejected it: it hides the same thing from the reader as well as
+from the checker, and the surrounding comment already explains why the registry
+lives on the queue.
+
+Worth flagging for whoever picks this up: `ty check ./tests` reports 11
+diagnostics, and they are *not* covered by the documented gate in AGENTS.md,
+which only checks `./kwdagger`. Skimming them they look like inference noise
+over JSON-shaped dicts (`b['consumer_inputs']['data_fpath']` where the value
+type widens to `str | dict`) plus `Job.allow_indent`, which cmd_queue sets
+dynamically and which the gather heredoc constraint depends on. None of them
+look like real defects, but I did not chase them, and I would not want the
+count to be read as a clean bill of health for the test directory. If we ever
+want tests inside the gate, the `allow_indent` one is the only case that would
+need cmd_queue's cooperation rather than a local annotation.
+
+Confident about: the upgrade itself. Full suite is 302 passed / 18 skipped,
+flake8's wider `F401,F811,F841` selection clean, ruff check and format clean.
+Nothing in the identity/arbitration work depends on a version that moved.
+
+## 2026-08-04 11:53:31 -0400
+
+The GPT 5.6 review found the same class of defect for the fourth time, and I
+think this round finally closes it rather than moving it.
+
+The hole: `delivery_signature()` distinguished which *producer outputs* supply
+each input, and collapsed everything else to an empty tuple. So a consumer fed
+by two input aliases, with one row supplying `left.data` and the other
+`right.data` at the same value, agreed on identity, on prerequisites, and on
+delivery -- and disagreed on `job_config.json`. Reversing the rows changed the
+persisted record. Shared parameter ports were worse: they have no entry in the
+delivery signature at all.
+
+I stopped trying to summarise. The arbitration exists because one result
+directory holds one `job_config.json`, so what it compares is now the
+serialized `_depends_config()` itself, keyed per dotted key so a conflict can
+name what differs. That is complete by construction in a way no derived form
+can be: two requests that would write the same file have nothing left to
+arbitrate. The prerequisite and delivery comparisons stay in front of it,
+purely because they give a precise message for the two common shapes, and both
+`_agreement.py` and AGENTS.md now say that is the only reason they exist.
+
+Recording the pattern, because it is the fourth instance and the tell was the
+same every time: ancestor set, prerequisite union, per-input delivery
+signature. Each was a *derived* representation of something already computed
+precisely, each looked like a cheap summary of the same information, and each
+lost exactly the distinction the check was there to make. Written up in
+`dev/lessons/lessons.md`.
+
+Second finding was smaller and I agree with it fully: rewriting mapping keys
+root-relative is many-to-one, and a dict comprehension reassembling them drops
+entries silently. That one is genuinely unarbitrable -- two schedules that
+never meet cannot be compared after the fact -- so it has to be refused where
+it happens, and it now raises naming both keys. Chose refusal over the
+reviewer's other option (a tagged sorted pair sequence) because that would
+change the hash of every mapping-valued input, invalidating caches to fix a
+case nobody has hit. I also made `PathLike` keys canonicalize like string ones,
+which they did not; that *is* a small hash change, but the old behavior kept
+the absolute cache root in the hash for such a key, which the relocation
+invariant forbids. It also removes a latent crash: a tuple key would have come
+back as an unhashable list.
+
+Two things I am less sure about. The requested-record comparison is broader
+than the checks it backs up, so it could in principle reject a pair of rows a
+user considers equivalent -- the honest answer is that if the records differ,
+one of them was going to be discarded silently, but I would not be surprised by
+a report of a surprising rejection. And it calls `_depends_config()` once more
+per node per submission; that is cheap next to compiling commands, but it is
+not free on a wide matrix.
+
+Also bumped to 0.3.0 at the maintainer's request, corrected a CHANGELOG entry
+still claiming producer `process_id` enters consumer identity (it was written
+mid-sequence and was left contradicting the entry below it), and updated the
+hashing-scheme doc for both findings. Full suite 313 passed / 18 skipped,
+doctests 90 passed, ruff/ty/flake8 clean.
+
+## 2026-08-04 12:35:26 -0400
+
+Third review round, two blockers, and both were cases where a check I had
+already written was reading the wrong surface rather than reading it wrongly.
+
+The first: arbitration compares `execution_snapshot(node)`, and an ordinary
+pipeline's top-level `__slurm_options__` is never on a node -- `configure` pops
+it onto the `Pipeline` and the runtime applies it at submission. Same for
+`log`, `enable_links`, `write_invocations`, `write_configs`, which are
+arguments to `submit_jobs`. A duplicate returns before any of it is applied, so
+two rows asking for `gpu:1` and `gpu:4` produced one job whose resources
+depended on row order. I reproduced all of it before touching anything, which I
+should keep doing: the write_configs case in particular is nastier than it
+sounds, because `write_configs=False` then `True` leaves *no* `job_config.json`
+anywhere.
+
+What I want to record is why the gather path was fine and the ordinary one was
+not. The compiler copies a row-global `__slurm_options__` into each node's
+config, so a node-only snapshot happened to see it there. A passing gather test
+therefore said nothing about the ordinary path, and I had read that test as
+coverage. The general form -- when a check reads from one object, enumerate
+what the *caller* holds that the object does not -- is now a lesson.
+
+Slurm options are compared as the effective merge of pipeline-wide and
+node-level rather than as two fields, so asking for the same thing at either
+level is agreement. `skip_existing` is deliberately excluded and I want the
+reasoning on record: it decides whether a request is made, not what it asks
+for, and I checked both orders leave the same queue because each `submit_jobs`
+call reprocesses the whole graph after `configure` resets `enabled`.
+
+The second blocker was partly my own doing. I taught `_root_relative` to
+canonicalize `PathLike` mapping keys last round and tested it at the identity
+level only -- so the test passed and submitting the same node raised
+`TypeError` on `json.dumps`, because `default=str` does not apply to keys. And
+my `sort_keys=True` in the requested record broke mixed `str`/`int` keys, which
+had previously reached disk fine. Two crashes I introduced, neither caught,
+because the test stopped at the hash.
+
+The fix is one policy at one place: `configure` already normalizes values for
+serializability, so keys are normalized there too, to exactly the name
+`json.dumps` would give them. That makes the stored config, the identity
+payload, the requested record, and the file on disk agree, and it turns `1`
+versus `'1'` from a silent overwrite into a reported collision. Deferring the
+conversion to the serializer was the actual mistake -- three readers, three
+different answers.
+
+My first pass normalized numeric, boolean, and null keys to the names
+`json.dumps` would give them; the reviewer came back asking for stricter, and
+they are right. The invariant is worth more than the convenience: *after
+configuration coercion every path-like object is a string and every mapping key
+is a string*. That is a sentence a future reader can hold, and "keys are
+whatever JSON can name" is not. So non-string, non-path keys are now a
+`TypeError` at configure time, and `_root_relative` stopped understanding
+`os.PathLike` at all -- the boundary guarantees it never sees one.
+
+That does break `int`-keyed mappings, which used to hash and persist (as
+`"1"`, lossily). I think it is the right call and it is the reviewer's, but it
+is a behavior removal rather than a fix, and it belongs in the release notes as
+one. Refusing tuple keys costs nothing: they used to hash and then crash at
+submission.
+
+The other thing I want to flag: the whole class of defect here came from
+letting a Python-only type live past the boundary. Four readers each grew their
+own partial understanding of `PathLike`, and they disagreed. Recorded as a
+lesson.
+
+Also swept the comments the reviewer flagged as still describing the discarded
+lineage model -- `_lookup_on_node`, `_dependency_preds`, and two headers in
+`test_review_regressions_extra.py` -- plus three "inherit that identity"
+phrasings in the gather code that mean group membership, not `process_id`, and
+would mislead exactly the reader this documentation exists to stop.
+
+Full suite 327 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:05:30 -0400
+
+Typing pass first, then a fourth review round.
+
+The typing work had one real lever and the rest followed from it.
+`memoize_configured_property` returned a plain `property` and
+`memoize_configured_method` was annotated `Any`, so the return annotation of
+every decorated function was erased at the call site -- sixteen members
+carrying the node's entire configured state, all reading as `Any` everywhere
+they were used. Both are now generic descriptors. I kept the property a *data*
+descriptor, with `__set__` raising the way a setter-less property does, so
+assignment and shadowing behave identically; that felt worth the extra method
+to avoid a subtle semantic change in a core mechanism. A `_NamedFunction`
+protocol states what the decorators actually need, which `Callable` cannot: the
+cache key comes from `__name__`.
+
+Three latent bugs fell out, all on paths that had never run:
+`sorted(n.name for ...)` in two error messages raises `TypeError` if any node
+name is `None`, and `_coerce_modpath` could return the `PathLike` it was handed
+where every caller wants a string. That is the argument for the exercise -- not
+the annotations themselves but what they surface.
+
+I deliberately stopped at the pipeline package. `aggregate.py` alone has 151
+`Any`, and the ones I left are mostly honest: coercion boundaries like
+`coerce_pipeline` really do take anything.
+
+Then the review. The Slurm finding is the better of the two and I should have
+caught it when I wrote the arbitration, because I had just written the
+paragraph about stale row state for input ports:
+`configure` defaulted `__slurm_options__` to *its own current value*, so a row
+that omitted it inherited the previous row's request. Arbitration then trusted
+that as the current row's ask. Fixed the way `ProcessNode` already did it, with
+a base the row resets to.
+
+Fixing it turned up something adjacent: `schedule.py` only applied the CLI's
+`--slurm_options` on the gather path. Ordinary pipelines dropped it entirely,
+because that branch relies on `param_slurm_options` being injected per row and
+never touches `config.slurm_options`. Both paths now set the base, so the flag
+works where it previously did nothing.
+
+Second finding: `os.fspath` may return `bytes`, which walked straight through
+the normalization I wrote last round and violated the invariant in its own
+docstring. Refused rather than decoded -- kwdagger has no business guessing an
+encoding for something that ends up in a hash and on a command line. And the
+reviewer was right that `default=str` in the arbitration serializer was a way
+of not checking; removed, so arbitration and the writer refuse the same things.
+Both are now lessons.
+
+On scope, I took the stronger option: normalization moved to a leaf,
+`_config_values.py`, and now covers row overrides, `Pipeline.config`, and
+declared `in_paths` / `out_paths` / `algo_params` / `perf_params` defaults. A
+declared default reaches identity and `job_config.json` by exactly the route an
+override does, so leaving it outside the boundary was the same defect one
+surface over.
+
+The maintainer confirmed the string-key rule is intentional -- keys are
+variable identifiers -- so it is now documented as a domain rule rather than as
+tidying, including that YAML's `0:` and `true:` are rejected. That is the part
+most likely to bite a real user, and it deserves to be found in the changelog
+rather than in a traceback.
+
+Full suite 339 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:34:36 -0400
+
+Answered the old `_connect_single` TODO and then acted on it. The TODO said
+"these rules are too complex and confusing. There is a reasonable subset here;
+find and restrict to that." The subset is: **there is one primitive, an edge
+between two ports.** Everything else is sugar that resolves to a set of those.
+
+What made it confusing is that the function was a base case and a fan-out fused
+together, with the dispatch at the *end* -- `if self_is_proc or other_is_proc:`
+after thirty lines that only matter in that branch. The port-to-port case ran
+all of it as a no-op and then fell out of the bottom.
+
+Three things fell out of reading it that way. The process-level edge added at
+the top was written for every case and read by nothing (the compiler already
+cleared it on every clone), so it was an empty list that looked like an answer.
+The `inputs = {self.name: other}` line keyed the destination by the *source's*
+name, purely so the generic name-matching would find a match for a relationship
+the caller had already stated -- the abstraction manufacturing dictionaries to
+rediscover what it was told.
+
+And the real bug: matched names were paired by `zip` over two dicts that each
+kept their own insertion order, so two nodes enumerating the same names in
+different orders got their ports crossed. It needs two shared names, so a
+set-declared `in_paths` is enough to trigger it and one output hides it. I
+reproduced it before touching anything -- `alpha` wired to `beta` with
+identical names on both sides.
+
+The rewrite is `_connect_port` (validate, then mutate), `_resolve_node_pairs`
+(the inference, by name), and a `connect` that dispatches between them. The
+maintainer wanted node-to-node kept, and I agree with the reasoning: it is the
+cheap way to say "one major artifact per stage, named consistently", and it is
+not a hot path -- YAML and the compiler always connect explicit ports.
+
+Two things I want on record because they are judgement calls rather than
+fixes. Moving `pred`/`succ` down to `IONode` makes "only ports carry edges" a
+structural fact instead of a convention -- `_connect_port` now *cannot* be
+handed a process, because there is nothing to append to. That is a public
+attribute disappearing; I think failing loudly beats returning a plausible
+empty list, but it is a break. And `ProcessNode.__nice__` now shows only the
+name: it deliberately does *not* call `predecessor_process_nodes()`, because
+that memoizes on a cache only `configure` and `build_nx_graphs` clear, and a
+repr taken during construction would prime it with the answer for an
+unconnected node. That is the construction-time staleness lesson already in
+`dev/lessons/lessons.md`, and a repr is exactly where it would sneak back in.
+
+354 passed / 18 skipped, 91 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:41:00 -0400
+
+Review round five, and the finding is a good one: the two scheduling paths
+layered Slurm options differently. The row-at-a-time path merged key-wise; the
+gather compiler *substituted* a row-global mapping for a node's own, so a node
+with any local option dropped every row-global key, and a node with none took
+the row-global mapping at node precedence. The consequence is the sentence
+worth remembering: **adding an unrelated gather to a pipeline could change what
+resources an unrelated node asked for.**
+
+Both behaviours looked locally sensible, which is why this survived. Nothing
+ever compared them. So the fix is a single `layer_slurm_options` in the `_slurm`
+leaf that names the four layers -- pipeline base, row global, node declared
+default, row per-node override -- and every site that combines options calls
+it. The parity tests assert the two pipeline shapes *agree*, rather than
+asserting each in isolation, which is the shape of test that would have caught
+it. I checked they discriminate: restoring the old substitution fails exactly
+four cases, all on the gather path.
+
+The subtle part was deciding where a row-global sits. It has to lose to a node's
+declared default, which felt backwards to me at first -- a matrix row is more
+specific to the run than code is. But that is the documented and implemented
+contract for the pipeline-wide global (`global -> node default -> per-node
+override`), and a row-global is a global. Doing anything else would have made
+the row-at-a-time path change behavior to match a rule I invented for the
+compiler. So: consistency with the existing contract, and the ordering is
+written down in one docstring now instead of being implicit in two places.
+
+Also removed a row injection in `schedule.py` that pushed a parameter file's
+top-level `slurm_options` into every row behind a guard checking
+`slurm_options` rather than `__slurm_options__` -- so it silently clobbered a
+row that asked for its own. Those options are the pipeline base now, which is
+what the guard was reaching for.
+
+Second finding, smaller: full-matrix compilation read reserved keys and routed
+values from rows that had not crossed the normalization boundary. Same defect
+as the declared-defaults gap last round, one surface over: I keep having to
+re-ask "what are *all* the entry points to this boundary?" rather than fixing
+the one in front of me.
+
+Bytes values are a documented TODO rather than a fix, per the maintainer --
+niche, and the domain is text. Worth noting the asymmetry I left deliberately:
+a bytes-returning `PathLike` *is* rejected, because that arrives through a
+conversion this module performs, while a raw bytes value passes through to
+fail at `json.dumps`. That is inconsistent, and the TODO says so rather than
+pretending otherwise.
+
+373 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 13:54:31 -0400
+
+Two small things and one deferral.
+
+The typing pass reached `_logical`. `root_dpath` now has a `PathSpec` alias --
+how a caller *spells* a path, as distinct from what a path is stored as, which
+is the distinction that kept getting lost. Typing the two arguments beside it
+turned up two latent bugs, which is becoming the reliable pattern: `node_dict`
+built its mapping from `node.name`, which is `str | None`, so a nameless node
+produced a `None` key that no lookup would ever match; and `submit()` appended
+to `self.nodes`, which raises `AttributeError` on a pipeline built from the
+`{name: node}` mapping form -- the form all of our own tests and the YAML
+loader use.
+
+Then the boundary fix. `Pipeline.configure` popped `__slurm_options__` *before*
+normalizing the row, while the compiler normalized rows first, so whether a
+reserved key could even be seen depended on which path the row took. A
+`PathLike` outer key naming `__slurm_options__` was silently dropped on one
+path and honored on the other. Also normalized inside `coerce_slurm_options`,
+because options arrive by four routes and only some have crossed the boundary
+already -- the pipeline base bypasses row normalization entirely.
+
+I checked both halves are load-bearing by restoring each old behavior in turn:
+the ordering fix is caught by the outer-key case, the `coerce` fix by the
+pipeline-base case. Worth the two minutes; a parity test that passes either way
+is not a parity test.
+
+Recorded as deferred 0.4.0 work, not started: universal full-matrix
+compilation. The direction is to keep `configure` as the interactive single-row
+API, always compile the complete matrix for batch scheduling, allow
+compilation without a gather, canonicalize and arbitrate only in the compiler,
+and have the runtime consume an already-finalized graph. Most of the defects
+this review sequence found -- stale row state, divergent Slurm layering,
+divergent normalization boundaries -- are the same defect wearing different
+hats: two scheduling paths that must agree and have nothing forcing them to.
+That is the real fix, and it is too broad for today.
+
+One more thing I noticed while answering whether the dict form of `nodes` is
+vestigial (it is not -- 70 call sites, and the YAML loader passes a mapping
+deliberately so `aggregate` can find per-node result loaders): with the dict
+form, `node_dict` returns the *caller's* keys, while every graph keys on
+`node.name`. `build_nx_graphs` even binds `for name, node in ...` and then
+never uses `name`. A dict whose key disagrees with its node's name would split
+the pipeline's idea of a node's identity. Not fixed, not urgent, but it is
+exactly the kind of thing that becomes a two-day bug later.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean, wheel builds.
+
+## 2026-08-04 14:15:28 -0400
+
+`Pipeline` takes a sequence now. The maintainer asked whether the mapping form
+was ever really used, and the honest answer took two rounds to get right.
+
+First answer: yes, `aggregate` indexes `dag.nodes[node_name]` in six places, so
+it needs a dict. Second answer, after actually looking: that is a *bug*, not a
+requirement. `node_dict` has always built a name index from the nodes
+themselves, so those six sites should have asked it -- and because they did
+not, **a list-built pipeline could not be aggregated at all**, raising
+`TypeError: list indices must be integers`. `demodata.py` builds one that way.
+So the feature that looked like it justified the mapping form was actually
+being broken by it.
+
+The lesson I want to keep: "X depends on it" is not the end of the
+investigation. The question is whether X depends on it *correctly*.
+
+Two things went wrong during the sweep that are worth recording. `list(mapping)`
+yields the keys, so the first pass silently turned nine tutorial pipelines into
+lists of strings and failed much later with `'str' object has no attribute
+'name'`. That is exactly the failure mode this change exists to remove, so
+`__init__` now rejects a Mapping with a message naming the migration rather
+than quietly doing something indefensible. And my AST sweep missed a
+`Pipeline({{...}})` inside an f-string template -- a reminder that a
+source-rewriting sweep is only as complete as the parser's view of the file.
+
+The scope was bigger than the maintainer or I expected: 89 call sites in tests,
+plus every tutorial and example under `docs/`. That is the part worth flagging
+to users -- the mapping form is what the tutorials taught, so this is a real
+break for anyone who followed them, not just an internal tidy.
+
+What it buys: `node_dict` has no branch and no second source of truth, `submit`
+has no branch, and the wart where a dict key could disagree with `node.name`
+is gone by construction rather than by discipline.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 14:22:12 -0400
+
+Checked the "one canonical container per class" property the maintainer asked
+about. `Pipeline` held it: `nodes` is the list, `node_dict` is derived, and the
+four graphs are derived caches -- an AST sweep confirms every `add_node` /
+`add_edge` is inside `build_nx_graphs` or its local helper, gated by `_dirty`.
+
+`CompiledPipeline` did not: three names over two containers. `proc_graph` was
+canonical, `nodes` was a dict *snapshot* of it taken at construction, and
+`node_dict` was a plain alias attribute for that snapshot. Nothing could drift
+today, because nothing mutates a compiled graph after construction -- but that
+is a convention, not an invariant, and a construction-time snapshot is exactly
+the shape that goes stale the first time someone adds a mutation. `nodes` is a
+`cached_property` over `proc_graph` now, and `node_dict` is gone.
+
+Removing it immediately caught something, which is the useful part. A test
+helper I had edited an hour earlier from `dag.nodes.values()` to
+`dag.node_dict.values()` broke -- it is called with a *compiled* pipeline. That
+edit had been silently correct only because the alias existed, and it was the
+name clash doing exactly what I predicted it would: `Pipeline.node_dict` is
+name-keyed, `CompiledPipeline.node_dict` was process_id-keyed, and I had
+treated them as the same thing while arguing that nobody should.
+
+Typing the new property also made ty see through `compiled.nodes[...]` to a
+real `ProcessNode` for the first time, which surfaced five unnarrowed optionals
+in tests (`_gather_members`, `_gather_connection`). Same class as the
+`sorted(n.name ...)` findings: not bugs in the tests as written, but assertions
+that would report a confusing failure rather than a clear one if the
+precondition ever broke.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-04 15:09:59 -0400
+
+kwdagger is kwconf-only now. I had sized this as a large job and was wrong;
+the maintainer's "there is nothing scriptconfig can do that kwconf can't, only
+small changes are necessary" was right, and I should have tested that claim
+before estimating against it.
+
+What I actually verified rather than assumed: `kwconf.Value` takes the same
+`nargs` / `position` / `isflag` / `type` keywords, and a side-by-side of flag
+and positional parsing across four argv shapes gives byte-identical results to
+scriptconfig. And `kwconf.ModalCLI` supports the same subclass-with-class-
+variables form, which I had assumed it did not after reading only its
+instance-based docstring example. That assumption would have turned a rename
+into a rewrite of every modal CLI in the tree.
+
+So the port was three names -- `Value`, `DataConfig` -> `Config`, `ModalCLI` --
+across 19 files, plus two call-signature differences that do reach user code:
+`cli()` takes `argv=` not `cmdline=`, and its sys.argv toggle is a bool rather
+than scriptconfig's int, so `main(argv=1)` becomes `main(argv=True)`. Those are
+in the changelog because anyone who wrote a node CLI against the tutorials has
+them.
+
+Two things worth recording about the mechanics. Running `ruff --fix` in the
+middle of a multi-step rename deleted an import that was unused *at that
+instant* and needed two steps later -- I should finish a rename before letting
+a fixer reason about the file. And the blanket text substitution renamed the
+`scriptconfig_pipeline` tutorial's *test id* while leaving the directory
+alone, which the tutorial test caught immediately; `git mv` sorted it out, but
+a text sweep over a tree where names are also paths wants the paths handled
+first.
+
+One thing to be honest about in the release notes: kwdagger no longer requires
+scriptconfig, but `cmd_queue.cli_boilerplate` still imports it at module
+level for its legacy `CMDQueueConfig`, so scriptconfig stays in the installed
+environment transitively. "kwdagger is kwconf-only" is true of kwdagger and
+not yet of the dependency tree.
+
+And the release-ordering constraint stands: cmd_queue 0.3.2 exists only in the
+sibling checkout. Until it is published, `cmd_queue >= 0.3.2` makes kwdagger
+0.3.0 uninstallable from an index -- the suite here only collects because I
+installed the local checkout editable.
+
+377 passed / 18 skipped, 92 doctests, ruff/ty/flake8 clean.
+
+## 2026-08-05 10:32:49 -0400
+
+Closing out a long session. 0.3.0 is released, the dependents are moved onto
+it, and the single-scheduling-path refactor has its characterization baseline
+committed but nothing else. Wrote `dev/planning/authority-refactor-handoff.md`
+rather than leaving that state in my head.
+
+The thing I most want the next person to read is the authority table in that
+document. Every defect this review sequence found -- stale row state, divergent
+Slurm layering, divergent normalization boundaries -- was the same defect:
+two owners for one question, with nothing forcing agreement. I fixed each one
+individually as it was reported, which was right for a release but is why the
+list kept growing. The refactor is the actual fix.
+
+Phase 1 is deliberately only tests. Two of them record current *disagreements*
+rather than asserting agreement, which felt wrong to write and is I think
+correct: `node.slurm_options` genuinely means different things on the two
+paths, and pinning that as a difference now is what lets Phase 4 flip it to an
+equality and prove something changed. A characterization test that quietly
+compares only the fields that already match is a test that will pass through
+the refactor without noticing anything.
+
+Also worth recording: writing the parity harness taught me something about the
+row-at-a-time path I had not appreciated. Reading node state after the loop
+shows only the last row, because that path reuses one mutable node while the
+compiler clones. That is not just an implementation detail -- it means
+"configure a batch, then inspect the pipeline" is misleading today, and the
+refactor incidentally fixes an interactive-inspection wart, not only an
+architectural one.
+
+Two things I could not close and flagged in the handoff: I never found the TA1
+fingerprint fixture the brief asks to run, and the version target is ambiguous
+(the brief says 0.4.0, the maintainer said keep 0.3.1) in a way that matters
+because `build_schedule()` consistently returning a `CompiledPipeline` is a
+visible behavior change.
+
+Baseline at `346ac18`: 391 passed / 18 skipped, 92 doctests, ruff/ty/flake8
+clean.
+
+## 2026-08-05 12:21:47 -0400
+
+Picked the authority refactor back up in the same day I handed it off and ran
+it to the end: phases 2 through 7, one commit each, on `dev/0.3.1`.
+
+The thing I got wrong in the handoff, and it is worth writing down because it
+changed how the whole job felt: I described Phase 2 as "remove the restriction
+at `_logical.py:549`" and expected to then make the compiler handle ordinary
+nodes. It already did. Nothing in `_compile_pipeline_configurations` was
+gather-specific -- with no gather connections the collection resolution simply
+has nothing to select -- so the guard *was* the entire barrier. A five-line
+diff. Which means the second scheduling path had been kept alive for months by
+a precondition nobody had tested the falsity of. I wrote a probe script before
+touching anything, ran the compiler on a gather-free pipeline with the guard
+bypassed, and it produced exactly the right graph on the first try. That probe
+is the single highest-value thing I did all session: it turned a phase I had
+budgeted a day of care for into an afternoon, and it would have been just as
+valuable had it failed.
+
+Phase 3 was where the real work was, and where I found a seventh divergence
+the authority table had missed. `submit_jobs` keyed `node_status` by whatever
+the graph key was -- node *names* on the row path, `process_id` on the
+compiled one. The parity harness filtered statuses by name, which on the
+compiled side yielded an empty dict, so it had been silently comparing nothing
+for that field the entire time. Two lessons in one: the table I was so pleased
+with was incomplete, and a characterization test can pass through a refactor
+while asserting less than it appears to. I made the key `process_id`
+everywhere, since a name cannot key a compiled matrix without dropping
+siblings, and updated the tests that read it by name to translate explicitly
+rather than quietly.
+
+The delegation in Phase 3 is the decision I went back and forth on most.
+`Pipeline.submit_jobs` had to stop being a second scheduler, and the shape the
+handoff suggested -- a one-row compiled representation -- was right. What I
+nearly got wrong was where the row comes from. My first design reconstructed
+it from node state after the fact, walking `node.config` back into dotted
+keys. I had it half-written before noticing I was building a second answer to
+"what was this row" inside a refactor whose entire purpose is removing second
+answers. It would also have silently lost the row-global `__slurm_options__`,
+which `configure` pops. Having `configure` *remember* the row before popping
+is four lines and has no second authority in it. When the fix for a
+duplicate-authority problem introduces a duplicate authority, stop typing.
+
+Phase 4 was the satisfying one. Three sites each computed the effective Slurm
+request from a different subset of four layers, and the fix is a single
+keyword-only pure function plus one attribute on the node. Making it
+keyword-only mattered more than it looks: the order of those layers *is* the
+semantics, and a positional call site is one refactor away from silently
+reordering them. The characterization test that recorded the disagreement
+flipped to an equality, which is the moment the whole Phase 1 investment paid
+off -- I did not have to argue that something changed, the test that was
+written to fail failed, and then passed for the right reason.
+
+Phase 5 turned out to be mostly proof rather than code, which surprised me
+until I understood why: once Phase 3 made compilation universal, the runtime
+registry structurally *cannot* fire on the graph it was handed, because a
+`process_id` is a key there. It was already only a cross-submission backstop.
+So the phase became writing that down and then proving the compiler catches
+every conflict class in either row order -- seven classes, parameterized, plus
+the fingerprint-of-the-whole-compilation check that reversing a matrix changes
+nothing. I would rather have that table than another paragraph of reasoning
+about why order cannot matter.
+
+Phase 6's test is the one I am least sure earns its place and most glad I
+wrote. To show the graph outranks node state I had to *provoke* a
+disagreement -- remove an edge from a compiled graph whose nodes still
+describe it -- because normal use cannot produce one; the compiler builds
+those edges from that node state. A test asserting a claim about which of two
+sources wins is worth nothing if the two never differ. It looks artificial and
+it is exactly what the claim means.
+
+And the TA1 fingerprint: found it. It was never a fixture, which is why I
+could not locate it in the previous session -- the procedure existed only as
+prose in my own journal entries ("`lift` and `lomo` fingerprints unchanged").
+It is the two `*_kwdagger.yaml` cards in incubilate, compiled and dumped. I
+wrote `dev/ta1_fingerprint.py`, ran it at `84cbb01` and at HEAD, and the two
+are byte-identical: 53 concrete processes per card, same ids, same directories,
+same commands. Nothing anybody has on disk moves. First run leaked
+`build_schedule`'s own stdout into the comparison and showed a spurious diff,
+which was a useful thirty seconds of alarm.
+
+What I am confident about: no identity changed, the suite went 391 -> 454, and
+every removal was checked against the dependents in the superproject first.
+`aiq-magnet` already read `dag.nodes.values()` with a comment saying
+`build_schedule` returns instances keyed by process id -- it was written
+against the compiled shape and had been quietly relying on its cards
+gathering. This fixes it rather than breaking it.
+
+What I am not confident about, and left open on purpose: the version. The
+brief says 0.4.0, the maintainer said 0.3.1, and the changes genuinely are
+breaking for anyone reading `node_status` by name. Nothing in the refactor
+decides it, so I recorded the evidence in the handoff and left the number
+where the maintainer put it. Bumping is one line. I would rather hand back a
+visible decision than a quiet one.
+
+The other risk worth naming: the branches still are not pushed, in any of
+these repos. Same as it has been all week.
+
+## 2026-08-05 14:02:11 -0400
+
+Acted on a GPT-5.6 review of the finished refactor. It found one real runtime
+bug and three places where the authority model was not actually closed, and it
+was right about all four. I reproduced every one before touching anything,
+which is worth doing: a review that is right about four things can still be
+right for the wrong reason about one of them, and the probes are what turn
+"plausible" into "confirmed".
+
+The `skip_existing` bug is the one I should have caught myself, and the reason
+I did not is instructive. It predates this work — the line has been there for
+ages — but the refactor is what made it matter, because `build_schedule` now
+*returns* the compiled pipeline and callers hold on to it. Writing a per-call
+decision back as `node.enabled = False` meant the object stopped describing
+what was asked for: a second submission with `skip_existing=False` still
+reported the node disabled, and resubmitting to the same queue compared the
+mutated node against the first snapshot and raised an `__enabled__` conflict
+the user never created. I spent six phases arguing that a compiled pipeline is
+a static description of requested work and never checked whether submitting it
+left it unchanged. The invariant I was most confident about is the one I
+never tested.
+
+The two `cached_property` lookups are a subtler version of the same thing, and
+I would have defended them if asked. They *are* derived from `proc_graph` —
+that was the Phase 6 requirement and I ticked it. But the mapping they hand
+back is independently mutable, so the moment anything edits it, a cached one
+keeps the edit while the graph submission actually walks knows nothing about
+it. Derived-once is not the same as derived. Plain properties, and the cost is
+a dict comprehension.
+
+The interactive Slurm gap is the one that stings, because completing that
+surface was an explicit goal of Phase 4 and I half-did it. `ProcessNode.configure`
+resolves the two layers a node knows, compilation adds the other two — which
+is right, and means a *template* node reported an incomplete request to anyone
+inspecting a configured pipeline while the submitted job used the complete
+one. `Pipeline.configure` knows all four; it now finishes the job through the
+same resolver, so there is still one place that knows the precedence.
+
+The cloning finding is the one I nearly under-fixed. The reviewer flagged it
+as a scalability concern to track rather than block on, and my instinct was to
+add a benchmark and move on. I measured first: per-clone cost went 0.69 ms at
+two nodes to 4.23 ms at thirty-two, so compiling a matrix was quadratic in the
+pipeline — and universal compilation is exactly what made that everyone's
+problem rather than gather users'. That reframed it from "future work" to
+"something my change caused". The fix is to detach the node's outward
+references, copy, and restore, so the copy is born disconnected instead of
+copied connected and then stripped. Flat 0.55 ms/clone at every size; the
+32-node case went 0.541 s to 0.071 s.
+
+Finding the last escape route took a graph walk rather than reading. I
+detached the obvious ones — `pred`, `succ`, gather links,
+`_pred_nodes_without_io_connection` — re-benchmarked, and nothing changed at
+all. The remaining route was `_configured_cache`, the memoization dict, which
+holds a computed list of *other nodes* under the predecessor query. That is
+the second time this session a memo has quietly been part of the object graph,
+and I would not have guessed it; `gc`-style reachability from one node to
+another is a much better tool than staring at attribute lists.
+
+One self-inflicted wound worth recording: I verified the new tests were
+load-bearing by breaking a fix and re-running, then "restored" with
+`git checkout kwdagger/pipeline/_compile.py` — which reverted the file to the
+last *commit*, silently throwing away two of the fixes I had just made in it.
+I noticed because a grep returned 0. Copy the file to a scratch path and copy
+it back; `git checkout` is not an undo for uncommitted work.
+
+TA1 fingerprint byte-identical again after all of this, which is the check
+that matters most: none of these fixes moved an identity. 470 passed / 18
+skipped, up from 454.
+
+## 2026-08-05 15:07:40 -0400
+
+Second review round on the same work, and it found a real one I had walked
+straight past: the `skip_existing` fix was incomplete in a way I had actually
+written a comment *asserting* was fine.
+
+The first round made `skip_existing` stop mutating `node.enabled`, which was
+the bug. But arbitration still compared only the compiled predecessor set --
+what the computation requires -- while the queue job got the active-filtered
+set, which is what this call actually queued. Those are different questions
+and I had just spent a phase insisting that conflating two questions is the
+whole defect class here. Two submissions to one queue with different
+`skip_existing` therefore agreed about the request, the second was recorded as
+a duplicate, and the job kept whichever call's dependencies came first. In one
+order that leaves a consumer with no dependency on a producer the queue is
+about to rerun. It can run first and read the stale output.
+
+What stings is that `_runtime.py` said, in a comment I wrote, that reversing
+two calls differing in `skip_existing` leaves the same queue -- and `AGENTS.md`
+repeated it. Neither was tested. I wrote the justification for excluding
+`skip_existing` from the comparison and then never checked the justification.
+A design note that states a property is a claim; either test it in the same
+commit or phrase it as an intention.
+
+The fix is to carry `queued_prerequisites` beside `prerequisites` in the
+snapshot, so the registry describes queue jobs as well as computations. Both
+orders now report the same conflict. The reviewer also suggested not
+registering disabled or skipped nodes at all; I did not take that part,
+because it would drop the existing cross-call `__enabled__` arbitration in
+exchange for solving a problem the added field already solves. Worth naming
+that I disagreed with one step of a review whose other four points I took
+wholesale -- the useful thing was reproducing each claim first, which is what
+made it obvious which parts were load-bearing.
+
+Also corrected two documentation statements that my own previous commit made
+stale: `AGENTS.md` said compilation is the *only* caller of
+`resolve_slurm_options`, which stopped being true the moment I made
+`Pipeline.configure` call it to complete interactive inspection. The rule
+should have been "the resolver is the sole precedence authority; whoever holds
+four layers calls it", not "there is one call site". I stated the weaker,
+more brittle version and then broke it myself within one commit.
+
+TA1 fingerprint byte-identical. 475 passed / 18 skipped.
+
+## 2026-08-05 16:44:02 -0400
+
+The maintainer read the finished refactor and stopped it. The duplicate
+arbitration I built -- and that two review rounds pushed me to make stricter --
+encodes a policy opinion that is not this project's. Rejecting two matrix rows
+because they differ in `perf_params` is not a safeguard here; it is refusing
+to run somebody's grid over a distinction they deliberately kept out of the
+hash. The phrase that landed: grad-student research grade, not enterprise
+grade. We record what the thing was run with. We don't have to reject.
+
+I want to be honest about how I got here, because "the reviewers pushed me" is
+only half of it. The other half is that I found the strictness *satisfying*.
+Every rejection I added made a crisper invariant, produced a better error
+message, and closed a case in a table. The authority table in the handoff was
+genuinely good work and it made rejection feel like the natural conclusion of
+it. What I never did was ask whether the guarantee being protected was one
+kwdagger offers. Two external reviews didn't ask either -- they were reasoning
+about workflow engines, correctly, about a project that isn't one.
+
+The tell was there and I wrote it myself. `AssertionError: Internal
+consistency error` for two requests that finalize different commands under one
+identity. That is two legitimate requests differing, which is policy, but
+calling it an internal consistency error made it look like a defect nobody
+could argue with. I picked that wording, it survived several reviews
+unquestioned, and it is the single thing that most made the rules look
+unremovable. Reserve internal errors for contradictions inside one request.
+
+The rework itself was smaller than I expected, which is its own signal: the
+authority refactor survives intact. One compilation path, one normalization
+boundary, one Slurm resolver, the compiled graph owning execution
+dependencies, disconnected cloning, derived containers -- all of it stays and
+none of it depended on rejecting anything. What came out was the arbitration
+built on top: 372 lines of `_agreement.py`, the cross-call queue registry, and
+`queued_prerequisites`, which I had added *one commit earlier* to make the
+cross-call check more thorough. That is the clearest evidence I was
+accelerating in the wrong direction right up to the moment I was stopped.
+
+`_duplicates.py` is 210 lines and does not decide anything. It compares and
+formats; the compiler picks `first`, `warn`, or `error`. The comparison table
+is the one piece of the old framework worth keeping, and it now only runs when
+a user asks. Naming mattered here: not `permissive`/`strict`, because that
+would say the strict one is correct and the default is a concession. `error`
+is an extra constraint someone requested.
+
+One thing I decided rather than deferred: matrix order selecting the
+representative is documented as intended, and the tests assert per-order
+behavior rather than order independence. My earlier tests asserted the
+opposite, and asserting order independence is what turned a diagnostic into a
+rule -- once you have promised order cannot matter, every difference has to be
+rejected to keep the promise.
+
+What I am less sure about: whether the `error` policy should eventually be
+per-field rather than all-or-nothing. I kept the implementation private and
+compact so that can be added without committing to it now. Also unsure whether
+`warn` should default to once-per-process-id or once-per-difference-class in a
+large matrix; right now a pathological grid could emit a lot of warnings. It
+is opt-in, so I left it.
+
+TA1 fingerprint byte-identical, which is the right outcome: this changed
+duplicate-handling policy, not identity. 500 passed / 18 skipped, up from 475.

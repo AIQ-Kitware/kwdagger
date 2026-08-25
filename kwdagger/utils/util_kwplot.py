@@ -358,7 +358,7 @@ class LabelModifier:
                 self._dict_mapper.update(ub.udict(mapping).map_keys(str))
         return self
 
-    def update(self, dict_mapping: Any) -> Any:  # type: ignore
+    def update(self, dict_mapping: Any) -> Any:
         self._dict_mapper.update(dict_mapping)
         self._dict_mapper.update(ub.udict(dict_mapping).map_keys(str))
         return self
@@ -666,7 +666,10 @@ class ArtistManager:
         if 'color' in attrs:
             attrs['color'] = kwimage.Color.coerce(attrs['color']).as01()
         if 'hashid' in attrs:
-            attrs = attrs - {'hashid'}  # type: ignore
+            # ``attrs`` is already a fresh udict copy, so deleting in place is
+            # equivalent to udict's set-difference without depending on whether
+            # a checker resolves ``udict.__sub__``.
+            del attrs['hashid']
         hashid = ub.hash_data(sorted(attrs.items()))[0:8]
         return hashid, attrs
 
@@ -698,7 +701,9 @@ class ArtistManager:
         self.group_to_line_segments[hashid].append(points)
         self.group_to_attrs[hashid] = attrs
 
-    def add_ellipse(self, xy: Any, rx: Any, ry: Any, angle: Any = 0, **attrs: Any) -> None:
+    def add_ellipse(
+        self, xy: Any, rx: Any, ry: Any, angle: Any = 0, **attrs: Any
+    ) -> None:
         """
         Real ellipses in dataspace
         """
@@ -789,13 +794,20 @@ class ArtistManager:
         self.add_ellipse_marker(xy, rx=r, ry=r, angle=0, **attrs)
 
     def build_collections(self, ax: Any = None) -> list[Any]:
+        # Importing the submodule is what makes ``mpl.collections`` resolvable
+        # below; ``mpl`` itself is the module-level alias. Ruff reads the local
+        # ``matplotlib`` binding as shadowing that alias and reports F823, but
+        # the attribute access is on ``mpl`` and works -- verified by calling
+        # this method.
         import matplotlib.collections  # NOQA
         import numpy as np
 
         collections: list[Any] = []
         for hashid, segments in self.group_to_line_segments.items():
             attrs = self.group_to_attrs[hashid]
-            line_collection = mpl.collections.LineCollection(segments, **attrs)
+            line_collection = mpl.collections.LineCollection(  # noqa: F823
+                segments, **attrs
+            )
             collections.append(line_collection)
 
         for hashid, type_to_patches in self.group_to_patches.items():
@@ -820,7 +832,7 @@ class ArtistManager:
                 units='points',
                 # units='x',
                 # units='xy',
-                transOffset=ax.transData,  # type: ignore
+                transOffset=ax.transData,
                 **attrs,
             )
             # collection.set_transOffset(ax.transData)
@@ -965,9 +977,7 @@ class Palette(ub.udict):
         legend = kwplot.make_legend_img(self, dpi=dpi, **kwargs)
         return legend
 
-    def sorted_keys(
-        self, key: Any = None, reverse: bool = False
-    ) -> Any:
+    def sorted_keys(self, key: Any = None, reverse: bool = False) -> Any:
         return self.__class__(super().sorted_keys(key=key, reverse=reverse))
 
     def reorder(self, head: Any = None, tail: Any = None) -> Any:

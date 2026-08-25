@@ -96,3 +96,10 @@ _skbuild
 pip-wheel-metadata/
 
 wheelhouse
+
+*.tar.gz
+
+.vscode/
+*.png
+results
+emissions.csv

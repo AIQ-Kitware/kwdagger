@@ -3,7 +3,7 @@ import json
 
 import kwutil
 import rich
-import scriptconfig as scfg
+import kwconf as kw
 import ubelt as ub
 from rich.markup import escape
 
@@ -18,36 +18,36 @@ def _load_reviews(fpath):
     return records
 
 
-class KeywordSentimentPredictCLI(scfg.DataConfig):
+class KeywordSentimentPredictCLI(kw.Config):
     """Minimal "model" that tags texts containing a keyword."""
 
-    src_fpath = scfg.Value(
+    src_fpath = kw.Value(
         None,
         help='path to labeled jsonl review file',
         tags=['in_path'],
     )
-    dst_fpath = scfg.Value(
+    dst_fpath = kw.Value(
         'keyword_predictions.json',
         help='path to prediction file',
         tags=['out_path', 'primary'],
     )
-    dst_dpath = scfg.Value(
+    dst_dpath = kw.Value(
         '.',
         help='path to output directory',
         tags=['out_path'],
     )
 
-    keyword = scfg.Value(
+    keyword = kw.Value(
         'great',
         help='word that marks a review as positive',
         tags=['algo_param'],
     )
-    case_sensitive = scfg.Value(
+    case_sensitive = kw.Value(
         False,
         help='toggle case sensitivity',
         tags=['algo_param'],
     )
-    workers = scfg.Value(
+    workers = kw.Value(
         0,
         help='number of parallel workers (unused)',
         tags=['perf_param'],
@@ -114,7 +114,7 @@ if __name__ == '__main__':
 
     r"""
     CommandLine:
-        python ~/code/kwdagger/docs/source/manual/tutorials/scriptconfig_pipeline/example_user_module/cli/keyword_sentiment_predict.py \
-            --src_fpath ~/code/kwdagger/docs/source/manual/tutorials/scriptconfig_pipeline/data/toy_reviews_movies.jsonl \
+        python ~/code/kwdagger/docs/source/manual/tutorials/kwconf_pipeline/example_user_module/cli/keyword_sentiment_predict.py \
+            --src_fpath ~/code/kwdagger/docs/source/manual/tutorials/kwconf_pipeline/data/toy_reviews_movies.jsonl \
             --dst_fpath ./keyword_predictions.json
     """

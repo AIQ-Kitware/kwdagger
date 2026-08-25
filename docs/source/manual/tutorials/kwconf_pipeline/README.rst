@@ -2,7 +2,7 @@ Scriptconfig Pipeline Tutorial
 ==============================
 
 This tutorial mirrors the two-stage pipeline example, but it uses
-``scriptconfig`` schemas to declare input/output paths and parameter groups.
+``kwconf`` schemas to declare input/output paths and parameter groups.
 The ``ProcessNode.params`` class variable automatically derives
 ``in_paths``, ``out_paths``, ``algo_params``, and ``perf_params`` from the
 schema so your pipeline stays in sync with the CLI definitions.
@@ -12,12 +12,12 @@ Files in this tutorial
 
 * ``data/`` - two small JSONL datasets of movie and food reviews.
 * ``example_user_module/cli`` - command line entry points for the prediction and
-  evaluation nodes (scriptconfig schemas live here).
+  evaluation nodes (kwconf schemas live here).
 * ``example_user_module/pipelines.py`` - pipeline wiring that uses
   ``ProcessNode.params`` to derive node IO/params.
 * ``run_pipeline.sh`` - copy/paste helper to schedule and aggregate.
 
-How scriptconfig drives ProcessNode definitions
+How kwconf drives ProcessNode definitions
 -----------------------------------------------
 
 Each CLI class declares the node schema with tags:
@@ -83,7 +83,7 @@ Running the tutorial
 .. code:: bash
 
     # From this folder (modify to where your copy is)
-    cd ~/code/kwdagger/docs/source/manual/tutorials/scriptconfig_pipeline/
+    cd ~/code/kwdagger/docs/source/manual/tutorials/kwconf_pipeline/
 
     # Set the PYTHONPATH so kwdagger can see the custom module in this directory
     export PYTHONPATH=.
@@ -117,3 +117,29 @@ Once jobs complete, aggregate with:
             pipeline: 'example_user_module.pipelines.my_sentiment_pipeline()'
             root_dpath: ${EVAL_DPATH}
         "
+
+Declarative alternative: spelling the groups out in YAML
+--------------------------------------------------------
+
+Deriving node groups from a kwconf schema (``params = ...CLI``) keeps the
+pipeline in sync with the CLI definition. The trade-off is that you must read
+the Python to know what the matrix keys mean. If you would rather keep
+everything in one self-describing document, this folder also ships
+``pipeline.yaml``, which declares the same ``in_paths`` / ``out_paths`` /
+``algo_params`` / ``perf_params`` directly as data:
+
+.. code:: bash
+
+    PYTHONPATH=. kwdagger schedule --pipeline ./pipeline.yaml --params "
+        matrix:
+            keyword_sentiment_predict.src_fpath:
+                - data/toy_reviews_movies.jsonl
+                - data/toy_reviews_food.jsonl
+            keyword_sentiment_predict.keyword: [great, boring, love]
+            sentiment_evaluate.workers: 0
+    " --root_dpath "${EVAL_DPATH}" --backend serial --skip_existing 1 --run 1
+
+The two are equivalent (identical node IDs, outputs, and resolved parameters);
+pick whichever fits your project. See the
+:doc:`YAML pipeline specification </manual/technical/yaml_pipeline_spec>` for the
+full schema.

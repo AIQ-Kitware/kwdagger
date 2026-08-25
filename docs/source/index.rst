@@ -21,6 +21,21 @@ Welcome to kwdagger's documentation!
    auto/kwdagger
    auto/modules
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Technical Reference
+
+   manual/technical/parameter_identity
+   manual/technical/yaml_pipeline_spec
+   manual/technical/hashing_scheme
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Tutorials
+
+   manual/tutorials/gather_cross_validation/README
+   manual/tutorials/gather_mapreduce_corpus/README
+
 
 Indices and tables
 ==================

@@ -5,21 +5,22 @@ in this repository. It summarizes the project layout, development environment,
 common workflows, and testing/documentation practices.
 
 ## Project overview
-- **Purpose:** `kwdagger` defines bash-centric DAG pipelines that can be expanded
-  over parameter grids, scheduled on multiple backends (serial, tmux, Slurm),
-  and aggregated for reporting.
+- **Purpose:** `kwdagger` turns parameterized definitions of existing command-line
+  programs into static graphs of shell commands and hashed result directories.
+  It can dispatch those commands through serial, tmux, or Slurm backends, while
+  preserving inspectable `invoke.sh` files and a navigable result graph.
 - **Primary CLIs:**
   - `python -m kwdagger.schedule` / `kwdagger schedule` – schedule a pipeline via `ScheduleEvaluationConfig`.
-  - `python -m kwdagger.aggregate` / `kwdagger aggregate` – aggregate completed runs via `AggregateEvluationConfig` and generate text/plot reports.
+  - `python -m kwdagger.aggregate` / `kwdagger aggregate` – aggregate completed runs via `AggregateEvaluationConfig` and generate text/plot reports.
   - `python -m kwdagger` – modal CLI defined in `kwdagger/__main__.py` that exposes the above commands.
 - **Demo:** `kwdagger/demo/demodata.py` defines a runnable pipeline with
   per-stage CLIs and end-to-end commands used by CI and onboarding.
 
 ## Repository layout
 - `kwdagger/`
-  - `pipeline.py` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`.
+  - `pipeline/` – `Pipeline` and `ProcessNode` abstractions, networkx process and IO graph construction, configuration/inspection utilities, and demo helper `Pipeline.demo()`. Import everything from `kwdagger.pipeline`; the submodules are private and layered one-way (`_config_values`/`_shell`/`_slurm` → `_duplicates` → `_runtime` → `_connections` → `_process` → `_compile` → `_logical`). `tests/test_import_compat.py` enforces both the import surface and that direction.
   - `schedule.py` – `ScheduleEvaluationConfig` and supporting helpers that expand YAML/JSON parameter matrices, prepare job directories, and dispatch to cmd_queue backends.
-  - `aggregate.py` – `AggregateEvluationConfig` CLI that loads completed runs, computes parameter hash IDs, aggregates metrics, and writes reports.
+  - `aggregate.py` – `AggregateEvaluationConfig` CLI that loads completed runs, computes parameter hash IDs, aggregates metrics, and writes reports.
   - `aggregate_loader.py` / `aggregate_plots.py` – helpers for loading pipeline outputs and producing tabular or plotted summaries.
   - `demo/` – demo nodes and `demodata.py` pipeline used for examples/tests.
   - `query_plan.py` – parses and applies YAML/raw query expressions to filter aggregated pandas DataFrames (used by the aggregation CLI for post-processing results).
@@ -56,14 +57,417 @@ common workflows, and testing/documentation practices.
 - To run only the pytest suite manually: `pytest kwdagger tests` (add custom
   flags as needed; see `pyproject.toml` for default addopts and warning filters).
 - Doctests: `./run_doctests.sh` executes `xdoctest kwdagger --style=google all`.
-- Linting: `./run_linter.sh` runs a strict flake8 pass for fatal errors.
+- Linting: `./run_linter.sh` runs a strict flake8 pass for fatal errors. The
+  full set the branch is kept clean against, all available through `uv`:
+  ```bash
+  uv tool run ruff check kwdagger tests
+  uv tool run ruff format --check kwdagger tests
+  uv tool run ty check ./kwdagger
+  uv tool run flake8 --select=E9,F63,F7,F82,F401,F811,F841 kwdagger tests
+  ```
+  `flake8` catches unused and shadowed names that `run_linter.sh`'s narrow
+  selection does not.
 - Tests and doctests rely on the demo pipeline data where appropriate; keep demo
   CLI behavior stable when making changes.
+- **The TA1 fingerprint**, `dev/ta1_fingerprint.py`, before and after any change
+  to identity, compilation, or command generation. It compiles real TA1 card
+  pipelines and prints every concrete process id, node directory, and command,
+  so a diff answers one narrow question: did this move a result directory
+  somebody already has? Run it from the repository holding the cards:
+  ```bash
+  # from aiq-eval-runner
+  python submodules/kwdagger/dev/ta1_fingerprint.py \
+      ta1/aiq-ta1-incubilate/cards/oc_lift_kwdagger.yaml \
+      ta1/aiq-ta1-incubilate/cards/oc_lomo_kwdagger.yaml > after.json
+  ```
+  A byte-identical fingerprint means "did not change what I care about", not
+  "is correct". Several real defects found during 0.3.x were invisible to it,
+  because they lived in arbitration, provenance, or Slurm options, none of
+  which reach a process id. Do not let a green fingerprint stand in for the
+  suite.
 
 ## Documentation
 - Sphinx sources live in `docs/` with `docs/source/index.rst` as the entry point.
 - Build the HTML docs locally with `make -C docs html` (requires
   `requirements/docs.txt`). Generated output is placed under `docs/build/html`.
+
+## Execution, identity, and duplicate-request policy
+
+**Read this before proposing any safeguard.** Every rule below has been
+violated by a well-meaning change, and the changes were well-argued each time.
+
+Kwdagger runs parameter grids and records what it ran. That is the whole job.
+
+1. **It runs the grid and records the result.** It does not manage data.
+2. **It trusts configured paths as data identity.** The governing convention:
+   *the same configured path represents the same effective data.* This is a
+   convention of the system, deliberately not guarded.
+3. **It does not verify file contents or freshness.** Identity is value-based,
+   never content-based. Kwdagger does not read the bytes at a path, and equal
+   paths do not prove equal content.
+4. **`process_id` is the deduplication key.** Two requests that hash alike are
+   one job in one result directory.
+5. **Values excluded from identity may differ between duplicate requests.**
+   That is not a conflict. It is the direct consequence of the user choosing
+   which fields reach the hash.
+6. **The default duplicate policy is first-request-wins.** The first request
+   encountered for a `process_id` is the representative: it runs, and it is
+   what `job_config.json` records. Matrix order selects it. This is normal
+   supported behavior, not a degraded compatibility mode.
+7. **`warn` and `error` are optional diagnostics**, selected per compilation.
+   They change what is *reported*, not what is correct. `error` is an extra
+   constraint a user asked for.
+8. **Different delivery mechanisms for an equal effective path are not
+   different computations.** A produced path and the identical path typed into
+   a config are the same input, and hash alike. Provenance and *effective
+   scheduling* may still differ: an explicitly configured value outranks the
+   producer, so the manual row has no effective predecessor while the produced
+   row does. Identity does not distinguish them; the compiled graph does. The
+   first representative's provenance and predecessor set are what is retained,
+   which is first-request-wins reaching execution and not only the record.
+9. **Partial reruns and shared-queue submissions are not transactional.** Two
+   calls sharing a queue are two independent operational requests.
+10. **Existing outputs may satisfy dependencies.** A downstream job may be
+    queued without its producer when the producer's output already exists.
+11. **A later upstream rerun does not invalidate or reorder already submitted
+    downstream work.** Kwdagger makes no guarantee about data flow when
+    individual nodes are reinvoked and produce different results, and should
+    not try to.
+12. **Do not add content hashing, lineage-sensitive identity, invalidation
+    cascades, or cross-call arbitration** without an explicit change in
+    project scope. These have each been proposed, and implemented, by review
+    processes reasoning about workflow engines rather than about kwdagger.
+
+### The reviewer test
+
+> Before proposing a safeguard, ask whether it is required to execute the
+> ordered parameter grid in the current compilation, or whether it is
+> attempting to enforce artifact integrity or coherence across independent
+> executions. **The latter is out of scope.**
+
+If a user needs data integrity, they implement it. Kwdagger is running their
+parameter grid.
+
+### How this went wrong once, in detail
+
+Worth keeping, because the failure mode is subtle and recurring. The 0.3.x
+review rounds correctly identified that two matrix rows could compile to one
+process while disagreeing about `perf_params`, Slurm options, or `__enabled__`
+-- and that whichever row came first would silently decide. Each round the fix
+was to *reject*, and each rejection was individually defensible.
+
+The premise was wrong. "Whichever row came first decides" is not a defect; it
+is first-request-wins, which is what a grid runner should do. Rejecting made
+kwdagger refuse ordinary research pipelines in the name of a determinism
+guarantee nobody asked for. A related earlier instance: an agent proposed
+making two requesters with the same path hash differently, which would have
+forced recomputation of every downstream result.
+
+The pattern to watch for: an argument that begins "these two requests are
+indistinguishable, so we cannot know which the user meant". We can. They meant
+the first one. Record it and run it.
+
+## Core execution model and priorities
+
+Treat these as the primary constraints when changing scheduling, graph
+compilation, generated commands, hashing, or artifact layout.
+
+- **The command is the primary product:** a `ProcessNode` must be able to turn
+  its current parameters into the complete shell command and associated paths.
+  The default named-argument convention is convenient, but subclasses may
+  support positional arguments, subcommands, or other existing CLI conventions.
+  Kwdagger wraps ordinary programs; it should not lock users into a bespoke
+  execution ecosystem.
+- **Static planning:** all concrete commands and produced-artifact dependencies
+  are determined before execution. Nodes may make data-dependent decisions
+  internally, but scheduler-side runtime DAG mutation requires an explicit
+  phase boundary and a newly compiled downstream pipeline.
+- **Execution remains separable:** cmd_queue is the normal execution mechanism,
+  with tmux the most commonly used interactive backend, but generated commands
+  and per-node `invoke.sh` files must remain usable without kwdagger. Do not hide
+  essential execution state only in Python objects or scheduler internals.
+- **The hashed result graph is a defining feature:** preserve stable result
+  directories, a practical primary-output completion check, and correct `.pred`
+  / `.succ` links. Users rely on this graph for inspection, independent reruns,
+  and downstream invalidation after scheduling has finished.
+- **Produced artifacts define execution lineage:** an output-to-input edge means
+  the source must execute and materialize data before the target. It therefore
+  creates queue ordering, process lineage, and persistent predecessor/successor
+  links.
+- **Known-value sharing is not execution lineage:** input-to-input forwarding and
+  algorithm-parameter sharing reuse an already-known value. They may require
+  configuration resolution, but they should not by themselves create execution
+  dependencies, `.pred` links, or fan-out over unrelated source sweep axes.
+  Configuration resolution must be independent of node insertion order and of
+  stale values from a previously configured matrix row.
+- **Matrix correlation is first-class:** `matrix`, `include`, and `exclude` are
+  established mechanisms for describing an experiment campaign. `submatrices`
+  are useful but historically pragmatic. Put relationships that are always true
+  in the pipeline; put campaign-specific correlations in the matrix.
+- **The parameter taxonomy is historical:** `in_paths`, `out_paths`,
+  `algo_params`, and `perf_params` describe current mechanics, not a settled
+  ontology. In particular, `perf_params` means “excluded from operational result
+  identity,” even for values such as verbosity that are not performance knobs.
+  Preserve compatibility now; do not redesign the taxonomy incidentally.
+- **Operational identity is a reuse mechanism:** `process_id` decides result
+  directory and queue reuse under kwdagger's declared parameters and effective
+  input values -- not under lineage; see "Process identity, scheduling, and
+  provenance" below. It is not a content hash or a proof of determinism. `algo_id` is a
+  current implementation component without a strong standalone public contract;
+  do not optimize the architecture around it at the expense of observable
+  command, reuse, or lineage behavior.
+- **Preserve dotted requested lineage:** `job_config.json` records the requested
+  experiment description, while executables may separately report resolved
+  runtime parameters. Shared values should remain understandable with fully
+  qualified source/target names even when they do not create process ancestry.
+- **Gather is new compile-time many-to-one semantics:** gather selects a known
+  set of source outputs, writes a manifest, and passes one manifest path to an
+  ordinary consumer. It is not historical result discovery. It is a feature
+  *of* a compiled matrix, not a mode of scheduling one: every pipeline compiles
+  the complete matrix before submission, and a gather-free one simply has no
+  collections to resolve. Whether a pipeline gathers must never decide how its
+  nodes are scheduled -- see "Authoritative pipeline representations".
+- **Prefer qualified grouping keys:** unqualified gather keys are shorthand and
+  can become ambiguous when a pipeline expands. Resolve them uniquely or fail,
+  and prefer storing/printing the canonical qualified form.
+- **Aggregation is an optional consumer:** metrics, vantage points, analytical
+  hashes, and SMART/geowatch-specific conventions matter, but they are secondary
+  to command generation and the result directory graph. Keep the filesystem
+  useful to custom scripts and other inspection tools.
+
+### Process identity, scheduling, and provenance
+
+These three answer different questions. Conflating them has caused several
+rounds of subtle bugs, in both directions, so the invariant is stated here
+rather than left to be re-derived.
+
+> **A process is identified by the computation it will perform:** its effective
+> algorithm configuration, its effective resolved input values, and anything
+> else that changes its command or its outputs. **It is not identified by how
+> those input values were obtained.**
+
+Concretely:
+
+- Equal effective input values produce equal `process_id`, regardless of the
+  delivery mechanism. A path a producer writes and the identical path typed
+  into a config are the same computation and share a result directory.
+- A producer affects a consumer's identity **only through the value it
+  supplies**. That is not weakened invalidation: a produced path contains the
+  producer's `process_id`, so reconfiguring the producer moves the path and the
+  consumer's identity follows. If a producer change leaves the output path
+  unchanged, kwdagger treats the consumer's input as unchanged -- exactly as it
+  does for a stable hand-written path.
+- **Do not add producer `process_id`, producer `algo_id`, port names,
+  `source_kind`, or "was this produced or manual" flags to a consumer's hash**,
+  under any field name, in order to preserve lineage. That information belongs
+  to provenance and to scheduling. Reintroducing it puts two identical
+  computations in two result directories and makes a producer sweep fan out
+  identical downstream jobs.
+- The one deliberate exception is `__dependency__.<node>`: an explicit ordering
+  edge carries no value, so there is no effective value through which it could
+  reach identity, and it is a declared property of this node's own execution
+  rather than the lineage of an input.
+
+The questions, and who answers them:
+
+| Question | Answered by |
+| --- | --- |
+| Which dependencies are *possible* in this pipeline definition? | `Pipeline.proc_graph` — structural, and built before configuration |
+| Which jobs must finish before this concrete command runs? | `CompiledPipeline.proc_graph` — gating, queue dependencies, `.pred`/`.succ` links. Compilation builds it from `effective_predecessor_process_nodes()`; everything downstream reads the graph rather than asking again. `Pipeline.effective_execution_graph()` is the same view over a template, for inspection. |
+| What computation is this? | `ProcessNode.depends` → `process_id` |
+| How was this value requested, and what supplied it? | `_depends_config()` → `job_config.json` |
+
+Provenance keeps every distinction identity drops: manual value, default,
+alias, producer output, gather manifest, and `supplied: false` for wiring that
+was requested but outranked. That is where a reader looks to tell a produced
+input from a hand-supplied one.
+
+**Identity is value-based, not content-based.** kwdagger does not read the bytes
+at a path, and equal paths do not prove equal content. If byte-level artifact
+identity is required it must be supplied explicitly — a checksum, a
+content-addressed path, or another explicit artifact identifier used as a
+parameter. Do not infer it from producer relationships.
+
+Paths inside kwdagger's own root hash **relative to that root**, so relocating
+a cache changes no identity. Paths outside it hash as given, because they
+identify external data. A hand-supplied path pointing inside the root
+canonicalizes exactly as a produced one does, which is what keeps the two
+delivery mechanisms equal. Canonicalization is recursive and rewrites mapping
+keys as well as values. It is many-to-one, so two keys of one mapping that
+canonicalize alike are rejected rather than merged: silently dropping an entry
+would leave one configuration meaning two things, which is a contradiction
+*within* a single request and so an internal invariant, not a duplicate-request
+policy question.
+
+**Configuration has one internal representation, established at the boundary.**
+`kwdagger/pipeline/_config_values.py` is that boundary, and the invariant it
+establishes is: *after configuration coercion, every path-like object is a
+string and every mapping key is a string*. It covers row overrides, the
+pipeline's own requested row, and declared `in_paths` / `out_paths` /
+`algo_params` / `perf_params` defaults — a default reaches identity and
+`job_config.json` by the same route an override does.
+
+A Python caller may pass an `os.PathLike` as a convenience and `os.fspath`
+converts it — spelling only, so a relative path stays relative until the
+path-resolution stage deliberately interprets it, and the caller's original
+type is not retained. A `PathLike` whose `__fspath__` returns `bytes` is
+refused: kwdagger records configuration as text and will not guess an encoding
+for what ends up in the hash and on a command line.
+
+**Configuration mappings must have string keys — including mappings loaded from
+YAML.** This is a domain rule, not just the removal of a Python-only shape:
+YAML decodes `0:`, `true:`, and `null:` into non-string keys, so
+`class_weights: {0: 1.0, 1: 2.5}` is now rejected. Mapping keys are variable
+identifiers here. Two keys normalizing alike are a reported collision, as are
+two paths canonicalizing alike.
+
+Identity, commands, provenance, duplicate diagnostics, and the JSON on disk may
+all assume the invariant. Do not teach any of them to understand `os.PathLike`
+separately, and do not leave the conversion to `json.dumps`: it renames an
+`int` key silently, refuses a `Path` one, and cannot sort a mixture, so the
+readers end up disagreeing about what the keys are. For the same reason
+`requested_provenance_record` carries no `default=` fallback — it must refuse
+exactly what the writer refuses, or a value that serializes for the comparison
+fails at write time.
+
+A corollary, stated because it has been violated: **equal `process_id` implies
+equal command-defining state, apart from state that is deliberately unhashed.**
+Path templates may therefore use only the node's own ids; substituting an
+ancestor's id was removed for exactly this reason.
+
+Two things identity deliberately does not carry. Matrix rows sharing an
+identity may differ in either, and under the default duplicate policy the
+first row wins and nothing is reported. They are listed because `warn` and
+`error` describe them, and because knowing what identity drops is how a user
+decides what to put *into* it:
+
+- **Unhashed execution state:** `perf_params`, `__enabled__`, Slurm options,
+  and output-path overrides. Slurm options have four layers -- pipeline base,
+  matrix-row global, node declared default, that row's per-node override --
+  and `kwdagger.pipeline.resolve_slurm_options` is the sole precedence
+  authority. Whoever holds all four layers calls it -- compilation, for each
+  clone, and `Pipeline.configure`, so that inspecting a configured template
+  node shows the same request that will be submitted. The result is stored as
+  `node.effective_slurm_options`, and every consumer downstream *reads* it
+  rather than combining anything. Do not re-layer a subset anywhere else: three
+  sites each knowing a different subset is what made `node.slurm_options` mean
+  "node-level" on one scheduling path and "node-level plus row-global" on the
+  other. A row that omits any of this state is requesting the declared
+  default, never the previous row's value, because otherwise "explicit
+  options" and "no options" are indistinguishable in row order. These change
+  how a process runs, not what it computes. `log`, `enable_links`,
+  `write_invocations`, and `write_configs` are the exception that stays off
+  the node: they are arguments to `submit_jobs`, so no compilation can know
+  them, and a duplicate request returns before any of them is applied.
+  `skip_existing` is not compared at all: it selects which requests are made
+  rather than what a request asks for, and it is per-submission state that
+  never edits the compiled pipeline. Two calls to one queue that disagree
+  about it are two independent operational requests, and the job keeps the
+  dependencies of whichever call created it. A consumer can therefore be
+  queued without a dependency on a producer a later call reruns. That is
+  point 11 above, not a defect: kwdagger makes no guarantee about data flow
+  when nodes are reinvoked. **0.3.x refused both orders for this, and
+  `queued_prerequisites` existed to make the refusal thorough. Both were
+  removed in 0.4.0. Do not reintroduce either.**
+- **The requested experiment:** everything provenance keeps and identity drops
+  -- which producer supplied each input, which alias or parameter port
+  forwarded a value and which was outranked, gather membership. Two rows can be
+  one computation and still need different jobs to run first, or ask for the
+  same computation in two different ways. Only one `job_config.json` can be
+  written for the directory they share.
+
+  Under `warn` and `error` the comparison names the **record itself**,
+  `_depends_config()`, because a summary of it loses distinctions the record
+  keeps on purpose. That is a diagnostic choice, not a correctness one: under
+  the default policy nothing is compared at all, and the first request's
+  record is what gets written.
+
+Keep the distinction sharp when adding a check:
+
+> A difference between two legitimate equal-identity **requests** is policy.
+> A contradiction *within* one request, or in the compiled graph, is a defect.
+
+Internal invariants stay unconditional -- a graph key that disagrees with its
+node's `process_id`, a missing node, configuration that cannot be normalized.
+Do not disguise a user-policy rejection as an internal-consistency error; that
+is how the duplicate rules became unremovable-looking.
+
+### Authoritative pipeline representations
+
+kwdagger used to schedule a batch two ways. A pipeline with a gather compiled
+the whole matrix and submitted a `CompiledPipeline`; a pipeline without one
+configured and submitted a row at a time. Two implementations of one job, with
+a *compilation* feature deciding which execution architecture ran.
+
+Every defect the 0.3.x review rounds found was the same defect wearing a
+different hat -- stale row state, divergent Slurm layering, divergent
+normalization boundaries -- and it was never really any of those. It was
+**two authorities for one question, with nothing forcing them to agree.** The
+dual scheduler was removed for that reason, not because one path was wrong.
+
+There are two representations, and each owns different questions:
+
+| Representation | Answers |
+| --- | --- |
+| `Pipeline` | the *template*. Which nodes exist, which dependencies are possible (`proc_graph`), how the matrix is configured. Built before anything is concrete. |
+| `CompiledPipeline` | the *work*. Which concrete processes exist, what each one runs, and which jobs must finish before which -- `proc_graph`, keyed by `process_id`. |
+
+The rules that follow from that, all of which have been violated at least once:
+
+- **Everything is compiled.** `build_schedule` compiles the matrix and submits
+  the compiled graph, for every pipeline. `Pipeline.submit_jobs` compiles the
+  row it was configured with and submits *that*, so an interactive submission
+  is a matrix of one rather than a second scheduler. If you find yourself
+  writing a code path that schedules without compiling, you are re-creating
+  the thing this removed.
+- **Compilation canonicalizes; nothing arbitrates across calls.** Compilation
+  holds the whole matrix, so it is the only place that can canonicalize by
+  `process_id`, and the only place `warn` and `error` can report anything
+  before a queue exists. Those diagnostics are **compile-local**: they see one
+  compilation and are chosen per compilation. `_runtime` performs no
+  cross-call request arbitration and holds no request registry — an existing
+  queue job wins, and a second submission of the same identity is a duplicate
+  that returns. If you find yourself adding a comparison at submission time,
+  you are rebuilding what 0.4.0 deleted; see the duplicate-policy section.
+- **The compiled graph is the only dependency authority.** Queue ordering,
+  gating, `.pred`/`.succ` links, and a duplicate request's prerequisites all
+  come from walking its edges. Do not re-derive ancestry from node state at
+  submission time; the compiler already did that, and a second derivation is
+  free to disagree.
+- **Compiled containers are derived, and not cached.** `CompiledPipeline.nodes`
+  and `nodes_by_name` are plain properties built from `proc_graph` on every
+  access. Do not add a collection stored beside it, and do not memoize these:
+  the mapping they return is independently mutable, so a cached one would keep
+  an edit that `proc_graph` -- the thing submission actually walks -- knows
+  nothing about. That is the same competing-authority shape in miniature.
+- **A name is not a key on a compiled pipeline.** A matrix expands one template
+  into many processes, so `nodes` is keyed by `process_id`, `nodes_by_name`
+  maps to a *list*, and `submit_jobs` reports `node_status` by `process_id`.
+  Reaching for a name-keyed mapping here silently drops siblings.
+
+A compiled pipeline is also what makes a batch inspectable. The row-at-a-time
+loop reused one mutable node per name, so "configure a batch, then look at the
+pipeline" reported only the last row; the compiler clones, so every row is
+still there afterwards.
+
+### Current gather shell constraints
+
+The following are implementation constraints of the current gather mechanism,
+not the general conceptual definition of kwdagger:
+
+- Gather membership and policy participate in consumer identity, while absolute
+  cache-root paths must not.
+- Collection membership is written as a newline-delimited manifest using a
+  quoted heredoc in the consumer's `invoke.sh`; paths containing newlines are
+  rejected.
+- Heredoc delimiters must remain at column zero. Serial/tmux jobs containing a
+  generated heredoc use `allow_indent=False`, and the shell wrapper must avoid a
+  leading `(` that could combine with cmd_queue logging syntax.
+- Slurm should submit a short file-backed command such as `bash invoke.sh`
+  instead of placing a large heredoc in `sbatch --wrap`.
+- Logical and compiled graph diagnostics should make gather fan-in and manifest
+  creation visible without pretending that a gather marker is an executable
+  node.
 
 ## Extending or refactoring
 - **Pipelines:** new pipelines should compose `ProcessNode` instances with
@@ -75,7 +479,7 @@ common workflows, and testing/documentation practices.
   they can be embedded in schedule matrices. Preserve `job_config.json` and
   `invoke.sh` generation semantics so aggregation remains compatible.
 - **Aggregation:** when adding metrics or report formats, update
-  `aggregate_loader.py`/`aggregate_plots.py` alongside `AggregateEvluationConfig`
+  `aggregate_loader.py`/`aggregate_plots.py` alongside `AggregateEvaluationConfig`
   to keep CLI outputs consistent. Maintain stable parameter hash computation for
   backwards compatibility.
 - **CLI updates:** adjust `kwdagger/__main__.py` if new modal commands are
@@ -89,7 +493,7 @@ common workflows, and testing/documentation practices.
 - Quickstart workflow in `README.rst` shows end-to-end scheduling and aggregation commands using the demo pipeline.
 - Coverage/pytest/xdoctest configuration lives in `pyproject.toml`.
 - The `requirements/` directory documents optional dependency groups for CI, docs, linting, and runtime use.
-- There are several tutorials in `docs/source/manual/tutorials` 
+- There are several tutorials in `docs/source/manual/tutorials`
 
 ## Developer journal
 Keep a running journal at `dev/journals/<agent_name>.md` (e.g.

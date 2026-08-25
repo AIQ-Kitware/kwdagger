@@ -15,6 +15,8 @@ Files in this tutorial
   evaluation nodes.
 * ``example_user_module/pipelines.py`` - the pipeline wiring that connects the
   two nodes.
+* ``pipeline.yaml`` - the same wiring expressed declaratively, with no Python
+  (see `Defining the pipeline in YAML instead of Python`_).
 * ``run_pipeline.sh`` - a copy/paste friendly script that runs scheduling and
   aggregation from this folder.
 
@@ -304,15 +306,24 @@ we are currently working on updating the API for more streamlined usage.
 Where parameter hash IDs come from
 ----------------------------------
 
-Each job folder name encodes a short hash of the resolved parameters for that
-node (algo + perf params plus any injected context such as resolved input
-paths). ``keyword_sentiment_predict_id_f4ea8a15`` and
+Each job folder name encodes a short hash of what that node will compute: its
+algorithm parameters and the effective values of its inputs.
+``keyword_sentiment_predict_id_f4ea8a15`` and
 ``sentiment_evaluate_id_b55860da`` are examples you will see after running this
-tutorial. ``job_config.json`` inside the folder contains the exact
-configuration that produced the hash. Identical configurations reuse the same
-directory, so reruns can skip existing work, while the hash provides a stable
-key during aggregation (see the "Varied Parameter LUT" section in the example
-output).
+tutorial. Identical configurations reuse the same directory, so reruns can skip
+existing work, while the hash provides a stable key during aggregation (see the
+"Varied Parameter LUT" section in the example output).
+
+Two things are deliberately *not* in that hash. ``perf_params`` -- workers,
+verbosity, and the like -- change how a node runs, not what it computes. And
+how an input value arrived does not matter either: a path a producer writes and
+the same path given by hand are the same computation and share a directory.
+
+``job_config.json`` inside the folder is therefore a superset of the hashed
+configuration: it records the requested experiment, including performance
+settings and where each input came from. Use it to understand what was asked
+for; use the directory name to understand what was computed. See
+:doc:`../../technical/hashing_scheme` for the full rule.
 
 Backends
 --------
@@ -412,6 +423,43 @@ produces tables and plots. Useful flags include:
 
 Aggregation can also combine metrics across runs, but macro aggregation across
 multiple datasets is still being streamlined; expect improvements here.
+
+Defining the pipeline in YAML instead of Python
+-----------------------------------------------
+
+Everything above defines the pipeline in ``example_user_module/pipelines.py``.
+Because a ``ProcessNode`` is just data (a name, an executable, some input/output
+ports, and parameter groups), the very same pipeline can be written
+declaratively in ``pipeline.yaml`` with no Python at all. The node CLIs are
+reused unchanged; only the wiring moves from code to data::
+
+    PYTHONPATH=. kwdagger schedule \
+        --pipeline ./pipeline.yaml \
+        --params "
+            matrix:
+                keyword_sentiment_predict.src_fpath:
+                    - data/toy_reviews_movies.jsonl
+                    - data/toy_reviews_food.jsonl
+                keyword_sentiment_predict.keyword: [great, boring, love]
+                sentiment_evaluate.workers: 0
+        " \
+        --root_dpath ./results --backend serial --skip_existing 1 --run 1
+
+    PYTHONPATH=. kwdagger aggregate \
+        --pipeline ./pipeline.yaml \
+        --target ./results \
+        --eval_nodes "[sentiment_evaluate]" \
+        --output_dpath ./results/full_aggregate
+
+This produces equivalent node IDs, output directories, and resolved parameters
+to the Python version. The metric metadata that ``SentimentEvaluate`` exposed in
+Python (``default_metrics`` / ``default_vantage_points``) is declared under the
+``metrics`` and ``vantage_points`` keys of the evaluation node, and a generic
+result loader reads the scores from ``result.metrics``. The advantage is that
+the matrix keys (``keyword_sentiment_predict.keyword``, ...) are now
+self-documenting: the pipeline they refer to sits right beside them. For the
+full schema, see the
+:doc:`YAML pipeline specification </manual/technical/yaml_pipeline_spec>`.
 
 Limitations
 -----------

@@ -41,7 +41,10 @@ class DataFrame(pd.DataFrame):
 
     @classmethod
     def random(
-        cls: type[DataFrame], rows: Any = 10, columns: Any = 'abcde', rng: Any = None
+        cls: type[DataFrame],
+        rows: Any = 10,
+        columns: Any = 'abcde',
+        rng: Any = None,
     ) -> DataFrame:
         """
         Create a random data frame for testing.
@@ -61,7 +64,9 @@ class DataFrame(pd.DataFrame):
         rand = getattr(rng, 'rand', None) or getattr(rng, 'random')
         random_data = [{c: rand() for c in columns} for r in index]
         self = cast(Any, cls)(
-            cast(Any, random_data), index=cast(Any, index), columns=cast(Any, columns)
+            cast(Any, random_data),
+            index=cast(Any, index),
+            columns=cast(Any, columns),
         )
         return self
 

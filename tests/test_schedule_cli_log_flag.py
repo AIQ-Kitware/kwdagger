@@ -20,6 +20,7 @@ artifact users actually inspect when something goes wrong.
 This test does no model loads, no GPU, no network. It runs in well
 under a second.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,38 +38,44 @@ def _run_schedule(tmp_path: Path, *, log_arg: str | None) -> Path:
     ``--log`` at all, exercising the default).
     """
     cmd: list[str] = [
-        sys.executable, "-m", "kwdagger", "schedule",
-        "--pipeline=kwdagger.pipeline.demodata_pipeline()",
-        "--params={}",
-        f"--root_dpath={tmp_path / 'root'}",
-        f"--queue_name=clitest_{log_arg or 'default'}",
-        "--backend=serial",
-        "--run=0",
+        sys.executable,
+        '-m',
+        'kwdagger',
+        'schedule',
+        '--pipeline=kwdagger.pipeline.demodata_pipeline()',
+        '--params={}',
+        f'--root_dpath={tmp_path / "root"}',
+        f'--queue_name=clitest_{log_arg or "default"}',
+        '--backend=serial',
+        '--run=0',
         # Quiet noisy output. We only care about side effects on disk.
-        "--print_queue=0",
-        "--print_commands=0",
+        '--print_queue=0',
+        '--print_commands=0',
     ]
     if log_arg is not None:
-        cmd.append(f"--log={log_arg}")
+        cmd.append(f'--log={log_arg}')
 
     result = subprocess.run(
-        cmd, check=True, capture_output=True, text=True,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        cmd,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, 'PYTHONUNBUFFERED': '1'},
     )
 
     # ``schedule.py`` prints "Wrote script: to run execute:\n<path>"
     # when --run=0. Parse the path out of that line.
     match = re.search(
-        r"Wrote script: to run execute:\s*\n(.*?)\n",
+        r'Wrote script: to run execute:\s*\n(.*?)\n',
         result.stdout,
     )
     assert match, (
         "kwdagger schedule did not print the 'Wrote script: ...' line "
-        "with --run=0. stdout was:\n" + result.stdout
+        'with --run=0. stdout was:\n' + result.stdout
     )
     script_path = Path(match.group(1).strip())
     assert script_path.is_file(), (
-        f"reported script path does not exist: {script_path}"
+        f'reported script path does not exist: {script_path}'
     )
     return script_path
 
@@ -82,7 +89,7 @@ def _node_command_sections(script_text: str) -> list[str]:
     markers and can appear at the same indent depth as real-node
     sections once dependencies introduce ``if`` guards. The reliable
     distinguisher is the command content itself: bookkeeper sections
-    write a ``printf '#!/bin/bash...'`` payload to construct the
+    contain the generated ``KWDAGGER_INVOKE_*`` heredoc that constructs the
     node's ``invoke.sh``, which never appears in a real-node command.
 
     Real-node BashJobs are the only ones whose ``self.log`` should
@@ -92,11 +99,11 @@ def _node_command_sections(script_text: str) -> list[str]:
     be wrong.
     """
     pattern = re.compile(
-        r"(\s*# command:.*?# after_command:)",
+        r'(\s*# command:.*?# after_command:)',
         re.DOTALL,
     )
     sections = pattern.findall(script_text)
-    return [s for s in sections if "printf '#!/bin/bash" not in s]
+    return [s for s in sections if 'KWDAGGER_INVOKE_' not in s]
 
 
 def test_schedule_cli_log_true_tees_node_commands(tmp_path):
@@ -109,19 +116,19 @@ def test_schedule_cli_log_true_tees_node_commands(tmp_path):
     user explicitly opted in. That loop was deleted; this test
     locks in that it stays gone.
     """
-    script_path = _run_schedule(tmp_path, log_arg="True")
+    script_path = _run_schedule(tmp_path, log_arg='True')
     text = script_path.read_text()
     sections = _node_command_sections(text)
     assert sections, (
-        "no real-node command sections found in rendered script. "
+        'no real-node command sections found in rendered script. '
         "The renderer's output format may have changed; update the "
-        "_node_command_sections regex. Script content:\n" + text
+        '_node_command_sections regex. Script content:\n' + text
     )
     for i, section in enumerate(sections):
-        assert "| tee " in section, (
+        assert '| tee ' in section, (
             f"node command section {i} did not contain '| tee '. "
-            f"Section was:\n{section}\n"
-            f"Full script:\n{text}"
+            f'Section was:\n{section}\n'
+            f'Full script:\n{text}'
         )
 
 
@@ -129,13 +136,13 @@ def test_schedule_cli_log_false_omits_tee(tmp_path):
     """``--log=False`` must skip the tee wrapper. Useful when the
     caller wants stdout/stderr to flow directly to a parent supervisor.
     """
-    script_path = _run_schedule(tmp_path, log_arg="False")
+    script_path = _run_schedule(tmp_path, log_arg='False')
     text = script_path.read_text()
     sections = _node_command_sections(text)
-    assert sections, "no real-node command sections found"
+    assert sections, 'no real-node command sections found'
     for i, section in enumerate(sections):
-        assert "| tee " not in section, (
-            f"--log=False but node command section {i} still contains "
+        assert '| tee ' not in section, (
+            f'--log=False but node command section {i} still contains '
             f"'| tee '. Section was:\n{section}"
         )
 
@@ -148,12 +155,12 @@ def test_schedule_cli_log_default_tees(tmp_path):
     script_path = _run_schedule(tmp_path, log_arg=None)
     text = script_path.read_text()
     sections = _node_command_sections(text)
-    assert sections, "no real-node command sections found"
+    assert sections, 'no real-node command sections found'
     for i, section in enumerate(sections):
-        assert "| tee " in section, (
-            "default --log was expected to be True (tee on), but "
+        assert '| tee ' in section, (
+            'default --log was expected to be True (tee on), but '
             f"section {i} has no '| tee '. If you intentionally flipped "
-            "the default to False, update this test together with the "
-            "scfg.Value(...) default and submit_jobs default. "
-            f"Section was:\n{section}"
+            'the default to False, update this test together with the '
+            'kw.Value(...) default and submit_jobs default. '
+            f'Section was:\n{section}'
         )

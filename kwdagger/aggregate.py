@@ -71,12 +71,12 @@ import math
 from typing import Any, Mapping, Sequence, cast
 
 import ubelt as ub
-from scriptconfig import DataConfig, Value
+from kwconf import Config, Value
 
 
-class AggregateLoader(DataConfig):
+class AggregateLoader(Config):
     """
-    Base config that will be mixed in to the :class:`AggregateEvluationConfig`.
+    Base config that will be mixed in to the :class:`AggregateEvaluationConfig`.
     This config just defines parts related to constructing the
     :class:`Aggregator` objects (i.e. loading the tables).
     """
@@ -95,13 +95,17 @@ class AggregateLoader(DataConfig):
     )
 
     pipeline = Value(
-        'joint_bas_sc',
+        'auto',
         help=ub.paragraph(
             """
-        The pipeline to run. This can be a name of an internally registered
-        pipeline, or it can point to a function that defines a pipeline
-        in a Python file. E.g. ``user_module.pipelines.custom_pipeline_func()``
-        or ``$HOME/my_code/my_pipeline.py::make_my_pipeline("arg")``.
+        The pipeline that produced the targets. If 'auto' (the default), it is
+        recovered from the serialized pipeline that ``kwdagger schedule`` writes
+        to ``<target>/_kwdagger_schedule/most_recent_run.json`` -- so a run whose
+        pipeline was defined inline (as YAML/data) needs no ``--pipeline`` here.
+        Otherwise this can be a declarative ``.yaml`` pipeline file, the name of
+        an internally registered pipeline, or code that defines a pipeline in a
+        Python file, e.g. ``user_module.pipelines.custom_pipeline_func()`` or
+        ``$HOME/my_code/my_pipeline.py::make_my_pipeline("arg")``.
         """
         ),
     )
@@ -181,7 +185,24 @@ class AggregateLoader(DataConfig):
         print('Coerce aggregators for pipeline:')
         from kwdagger import pipeline
 
-        dag = pipeline.coerce_pipeline(config.pipeline)
+        pipeline_spec = config.pipeline
+        if pipeline_spec is None or pipeline_spec == 'auto':
+            pipeline_spec, meta_fpath = _discover_pipeline_spec(input_targets)
+            if pipeline_spec is None:
+                raise ValueError(
+                    ub.paragraph(
+                        """
+                    No --pipeline was specified and none could be
+                    auto-discovered. kwdagger schedule serializes the pipeline to
+                    ``<root_dpath>/_kwdagger_schedule/most_recent_run.json``;
+                    point --target at a schedule output directory, or pass
+                    --pipeline explicitly.
+                    """
+                    )
+                )
+            print(f'Auto-discovered pipeline from {meta_fpath}')
+
+        dag = pipeline.coerce_pipeline(pipeline_spec)
         dag.print_graphs()
 
         print(f'Found {len(input_targets)} input targets')
@@ -234,7 +255,7 @@ class AggregateLoader(DataConfig):
         return eval_type_to_aggregator
 
 
-class AggregateEvluationConfig(AggregateLoader):
+class AggregateEvaluationConfig(AggregateLoader):
     """
     Aggregates results from multiple DAG evaluations.
     """
@@ -354,9 +375,7 @@ class AggregateEvluationConfig(AggregateLoader):
         # if self.query is not None:
         #     self.query = ub.paragraph(self.query)
         if isinstance(self.plot_params, int):
-            self.plot_params = cast(
-                Any, {'enabled': bool(self.plot_params)}
-            )
+            self.plot_params = cast(Any, {'enabled': bool(self.plot_params)})
         self.stdout_report = cast(
             Any, Yaml.coerce(cast(Any, self.stdout_report))
         )
@@ -378,7 +397,7 @@ class AggregateEvluationConfig(AggregateLoader):
         macro-averaging, reporting, plotting, etc...
 
         CommandLine:
-            xdoctest -m kwdagger.aggregate AggregateEvluationConfig.main
+            xdoctest -m kwdagger.aggregate AggregateEvaluationConfig.main
 
         Example:
             >>> from kwdagger.demo.demodata import run_demo_schedule
@@ -410,14 +429,43 @@ class AggregateEvluationConfig(AggregateLoader):
             >>> kwargs['target'] = info['eval_dpath']
             >>> kwargs['output_dpath'] = info['eval_dpath'] / 'full_aggregate'
             >>> # Test the standard case
-            >>> AggregateEvluationConfig.main(argv=False, **kwargs)
+            >>> AggregateEvaluationConfig.main(argv=False, **kwargs)
             >>> # Test the display 1 case
             >>> kwargs['stdout_report']['top_k'] = 1
-            >>> AggregateEvluationConfig.main(argv=False, **kwargs)
+            >>> AggregateEvaluationConfig.main(argv=False, **kwargs)
 
         """
         config = cls.cli(argv=argv, data=kwargs, strict=True, verbose='auto')
         run_aggregate(config)
+
+
+def _discover_pipeline_spec(input_targets: Any) -> tuple[Any, Any]:
+    """
+    Recover a serialized pipeline spec from a schedule output directory.
+
+    ``kwdagger schedule`` writes the pipeline it ran to
+    ``<root_dpath>/_kwdagger_schedule/most_recent_run.json``. Given the
+    aggregate ``--target`` paths (which may be the root directory itself or a
+    glob of node directories underneath it), walk up from each target to find
+    that metadata and return its ``pipeline`` value.
+
+    Returns:
+        Tuple[spec, fpath]: the serialized pipeline (a dict for an inline /
+        declarative pipeline, or a string reference) and the file it came from,
+        or ``(None, None)`` if nothing was found.
+    """
+    import json
+
+    for target in input_targets:
+        target = ub.Path(target)
+        for cand in [target, *target.parents]:
+            meta_fpath = cand / '_kwdagger_schedule' / 'most_recent_run.json'
+            if meta_fpath.exists():
+                data = json.loads(meta_fpath.read_text())
+                spec = data.get('pipeline')
+                if spec is not None:
+                    return spec, meta_fpath
+    return None, None
 
 
 def run_aggregate(config: Any) -> dict[str, 'Aggregator']:
@@ -428,8 +476,8 @@ def run_aggregate(config: Any) -> dict[str, 'Aggregator']:
     orig_eval_type_to_aggregator = eval_type_to_aggregator  # NOQA
 
     if config.eval_nodes is not None:
-        eval_type_to_aggregator = (
-            ub.udict(eval_type_to_aggregator) & cast(Any, config.eval_nodes)
+        eval_type_to_aggregator = ub.udict(eval_type_to_aggregator) & cast(
+            Any, config.eval_nodes
         )
 
     output_dpath = ub.Path(config['output_dpath'])
@@ -896,7 +944,9 @@ class AggregatorAnalysisMixin:
             # reference region. The idea is to make things comparable to the
             # macro scores.
             if reference_region == 'final':
-                reference_region = region_id = list(agg.region_to_tables.keys())[-1]
+                reference_region = region_id = list(
+                    agg.region_to_tables.keys()
+                )[-1]
             else:
                 region_id = reference_region
 
@@ -972,7 +1022,9 @@ class AggregatorAnalysisMixin:
                 # Print out information on how much was filtered per region
                 for region_id in agg.region_to_tables.keys():
                     old_table = agg.region_to_tables[region_id]
-                    new_region_tables = cast(dict[Any, Any], _agg.region_to_tables)
+                    new_region_tables = cast(
+                        dict[Any, Any], _agg.region_to_tables
+                    )
                     new_table = new_region_tables[region_id]
                     print(
                         f'Filter reduces {region_id} to {len(new_table)} / {len(old_table)}'
@@ -1028,7 +1080,9 @@ class AggregatorAnalysisMixin:
             else:
                 # Rank the rows for this region by the reference rank
                 # len(reference_hashid_to_rank)
-                def make_rank_getter(d: Any) -> Any:  # no closure for embed debug
+                def make_rank_getter(
+                    d: Any,
+                ) -> Any:  # no closure for embed debug
                     return lambda x: d.get(x, float('inf'))
 
                 rank_getter = make_rank_getter(reference_hashid_to_rank)
@@ -1182,10 +1236,7 @@ class AggregatorAnalysisMixin:
                     # Not sure why I differentiated this case, but keeping
                     # code consistent
                     if submacro:
-                        print(
-                            'Macro Regions LUT: '
-                            + ub.urepr(submacro, nl=1)
-                        )
+                        print('Macro Regions LUT: ' + ub.urepr(submacro, nl=1))
                 _justone = util_pandas.DataFrame(justone)
                 if concise:
                     if concise == 'split':
@@ -1336,10 +1387,10 @@ class AggregatorAnalysisMixin:
             table.loc[top_locs, 'rank'] = np.arange(len(top_locs))
             table = table.sort_values('rank')
 
-            if len(agg.model_cols) == 0:  # type: ignore
+            if len(agg.model_cols) == 0:
                 print('No model columns are availble')
             else:
-                model_col = agg.model_cols[0]  # type: ignore
+                model_col = agg.model_cols[0]
 
                 # HACK: we want to group models that came from the same training
                 # run so we report a more diverse set of models. We typically group
@@ -1395,15 +1446,15 @@ class AggregatorAnalysisMixin:
         import pandas as pd
         from kwutil import util_time
 
-        table = agg.table.copy()  # type: ignore
-        resources = agg.resources  # type: ignore
+        table = agg.table.copy()
+        resources = agg.resources
 
         duration_cols = [k for k in resources.keys() if k.endswith('.duration')]
         for k in duration_cols:
             new_vals = table.loc[:, k].apply(
-                lambda x: util_time.coerce_timedelta(x)
-                if not pd.isnull(x)
-                else x
+                lambda x: (
+                    util_time.coerce_timedelta(x) if not pd.isnull(x) else x
+                )
             )
             table[k] = new_vals
 
@@ -1556,8 +1607,8 @@ class AggregatorAnalysisMixin:
         # Given these set of A/B values, visualize each region
         for region_id, group in ub.ProgIter(
             list(subagg.index.groupby('region_id')), desc='Inspect Region'
-        ):  # type: ignore
-            group_agg = Aggregator.filterto(subagg, index=group.index)  # type: ignore
+        ):
+            group_agg = Aggregator.filterto(subagg, index=group.index)
             for id, row in group_agg.index.iterrows():
                 ...
                 inspect_node(subagg, id, row, group_agg, agg_group_dpath)
@@ -1632,9 +1683,7 @@ class AggregatorAnalysisMixin:
         plotter = aggregate_plots.build_plotter(agg, rois, plot_config)
         return plotter
 
-    def plot_all(
-        self: Any, rois: Any = None, plot_config: Any = None
-    ) -> None:
+    def plot_all(self: Any, rois: Any = None, plot_config: Any = None) -> None:
         agg = self
         plotter = Aggregator.build_plotter(agg, rois, plot_config)
         plotter.plot_requested()
@@ -2084,6 +2133,9 @@ class Aggregator(
             'resources',
             'machine',
             'context',
+            # Reserved kwdagger bookkeeping from job_config.json.  Keep this
+            # inspectable, but separate from requested experiment parameters.
+            'job_config',
         ]
         subtables.update(
             {
@@ -2158,7 +2210,7 @@ class Aggregator(
         agg._metric_info = {}
 
         if agg.dag is not None:
-            node = agg.dag.nodes[agg.node_type]
+            node = agg.dag.node_dict[agg.node_type]
         else:
             node = None
 
@@ -2377,10 +2429,13 @@ class Aggregator(
 
     @property
     def default_vantage_points(self) -> Any:
+        # Default when there is no dag (or anything goes wrong) -- keeps
+        # ``vantage_points`` bound on every path.
+        vantage_points = []
         try:
             assert self.node_type is not None
             if self.dag is not None:
-                node = self.dag.nodes[self.node_type]
+                node = self.dag.node_dict[self.node_type]
                 vantage_points = node.default_vantage_points
         except Exception:
             vantage_points = []
@@ -2467,8 +2522,12 @@ class Aggregator(
         hashids_v1 = pd.Series([None] * len(self.index), index=self.index.index)
         hashid_to_effective_params = {}
 
+        # Bound in both branches below (chain in one, dict_items in the other).
+        param_groups_iter: Any
         if len(param_cols_list) > 0:
-            param_groups = effective_params.groupby(param_cols_list, dropna=False)
+            param_groups = effective_params.groupby(
+                param_cols_list, dropna=False
+            )
 
             orig_param_groups_iter = iter(param_groups)
 
@@ -2505,11 +2564,11 @@ class Aggregator(
 
         else:
             # fallback case, something is probably wrong if we are here
-            param_groups_iter_any: Any = {None: effective_params}.items()
+            param_groups_iter = {None: effective_params}.items()
 
-        for param_vals, group in (
-            param_groups_iter if len(param_cols_list) > 0 else param_groups_iter_any
-        ):
+        # ``param_groups_iter`` is bound in both branches above (the >0 branch
+        # sets it or raises), so iterate it directly.
+        for param_vals, group in param_groups_iter:
             # Further subdivide the group so each row only computes its hash
             # with the parameters that were included in its row
             is_group_included = is_param_included.loc[group.index]
@@ -2645,7 +2704,7 @@ class Aggregator(
             rois = 'max'
         if isinstance(rois, str):
             if rois == 'max' or rois == 'auto':
-                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)  # type: ignore
+                regions_of_interest = ub.argmax(agg.macro_compatible, key=len)
             else:
                 from kwutil.util_yaml import Yaml
 
@@ -2674,9 +2733,7 @@ class Aggregator(
             print(f'Building a single macro table: rois={rois!r}')
             agg.build_single_macro_table(rois, **kwargs)
 
-    def build_single_macro_table(
-        self, rois: Any, average: str = 'mean'
-    ) -> Any:
+    def build_single_macro_table(self, rois: Any, average: str = 'mean') -> Any:
         agg = self
         """
         Builds a single macro table for a choice of regions.
@@ -3220,6 +3277,9 @@ def macro_aggregate(
         sub_hash_cols = agg.test_dset_cols
         subgroups = table.groupby('region_id')
         subrows = []
+        # Bound so the diagnostic print in the except still works if iteration
+        # raises before the loop variables are first assigned.
+        _ = subgroup = cast(Any, None)
         try:
             for _, subgroup in subgroups:
                 subrow = aggregate_param_cols(
@@ -3391,6 +3451,9 @@ def _build_metrics_info_table(agg: Any, node: Any) -> None:
             _default_fn = getattr(node, '_default_metrics2', None)
         if _default_fn is None:
             raise AttributeError('No default_metrics')
+        # ``_default_fn`` is user-supplied; its result is validated to be
+        # iterable below, so type it as Any for the downstream iteration.
+        user_metric_info: Any
         if callable(_default_fn):
             user_metric_info = _default_fn()
         else:
@@ -3440,8 +3503,8 @@ def _build_metrics_info_table(agg: Any, node: Any) -> None:
                         f'No metrics for {node} were marked as primary, forcing at least one'
                     )
                     agg.primary_metric_cols = [
-                        ub.peek(agg._metric_info.values())['name']  # type: ignore
-                    ]  
+                        ub.peek(agg._metric_info.values())['name']
+                    ]
             if agg.display_metric_cols == 'auto':
                 agg.display_metric_cols = [
                     info['name']
@@ -3514,7 +3577,7 @@ def pandas_condense_paths(colvals: Any) -> tuple[Any, dict[Any, Any]]:
     return condensed, mapper
 
 
-__cli__ = AggregateEvluationConfig
+__cli__ = AggregateEvaluationConfig
 
 
 if __name__ == '__main__':

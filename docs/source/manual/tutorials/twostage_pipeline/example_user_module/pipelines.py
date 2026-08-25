@@ -172,6 +172,6 @@ def my_sentiment_pipeline():
         nodes['sentiment_evaluate'].inputs['true_fpath']
     )
 
-    dag = kwdagger.Pipeline(nodes)
+    dag = kwdagger.Pipeline(list(nodes.values()))
     dag.build_nx_graphs()
     return dag

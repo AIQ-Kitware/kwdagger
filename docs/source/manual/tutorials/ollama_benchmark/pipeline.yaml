@@ -1,0 +1,39 @@
+# Declarative (pure-YAML) version of pipelines.py.
+#
+# This single-node benchmark pipeline needs no Python: the CLI already writes
+# its scores to ``result.metrics`` and emits a ProcessContext under ``info``,
+# which is exactly what the generic result loader reads. The metric metadata
+# that ``OllamaBenchmark`` exposed via ``default_metrics`` /
+# ``default_vantage_points`` is declared here as data.
+#
+# Run with PYTHONPATH=. so the ollama_benchmark script is importable, e.g.:
+#
+#     PYTHONPATH=. kwdagger schedule --pipeline ./pipeline.yaml --params "
+#         matrix:
+#             ollama_benchmark.prompt_fpath: [prompts_5.yaml]
+#             ollama_benchmark.model: ['llama3:8b', 'qwen2:7b']
+#     " --root_dpath ./results_ollama --backend serial --run 1
+
+nodes:
+  ollama_benchmark:
+    executable: "python -m ollama_benchmark"
+    in_paths: [prompt_fpath]
+    out_paths:
+      dst_fpath: ollama_benchmark.json
+      dst_dpath: "."
+    primary_out_key: dst_fpath
+    algo_params:
+      model: "llama3:8b"
+      cold_trials: 1
+      warm_trials: 3
+      ollama_url: "http://localhost:11434"
+      cold_reset_cmd: null
+    result:
+      metrics: result.metrics
+    metrics:
+      - {metric: ttft_mean,           objective: minimize, primary: true, display: true}
+      - {metric: latency_total_mean,  objective: minimize, display: true}
+      - {metric: tokens_per_sec_mean, objective: maximize, display: true}
+    vantage_points:
+      - metric1: metrics.ollama_benchmark.ttft_mean
+        metric2: metrics.ollama_benchmark.tokens_per_sec_mean

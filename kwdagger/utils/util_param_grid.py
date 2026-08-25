@@ -73,6 +73,8 @@ def prevalidate_param_grid(arg: Any) -> None:
 
     # TODO: this doesn't belong in a utils folder.
     # Do we want to inject prevalidation into this process?
+    # TODO: we need a robust way to codify if a parameter is supposed to be a
+    # pre-existing pathlike object if we want to use this.
     src_pathlike_keys = [
         'trk.pxl.model',
         'trk.pxl.data.test_dataset',
@@ -98,9 +100,7 @@ def prevalidate_param_grid(arg: Any) -> None:
                         log_issue(k, p, 'might not be a valid path')
 
 
-def expand_param_grid(
-    arg: Any, max_configs: int | None = None
-) -> Any:
+def expand_param_grid(arg: Any, max_configs: int | None = None) -> Any:
     """
     Our own method for specifying many combinations. Uses the github actions
     method under the hood with our own
@@ -661,6 +661,10 @@ def extended_github_action_matrix(arg: Any) -> Any:
     ]
 
     MULTI_SUBMATRICES = 1
+    # Bind both up front; only the branch matching MULTI_SUBMATRICES is
+    # populated, but the loop below references each under the same condition.
+    multi_submatrices_: list = []
+    submatrices_: list = []
     if MULTI_SUBMATRICES:
         # Try allowing for more variations. The idea is we effectively
         # want to take the cross product of multiple lists of submatrices.
@@ -714,9 +718,7 @@ def extended_github_action_matrix(arg: Any) -> Any:
                 grid_item = grid_item | include_item
         return grid_item
 
-    def multisubmatrix_variants(
-        mat_item: Any, multi_submatrices_: Any
-    ) -> Any:
+    def multisubmatrix_variants(mat_item: Any, multi_submatrices_: Any) -> Any:
         # New version: every group of submatrices has the opportunity to
         # modify the item before yielding.
         curr_items = [mat_item]
