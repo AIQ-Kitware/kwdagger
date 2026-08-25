@@ -36,6 +36,10 @@ builds on
   tables and reports.
 * A self-contained demo pipeline in ``kwdagger.demo.demodata`` that is used in
   CI and serves as a reference implementation.
+* ``examples/yaml_introspection_example.py`` is a single-file modal CLI with
+  three tiny pipeline stages, an ``introspect`` command that queries their
+  declarative and compiled graphs, and a ``run`` command that executes the
+  same YAML pipeline locally with the serial backend.
 
 Kwdagger wraps ordinary scripts rather than replacing them. A node may use the
 default named-argument command convention or subclass ``ProcessNode`` to support
